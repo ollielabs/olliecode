@@ -13,6 +13,8 @@ import {
   SCOPE_DISCIPLINE,
   ALL_TOOLS_DOC,
   TOOL_RESULT_NOTE,
+  PARALLEL_TOOL_CALLS,
+  CODE_REFERENCE_PATTERN,
 } from "./shared";
 
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
@@ -47,7 +49,11 @@ When writing or modifying code:
 
 ${ALL_TOOLS_DOC}
 
+${PARALLEL_TOOL_CALLS}
+
 ${TOOL_RESULT_NOTE}
+
+${CODE_REFERENCE_PATTERN}
 
 # Safety
 

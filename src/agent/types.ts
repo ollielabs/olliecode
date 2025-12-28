@@ -81,9 +81,13 @@ export type AgentConfig = {
 
 /**
  * Default agent configuration
+ * 
+ * maxIterations increased to 25 to support complex exploration tasks.
+ * Complex codebase analysis may need 15-20 iterations to systematically
+ * explore structure, read key files, and synthesize findings.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  maxIterations: 20,
+  maxIterations: 25,
   loopDetection: true,
   loopThreshold: 3,
 };

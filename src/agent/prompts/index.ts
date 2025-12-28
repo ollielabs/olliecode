@@ -12,6 +12,13 @@ import { buildPlanModePrompt } from "./plan";
 import { buildBuildModePrompt } from "./build";
 
 export { type SystemPromptContext, getDefaultContext } from "./shared";
+export {
+  getModeReminder,
+  getModeSwitchReminder,
+  PLAN_MODE_REMINDER,
+  BUILD_MODE_REMINDER,
+  MODE_SWITCH_REMINDER,
+} from "./reminders";
 
 /**
  * Get the system prompt for a given mode

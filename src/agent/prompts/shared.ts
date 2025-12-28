@@ -126,3 +126,69 @@ export const TOOL_RESULT_NOTE = `# Important
 
 Tool results are INVISIBLE to the user. You MUST include relevant content in your response.
 Never say "as shown above" - the user cannot see tool output.`;
+
+/**
+ * Parallel tool calls guidance
+ */
+export const PARALLEL_TOOL_CALLS = `# Parallel Tool Calls
+
+You can call MULTIPLE tools in a single response for efficiency. Use this for:
+- Independent file reads (read multiple files at once)
+- Multiple grep searches for different patterns
+- Glob + read_file patterns (find files, then read key ones)
+
+Example: When exploring a codebase, call glob to find files AND read_file for package.json in parallel.
+
+If tools depend on each other (e.g., need glob results before reading), call them sequentially.`;
+
+/**
+ * Exploration strategy for codebase analysis
+ */
+export const EXPLORATION_STRATEGY = `# Exploration Strategy
+
+When asked to analyze, explore, or understand a codebase, follow this systematic approach:
+
+## 1. Start Broad - Understand project structure
+- \`glob({ pattern: "**/*.ts" })\` for all TypeScript files
+- \`glob({ pattern: "src/**" })\` for source structure
+- \`list_dir({ path: "." })\` for top-level overview
+- \`read_file({ path: "package.json" })\` for project metadata
+
+## 2. Identify Entry Points - Find main files
+- Look for: index.ts, main.ts, app.ts, package.json, tsconfig.json
+- Check common patterns: src/index.ts, src/main.ts, src/app.ts
+- Read README.md if present for project overview
+
+## 3. Map Key Components - Identify architecture
+- \`grep({ pattern: "export (class|function|const)" })\` for public APIs
+- Look for common directories: components/, services/, utils/, lib/, api/
+- Identify patterns: MVC, service layers, hooks, etc.
+
+## 4. Deep Dive Selectively - Read important files
+- Entry points and main modules first
+- Core business logic and domain code
+- Key interfaces, types, and schemas
+- Configuration files
+
+## 5. Synthesize Findings - Create coherent summary
+- Project structure and organization
+- Main technologies and frameworks
+- Key components and their relationships
+- Notable patterns or architectural decisions
+
+## Thoroughness Levels
+When exploring, adapt depth to the request:
+- **Quick**: Top-level structure + 2-3 key files (entry point, config)
+- **Medium**: Full structure + entry points + key modules + types
+- **Thorough**: Everything above + all major components + relationships + patterns`;
+
+/**
+ * Code reference pattern for file:line citations
+ */
+export const CODE_REFERENCE_PATTERN = `# Code References
+
+When referencing specific functions or code locations, include the file path and line number:
+- Format: \`file_path:line_number\`
+- Example: "The agent loop is defined in src/agent/index.ts:116"
+
+This helps users navigate directly to the relevant code.`;
