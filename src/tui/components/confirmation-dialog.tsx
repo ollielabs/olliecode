@@ -3,7 +3,7 @@
  * Shows what the tool will do and allows user to approve/deny.
  */
 
-import { useCallback, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { ConfirmationRequest, ConfirmationResponse } from "../../agent/types";
 
@@ -33,7 +33,7 @@ export function ConfirmationDialog({ request, onResponse }: ConfirmationDialogPr
     onResponseRef.current = onResponse;
   }, [request, onResponse]);
 
-  const handleKeyPress = useCallback((key: { name?: string }) => {
+  const handleKeyPress = (key: { name?: string }) => {
     const currentRequest = requestRef.current;
     const currentOnResponse = onResponseRef.current;
     
@@ -54,7 +54,7 @@ export function ConfirmationDialog({ request, onResponse }: ConfirmationDialogPr
         break;
       // Ignore other keys silently
     }
-  }, []);
+  };
 
   useKeyboard(handleKeyPress);
 

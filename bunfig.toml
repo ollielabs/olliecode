@@ -1,0 +1,4 @@
+# Bun configuration
+
+# Preload the React Compiler plugin
+preload = ["./react-compiler.preload.ts"]

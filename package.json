@@ -8,8 +8,12 @@
     "build": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --outfile=ollama-tui --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'"
   },
   "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@types/babel__core": "^7.20.5",
     "@types/bun": "latest",
     "@types/marked-terminal": "^6.1.1",
+    "babel-plugin-react-compiler": "^1.0.0",
     "promptfoo": "^0.120.8"
   },
   "peerDependencies": {

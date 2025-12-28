@@ -1,6 +1,6 @@
 import { RGBA, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 
 import type { Message, ToolCall } from "ollama";
 
@@ -27,7 +27,7 @@ import {
   type Session,
 } from "../session";
 import { SessionPicker } from "./components/session-picker";
-import { CommandMenu, getFilteredCommands, type SlashCommand } from "./components/command-menu";
+import { CommandMenu, type SlashCommand } from "./components/command-menu";
 
 // Display message - can be user, assistant, or tool activity
 type DisplayMessage =
@@ -118,7 +118,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
     }
 
     // Tab to toggle mode (only when idle and not in command menu)
-    if (key.name === "tab" && status === "idle" && !showCommandMenu && !showSessionPicker) {
+    if (key.name === "tab" && statusRef.current === "idle" && !showCommandMenu && !showSessionPicker) {
       const newMode = toggleMode(modeRef.current);
       setMode(newMode);
       
@@ -129,7 +129,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
     }
 
     // Double-escape to abort
-    if (key.name === "escape" && status === "thinking") {
+    if (key.name === "escape" && statusRef.current === "thinking") {
       const now = Date.now();
       if (now - lastEscapeRef.current < 500) {
         abortControllerRef.current?.abort();
@@ -146,7 +146,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       
       const currentText = textareaRef.current.plainText ?? "";
       
-      if (status === "idle" && !showSessionPicker) {
+      if (statusRef.current === "idle" && !showSessionPicker) {
         if (currentText.startsWith("/")) {
           const newFilter = currentText.slice(1);
           if (!showCommandMenu) {
@@ -318,26 +318,26 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   };
   
   // Handle confirmation response
-  const handleConfirmationResponse = useCallback((response: ConfirmationResponse) => {
+  const handleConfirmationResponse = (response: ConfirmationResponse) => {
     if (confirmationResolverRef.current) {
       confirmationResolverRef.current(response);
       confirmationResolverRef.current = null;
     }
     setPendingConfirmation(null);
-  }, []);
+  };
 
   // Handle /new command - start fresh session
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = () => {
     setCurrentSession(null);
     setHistory([]);
     setDisplayMessages([]);
     setMode(DEFAULT_MODE);
     setError("");
     setStreamingContent("");
-  }, []);
+  };
 
   // Handle session selection from picker
-  const handleSessionSelect = useCallback((session: Session) => {
+  const handleSessionSelect = (session: Session) => {
     setShowSessionPicker(false);
     setCurrentSession(session);
     setMode(session.mode);
@@ -352,19 +352,19 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
 
     // Refocus textarea after modal closes
     setTimeout(() => textareaRef.current?.focus(), 10);
-  }, []);
+  };
 
   // Handle session picker cancel
-  const handleSessionPickerCancel = useCallback(() => {
+  const handleSessionPickerCancel = () => {
     setShowSessionPicker(false);
     // Refocus textarea after modal closes
     setTimeout(() => textareaRef.current?.focus(), 10);
-  }, []);
+  };
 
   // Handle session list change (delete/rename)
-  const handleSessionsChanged = useCallback(() => {
+  const handleSessionsChanged = () => {
     setSessionRefreshKey((prev) => prev + 1);
-  }, []);
+  };
 
   // Define available slash commands
   const slashCommands: SlashCommand[] = [
@@ -387,23 +387,23 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   ];
 
   // Handle command selection from menu
-  const handleCommandSelect = useCallback((command: SlashCommand) => {
+  const handleCommandSelect = (command: SlashCommand) => {
     setShowCommandMenu(false);
     setCommandFilter("");
     command.action();
-  }, []);
+  };
 
   // Handle command menu cancel
-  const handleCommandMenuCancel = useCallback(() => {
+  const handleCommandMenuCancel = () => {
     setShowCommandMenu(false);
     setCommandFilter("");
     setCommandSelectedIndex(0);
-  }, []);
+  };
 
   // Handle command index change
-  const handleCommandIndexChange = useCallback((index: number) => {
+  const handleCommandIndexChange = (index: number) => {
     setCommandSelectedIndex(index);
-  }, []);
+  };
 
   // Welcome screen
   if (displayMessages.length === 0) {

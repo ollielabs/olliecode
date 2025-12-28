@@ -5,7 +5,7 @@
  */
 
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { InputRenderable } from "@opentui/core";
 import { deleteSession, updateSession, type Session } from "../../session";
 import { Modal } from "./modal";
@@ -119,11 +119,9 @@ export function SessionPicker({
   const selectedSession = flatSessions[selectedIndex];
 
   // Calculate scrollbox height: based on content, capped at ~half terminal height
-  const contentHeight = useMemo(() => {
-    const sessionLines = flatSessions.length;
-    const groupHeaderLines = groups.length * 2; // header + margin
-    return sessionLines + groupHeaderLines;
-  }, [flatSessions.length, groups.length]);
+  const sessionLines = flatSessions.length;
+  const groupHeaderLines = groups.length * 2; // header + margin
+  const contentHeight = sessionLines + groupHeaderLines;
 
   const scrollHeight = Math.min(contentHeight, Math.floor(termHeight / 2) - 6);
 
@@ -141,7 +139,7 @@ export function SessionPicker({
     }
   }, [mode]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = () => {
     if (!selectedSession) return;
 
     if (mode === "confirm-delete") {
@@ -153,9 +151,9 @@ export function SessionPicker({
       // First press - ask for confirmation
       setMode("confirm-delete");
     }
-  }, [mode, selectedSession, onSessionsChanged]);
+  };
 
-  const handleRename = useCallback(() => {
+  const handleRename = () => {
     if (!selectedSession) return;
 
     if (mode === "rename") {
@@ -166,9 +164,9 @@ export function SessionPicker({
     // Enter rename mode with current title
     setRenameValue(selectedSession.title ?? "");
     setMode("rename");
-  }, [mode, selectedSession]);
+  };
 
-  const handleRenameSubmit = useCallback(() => {
+  const handleRenameSubmit = () => {
     if (!selectedSession || !renameValue.trim()) {
       setMode("browse");
       return;
@@ -177,60 +175,57 @@ export function SessionPicker({
     updateSession(selectedSession.id, { title: renameValue.trim() });
     setMode("browse");
     onSessionsChanged();
-  }, [selectedSession, renameValue, onSessionsChanged]);
+  };
 
-  const handleKeyPress = useCallback(
-    (key: { name?: string; ctrl?: boolean }) => {
-      // Handle rename mode separately
-      if (mode === "rename") {
-        if (key.name === "escape") {
-          setMode("browse");
-        } else if (key.name === "return") {
-          handleRenameSubmit();
-        }
-        return;
-      }
-
-      // Handle ctrl+d for delete
-      if (key.ctrl && key.name === "d") {
-        handleDelete();
-        return;
-      }
-
-      // Handle ctrl+r for rename
-      if (key.ctrl && key.name === "r") {
-        handleRename();
-        return;
-      }
-
-      // Cancel delete confirmation on any other key
-      if (mode === "confirm-delete") {
+  const handleKeyPress = (key: { name?: string; ctrl?: boolean }) => {
+    // Handle rename mode separately
+    if (mode === "rename") {
+      if (key.name === "escape") {
         setMode("browse");
-        // Don't process navigation on cancel
-        return;
+      } else if (key.name === "return") {
+        handleRenameSubmit();
       }
+      return;
+    }
 
-      // Normal navigation
-      switch (key.name) {
-        case "up":
-        case "k":
-          setSelectedIndex((prev) => Math.max(0, prev - 1));
-          break;
-        case "down":
-        case "j":
-          setSelectedIndex((prev) => Math.min(flatSessions.length - 1, prev + 1));
-          break;
-        case "return": {
-          if (selectedSession) {
-            onSelect(selectedSession);
-          }
-          break;
+    // Handle ctrl+d for delete
+    if (key.ctrl && key.name === "d") {
+      handleDelete();
+      return;
+    }
+
+    // Handle ctrl+r for rename
+    if (key.ctrl && key.name === "r") {
+      handleRename();
+      return;
+    }
+
+    // Cancel delete confirmation on any other key
+    if (mode === "confirm-delete") {
+      setMode("browse");
+      // Don't process navigation on cancel
+      return;
+    }
+
+    // Normal navigation
+    switch (key.name) {
+      case "up":
+      case "k":
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        break;
+      case "down":
+      case "j":
+        setSelectedIndex((prev) => Math.min(flatSessions.length - 1, prev + 1));
+        break;
+      case "return": {
+        if (selectedSession) {
+          onSelect(selectedSession);
         }
-        // Note: escape/q handled by Modal
+        break;
       }
-    },
-    [flatSessions.length, selectedSession, onSelect, mode, handleDelete, handleRename, handleRenameSubmit]
-  );
+      // Note: escape/q handled by Modal
+    }
+  };
 
   useKeyboard(handleKeyPress);
 

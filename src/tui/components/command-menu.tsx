@@ -5,7 +5,7 @@
  */
 
 import { useKeyboard } from "@opentui/react";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
 export type SlashCommand = {
   name: string;
@@ -56,31 +56,28 @@ export function CommandMenu({
   }, [filteredCommands.length, selectedIndex, onIndexChange]);
 
   // Handle keyboard navigation
-  const handleKeyPress = useCallback(
-    (key: { name?: string }) => {
-      switch (key.name) {
-        case "up":
-        case "k":
-          onIndexChange(Math.max(0, selectedIndex - 1));
-          break;
-        case "down":
-        case "j":
-          onIndexChange(Math.min(filteredCommands.length - 1, selectedIndex + 1));
-          break;
-        case "return": {
-          const selected = filteredCommands[selectedIndex];
-          if (selected) {
-            onSelect(selected);
-          }
-          break;
+  const handleKeyPress = (key: { name?: string }) => {
+    switch (key.name) {
+      case "up":
+      case "k":
+        onIndexChange(Math.max(0, selectedIndex - 1));
+        break;
+      case "down":
+      case "j":
+        onIndexChange(Math.min(filteredCommands.length - 1, selectedIndex + 1));
+        break;
+      case "return": {
+        const selected = filteredCommands[selectedIndex];
+        if (selected) {
+          onSelect(selected);
         }
-        case "escape":
-          onCancel();
-          break;
+        break;
       }
-    },
-    [filteredCommands, selectedIndex, onSelect, onCancel, onIndexChange]
-  );
+      case "escape":
+        onCancel();
+        break;
+    }
+  };
 
   useKeyboard(handleKeyPress);
 

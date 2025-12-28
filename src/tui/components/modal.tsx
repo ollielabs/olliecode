@@ -6,7 +6,7 @@
 
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { RGBA } from "@opentui/core";
-import { useCallback } from "react";
+
 
 export type ModalProps = {
   /** Modal title displayed in top-left */
@@ -28,14 +28,11 @@ export function Modal({
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
 
   // Handle escape to close
-  const handleKeyPress = useCallback(
-    (key: { name?: string }) => {
-      if (key.name === "escape" || key.name === "q") {
-        onClose();
-      }
-    },
-    [onClose]
-  );
+  const handleKeyPress = (key: { name?: string }) => {
+    if (key.name === "escape" || key.name === "q") {
+      onClose();
+    }
+  };
 
   useKeyboard(handleKeyPress);
 
