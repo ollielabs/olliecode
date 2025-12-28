@@ -1,4 +1,10 @@
-import { RGBA, type TextareaRenderable } from "@opentui/core";
+import { RGBA, type TextareaRenderable, type ScrollAcceleration } from "@opentui/core";
+
+// Custom scroll acceleration that always returns a fixed multiplier for faster scrolling
+const fastScrollAccel: ScrollAcceleration = {
+  tick: () => 5,
+  reset: () => {},
+};
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { useRef, useState, useEffect } from "react";
 
@@ -459,7 +465,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   // Chat screen
   return (
     <box key="chat-container" flexDirection="column" flexGrow={1} flexShrink={1} paddingTop={1} paddingLeft={2} paddingRight={2}>
-      <scrollbox flexGrow={1} flexShrink={1} stickyScroll={true} stickyStart="bottom">
+      <scrollbox flexGrow={1} flexShrink={1} stickyScroll={true} stickyStart="bottom" scrollAcceleration={fastScrollAccel}>
         <box flexDirection="column" flexGrow={1}>
           <box>
             <text>Olly • Enter to send • Ctrl+C to quit{"\n"}</text>
