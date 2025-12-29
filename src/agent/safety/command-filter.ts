@@ -4,11 +4,18 @@
  */
 
 import type { SafetyConfig } from "./types";
-import { NETWORK_COMMANDS, SENSITIVE_ENV_PATTERNS } from "./types";
+import {
+  NETWORK_COMMANDS,
+  SENSITIVE_ENV_PATTERNS,
+  PLAN_MODE_ALLOWED_COMMANDS,
+  PLAN_MODE_DENIED_PATTERNS,
+} from "./types";
+import type { AgentMode } from "../modes";
 
 export type CommandValidationResult =
   | { valid: true; sanitizedEnv: Record<string, string> }
-  | { valid: false; reason: string };
+  | { valid: false; reason: string }
+  | { valid: "ask"; reason: string };
 
 /**
  * Validates a shell command for safety.
@@ -178,4 +185,75 @@ export function isNetworkCommand(command: string): boolean {
   return NETWORK_COMMANDS.some(netCmd => 
     commandStartsWith(normalized, netCmd) || commandContains(normalized, netCmd)
   );
+}
+
+/**
+ * Validates a shell command for plan mode.
+ * Plan mode is read-only - only allow exploration commands.
+ * 
+ * Returns:
+ * - valid: true - command is in the allowed list
+ * - valid: false - command is in the denied list (blocked)
+ * - valid: "ask" - command is unknown, needs user confirmation
+ */
+export function validateCommandForPlanMode(
+  command: string,
+  config: SafetyConfig
+): CommandValidationResult {
+  const normalized = command.toLowerCase().trim();
+  
+  // First run the standard validation (dangerous patterns, etc.)
+  const standardCheck = validateCommand(command, config);
+  if (!standardCheck.valid) {
+    return standardCheck;
+  }
+  
+  // Check denied patterns (file modifications, etc.)
+  for (const pattern of PLAN_MODE_DENIED_PATTERNS) {
+    if (normalized.includes(pattern.toLowerCase())) {
+      return {
+        valid: false,
+        reason: `Command contains "${pattern.trim()}" which modifies state. Blocked in plan mode.`,
+      };
+    }
+  }
+  
+  // Check if command starts with an allowed command
+  const isAllowed = PLAN_MODE_ALLOWED_COMMANDS.some((allowed) => {
+    const lowerAllowed = allowed.toLowerCase();
+    // Exact match or starts with command followed by space/end
+    return (
+      normalized === lowerAllowed ||
+      normalized.startsWith(lowerAllowed + " ") ||
+      normalized.startsWith(lowerAllowed + "\t")
+    );
+  });
+  
+  if (isAllowed) {
+    return standardCheck; // Already validated, has sanitized env
+  }
+  
+  // Unknown command - ask for permission
+  return {
+    valid: "ask",
+    reason: `Command "${command}" is not in the read-only whitelist. Allow execution?`,
+  };
+}
+
+/**
+ * Validates a command based on agent mode.
+ * - plan mode: strict read-only enforcement
+ * - build mode: standard validation only
+ */
+export function validateCommandForMode(
+  command: string,
+  mode: AgentMode,
+  config: SafetyConfig
+): CommandValidationResult {
+  if (mode === "plan") {
+    return validateCommandForPlanMode(command, config);
+  }
+  
+  // Build mode uses standard validation
+  return validateCommand(command, config);
 }

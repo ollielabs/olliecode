@@ -16,7 +16,7 @@ import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse, type 
 import { log } from "./logger";
 import { processStream, isAbortError } from "./stream-handler";
 import { processToolCalls } from "./tool-processor";
-import { detectLoop } from "./loop-detector";
+import { detectLoop, detectDoomLoop } from "./loop-detector";
 
 /**
  * Arguments for running the agent.
@@ -256,14 +256,26 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
       steps.push(step);
       args.onStepComplete(step);
 
-      // Check for loop
+      // Check for loops (both identical and doom loops)
       if (config.loopDetection) {
+        // Check for identical loops first
         const loopCheck = detectLoop(steps, config.loopThreshold);
         if (loopCheck.detected) {
           log("Loop detected:", loopCheck.signature);
           return {
             type: "loop_detected",
             action: loopCheck.action ?? "unknown",
+            attempts: config.loopThreshold,
+          };
+        }
+
+        // Check for doom loops (error patterns, oscillations)
+        const doomCheck = detectDoomLoop(steps, config.loopThreshold + 1);
+        if (doomCheck.detected) {
+          log("Doom loop detected:", doomCheck.type, doomCheck.suggestion);
+          return {
+            type: "loop_detected",
+            action: doomCheck.tool ?? "unknown",
             attempts: config.loopThreshold,
           };
         }

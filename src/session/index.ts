@@ -20,6 +20,7 @@ export { initDatabase, closeDatabase, getDatabasePath, getDataDirectory };
 export { getProjectName } from "./project";
 export * from "./types";
 export * from "./convert";
+export * from "./todo";
 
 /**
  * Generate a session title from the first user message.

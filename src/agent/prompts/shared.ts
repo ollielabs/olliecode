@@ -192,3 +192,68 @@ When referencing specific functions or code locations, include the file path and
 - Example: "The agent loop is defined in src/agent/index.ts:116"
 
 This helps users navigate directly to the relevant code.`;
+
+/**
+ * Todo tools documentation
+ */
+export const TODO_TOOLS_DOC = `# Task Management
+
+You have access to todo_write and todo_read tools to track progress on complex tasks.
+Use these tools FREQUENTLY to demonstrate progress and ensure completeness.
+
+## todo_write
+Create or update your task list. Sends the COMPLETE updated list each time.
+
+Parameters: { sessionId: string, todos: [{ id, content, status, priority? }] }
+
+Status values:
+- pending: Not yet started
+- in_progress: Currently working on (only ONE at a time)
+- completed: Finished successfully  
+- cancelled: No longer needed
+
+Priority values: high, medium (default), low
+
+## todo_read
+Read your current task list to check progress.
+
+Parameters: { sessionId: string }
+
+## When to Use Todos
+Use todo_write proactively for:
+- Complex multi-step tasks (3+ steps)
+- After receiving new instructions
+- After completing a task (mark complete immediately)
+- When starting a task (mark in_progress)
+
+Do NOT use for:
+- Single trivial tasks
+- Informational questions
+- Tasks under 3 steps
+
+## Best Practices
+- Mark tasks complete IMMEDIATELY after finishing
+- Only ONE task should be in_progress at a time
+- Break complex tasks into smaller, actionable items
+- Update the list as you learn more about the task`;
+
+/**
+ * Task management guidance for system prompts
+ */
+export const TASK_MANAGEMENT_GUIDANCE = `# Task Management
+
+For complex multi-step tasks, use the todo_write tool to:
+1. Break down the task into clear steps
+2. Track progress as you work
+3. Mark tasks complete immediately when done
+4. Add new tasks as you discover them
+
+This helps ensure you complete all requirements and gives the user visibility into your progress.
+
+Example workflow:
+1. Receive complex request
+2. Use todo_write to create task list
+3. Mark first task as in_progress
+4. Complete the task
+5. Use todo_write to mark complete and start next
+6. Repeat until all tasks done`;

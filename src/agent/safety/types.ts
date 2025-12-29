@@ -158,3 +158,116 @@ export const SENSITIVE_ENV_PATTERNS = [
   /^ANTHROPIC_API_KEY$/,
   /^DATABASE_URL$/,
 ];
+
+/**
+ * Commands allowed in plan mode (read-only)
+ * These commands are safe for exploration and don't modify state
+ */
+export const PLAN_MODE_ALLOWED_COMMANDS = [
+  // File viewing
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "file",
+  "stat",
+  "wc",
+  // Directory listing
+  "ls",
+  "tree",
+  "pwd",
+  "find",
+  "locate",
+  // Search tools
+  "grep",
+  "rg",
+  "ag",
+  "fd",
+  "ack",
+  // Git read-only
+  "git status",
+  "git log",
+  "git show",
+  "git diff",
+  "git branch",
+  "git remote",
+  "git tag",
+  // Package managers (read-only)
+  "npm list",
+  "npm outdated",
+  "npm view",
+  "bun pm ls",
+  "yarn list",
+  "pnpm list",
+  // System info
+  "which",
+  "whereis",
+  "type",
+  "env",
+  "printenv",
+  "echo",
+  "date",
+  "uname",
+];
+
+/**
+ * Command patterns that are always denied in plan mode
+ * These modify files, state, or system configuration
+ */
+export const PLAN_MODE_DENIED_PATTERNS = [
+  // File modification
+  "rm ",
+  "mv ",
+  "cp ",
+  "mkdir ",
+  "touch ",
+  "chmod ",
+  "chown ",
+  "ln ",
+  // File writing via redirect
+  ">",
+  ">>",
+  "tee ",
+  // Text manipulation that can write
+  "sed -i",
+  "sed --in-place",
+  // Git write operations
+  "git add",
+  "git commit",
+  "git push",
+  "git pull",
+  "git checkout",
+  "git reset",
+  "git revert",
+  "git merge",
+  "git rebase",
+  "git stash",
+  "git cherry-pick",
+  "git branch -d",
+  "git branch -D",
+  "git tag -d",
+  // Package managers (write)
+  "npm install",
+  "npm uninstall",
+  "npm update",
+  "npm ci",
+  "bun add",
+  "bun remove",
+  "bun install",
+  "yarn add",
+  "yarn remove",
+  "yarn install",
+  "pnpm add",
+  "pnpm remove",
+  "pnpm install",
+  // Build/run commands (can have side effects)
+  "npm run",
+  "bun run",
+  "yarn run",
+  "make ",
+  "cargo build",
+  "cargo run",
+  "go build",
+  "go run",
+];

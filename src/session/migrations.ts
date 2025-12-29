@@ -57,6 +57,27 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
     `,
   },
+  {
+    version: 2,
+    name: "add_todos_table",
+    sql: `
+      -- Todos for session task tracking
+      -- Enables agents to maintain persistent task lists across session resumption
+      CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id);
+      CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
+    `,
+  },
 ];
 
 /**

@@ -15,6 +15,7 @@ import {
   TOOL_RESULT_NOTE,
   PARALLEL_TOOL_CALLS,
   CODE_REFERENCE_PATTERN,
+  TASK_MANAGEMENT_GUIDANCE,
 } from "./shared";
 
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
@@ -54,6 +55,8 @@ ${PARALLEL_TOOL_CALLS}
 ${TOOL_RESULT_NOTE}
 
 ${CODE_REFERENCE_PATTERN}
+
+${TASK_MANAGEMENT_GUIDANCE}
 
 # Safety
 

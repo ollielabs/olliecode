@@ -20,9 +20,10 @@ import type {
 } from "./types";
 import { DEFAULT_SAFETY_CONFIG } from "./types";
 import { validatePath, getDisplayPath } from "./path-validation";
-import { validateCommand, sanitizeEnvironment } from "./command-filter";
+import { validateCommand, validateCommandForMode, sanitizeEnvironment } from "./command-filter";
 import { RateLimiter } from "./rate-limiter";
 import { AuditLog } from "./audit-log";
+import type { AgentMode } from "../modes";
 
 // Tools that operate on paths
 const PATH_TOOLS = ["read_file", "write_file", "edit_file", "list_dir", "glob", "grep"];
@@ -39,6 +40,8 @@ const TOOL_RISK: Record<string, RiskLevel> = {
   write_file: "prompt",
   edit_file: "prompt",
   run_command: "prompt",
+  todo_write: "safe",
+  todo_read: "safe",
 };
 
 /**
@@ -60,9 +63,13 @@ export class SafetyLayer {
   /**
    * Check if a tool call is allowed.
    * Returns allowed, denied, or needs_confirmation.
+   * 
+   * @param toolCall - The tool call to check
+   * @param mode - Optional agent mode for mode-specific validation (e.g., plan mode command restrictions)
    */
   async checkToolCall(
-    toolCall: ToolCall
+    toolCall: ToolCall,
+    mode?: AgentMode
   ): Promise<SafetyCheckResult> {
     const { name: tool } = toolCall.function;
     const args = toolCall.function.arguments as Record<string, unknown>;
@@ -102,9 +109,30 @@ export class SafetyLayer {
     if (COMMAND_TOOLS.includes(tool)) {
       const command = args.command as string | undefined;
       if (command) {
-        const cmdCheck = validateCommand(command, this.config);
-        if (!cmdCheck.valid) {
+        // Use mode-aware validation if mode is provided
+        const cmdCheck = mode
+          ? validateCommandForMode(command, mode, this.config)
+          : validateCommand(command, this.config);
+        
+        if (cmdCheck.valid === false) {
           return { status: "denied", reason: cmdCheck.reason };
+        }
+        
+        // Handle "ask" result from plan mode validation
+        if (cmdCheck.valid === "ask") {
+          const request: ConfirmationRequest = {
+            id: generateRequestId(),
+            tool,
+            args,
+            riskLevel: "prompt",
+            description: cmdCheck.reason,
+            preview: {
+              type: "command",
+              command,
+              cwd: (args.cwd as string) ?? process.cwd(),
+            },
+          };
+          return { status: "needs_confirmation", request };
         }
       }
     }
@@ -420,3 +448,4 @@ function extractContext(content: string, search: string, contextLines: number): 
 // Export types
 export type { SafetyConfig, SafetyCheckResult, ConfirmationRequest, ConfirmationResponse };
 export { DEFAULT_SAFETY_CONFIG };
+export { validateCommandForMode, validateCommandForPlanMode } from "./command-filter";

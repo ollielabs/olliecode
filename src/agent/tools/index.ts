@@ -10,6 +10,7 @@ import { grepTool } from "./grep";
 import { writeFileTool } from "./write-file";
 import { editFileTool } from "./edit-file";
 import { runCommandTool } from "./run-command";
+import { todoWriteTool, todoReadTool } from "./todo";
 
 // All registered tools
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,6 +22,8 @@ const tools: ToolDefinition<any, any>[] = [
   writeFileTool,
   editFileTool,
   runCommandTool,
+  todoWriteTool,
+  todoReadTool,
 ];
 
 // Tool name constants for reference
@@ -32,6 +35,8 @@ export const TOOL_NAMES = {
   WRITE_FILE: "write_file",
   EDIT_FILE: "edit_file",
   RUN_COMMAND: "run_command",
+  TODO_WRITE: "todo_write",
+  TODO_READ: "todo_read",
 } as const;
 
 // Convert ToolDefinition to Ollama Tool format

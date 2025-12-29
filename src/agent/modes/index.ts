@@ -9,11 +9,11 @@ export type AgentMode = "plan" | "build";
 
 /**
  * Tools available in each mode
- * Plan mode: read-only tools only
- * Build mode: all tools
+ * Plan mode: read-only tools + todo tracking
+ * Build mode: all tools + todo tracking
  */
 export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
-  plan: ["read_file", "list_dir", "glob", "grep"] as const,
+  plan: ["read_file", "list_dir", "glob", "grep", "todo_write", "todo_read"] as const,
   build: [
     "read_file",
     "list_dir",
@@ -22,6 +22,8 @@ export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
     "write_file",
     "edit_file",
     "run_command",
+    "todo_write",
+    "todo_read",
   ] as const,
 };
 

@@ -253,8 +253,8 @@ export async function processToolCalls(
 
     log(`Checking safety for: ${toolName}`, toolArgs);
 
-    // Step 2: Safety check
-    const safetyCheck = await safetyLayer.checkToolCall(toolCall);
+    // Step 2: Safety check (pass mode for mode-aware command validation)
+    const safetyCheck = await safetyLayer.checkToolCall(toolCall, mode);
 
     if (safetyCheck.status === "denied") {
       processed = await handleSafetyDenied(
