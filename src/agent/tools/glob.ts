@@ -6,7 +6,7 @@ import type { ToolDefinition } from "../types";
 const EXCLUDED_DIRS = ["node_modules", ".git", "dist", "build", ".next", ".cache"];
 
 const inputSchema = z.object({
-  pattern: z.string().describe("Glob pattern to match files (e.g., '**/*.ts', 'src/**/*.tsx')"),
+  pattern: z.string().min(1, { message: "Pattern must not be empty" }).describe("Glob pattern to match files (e.g., '**/*.ts', 'src/**/*.tsx')"),
   cwd: z.string().optional().describe("Directory to search from (defaults to working directory)"),
 });
 

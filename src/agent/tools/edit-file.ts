@@ -2,9 +2,9 @@ import { z } from "zod";
 import type { ToolDefinition } from "../types";
 
 const inputSchema = z.object({
-  path: z.string().describe("The file path to edit"),
-  oldString: z.string().describe("The exact string to find and replace"),
-  newString: z.string().describe("The string to replace it with"),
+  path: z.string().min(1, { message: "Path must not be empty" }).describe("The file path to edit"),
+  oldString: z.string().min(1, { message: "oldString must not be empty" }).describe("The exact string to find and replace"),
+  newString: z.string().min(1, { message: "newString must not be empty" }).describe("The string to replace it with"),
 });
 
 const outputSchema = z.string().describe("Success message confirming the edit");
@@ -14,7 +14,7 @@ export const editFileTool: ToolDefinition<typeof inputSchema, typeof outputSchem
   description: "Replace a specific string in a file. The oldString must match exactly (including whitespace). Use read_file first to see the exact content.",
   parameters: inputSchema,
   outputSchema,
-  risk: "prompt", // Requires user confirmation in Phase 3
+  risk: "medium",
   execute: async ({ path, oldString, newString }) => {
     const file = Bun.file(path);
     
