@@ -9,11 +9,14 @@ export type AgentMode = "plan" | "build";
 
 /**
  * Tools available in each mode
- * Plan mode: read-only tools + todo tracking
+ * Plan mode: read-only tools + todo tracking + run_command (with whitelist)
  * Build mode: all tools + todo tracking
+ * 
+ * Note: run_command in plan mode is filtered by PLAN_MODE_ALLOWED_COMMANDS
+ * in the safety layer to only allow read-only commands.
  */
 export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
-  plan: ["read_file", "list_dir", "glob", "grep", "todo_write", "todo_read"] as const,
+  plan: ["read_file", "list_dir", "glob", "grep", "run_command", "todo_write", "todo_read"] as const,
   build: [
     "read_file",
     "list_dir",

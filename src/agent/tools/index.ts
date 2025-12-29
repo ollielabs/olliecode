@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Tool } from "ollama";
-import type { ToolDefinition, ToolResult } from "../types";
+import type { ToolDefinition, ToolResult, ToolContext } from "../types";
 import type { AgentMode } from "../modes";
 import { MODE_TOOLS } from "../modes";
 import { readFileTool } from "./read-file";
@@ -80,7 +80,8 @@ export function getToolsForMode(mode: AgentMode): Tool[] {
 export async function executeTool(
   name: string,
   args: unknown,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context?: ToolContext
 ): Promise<ToolResult> {
   // Check for abort before execution
   if (signal?.aborted) {
@@ -95,11 +96,15 @@ export async function executeTool(
 
   const parsed = tool.parameters.safeParse(args);
   if (!parsed.success) {
-    return { tool: name, output: "", error: `Invalid arguments: ${parsed.error.message}` };
+    // Format Zod errors more clearly for debugging
+    const issues = parsed.error.issues
+      .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    return { tool: name, output: "", error: `Invalid arguments: ${issues}. Received: ${JSON.stringify(args)}` };
   }
 
   try {
-    const result = await tool.execute(parsed.data, signal);
+    const result = await tool.execute(parsed.data, signal, context);
 
     // Validate output
     const outputParsed = tool.outputSchema.safeParse(result);

@@ -201,6 +201,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       userMessage: prompt,
       history: historyRef.current,
       mode: modeRef.current,
+      sessionId: session.id,
       signal: abortControllerRef.current.signal,
 
       onReasoningToken: (token) => {

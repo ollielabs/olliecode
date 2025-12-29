@@ -8,6 +8,7 @@
 
 import { runAgent } from "../src/agent";
 import type { ConfirmationRequest, ConfirmationResponse } from "../src/agent/safety/types";
+import { initDatabase, createSession, closeDatabase } from "../src/session";
 
 // Auto-approve confirmation handler for evals
 // Approves most operations except truly dangerous ones
@@ -459,6 +460,47 @@ const tests: TestCase[] = [
       { type: "js", value: "output.toLowerCase().includes('which') || output.toLowerCase().includes('what') || output.toLowerCase().includes('specific') || output.toLowerCase().includes('clarif') || output.length > 50", description: "Asks for clarification or explains" },
     ],
   },
+
+  // ===========================================
+  // TODO TOOLS - Task tracking (agent should use proactively)
+  // ===========================================
+  {
+    name: "Todo - complex task triggers todo creation",
+    prompt: "Review all files in src/agent/tools/ and add input validation to each one. Make sure error messages are helpful.",
+    assertions: [
+      { type: "js", value: "!output.toLowerCase().includes('invalid arguments')", description: "No schema errors" },
+      { type: "js", value: "!output.toLowerCase().includes('foreign key')", description: "No FK errors" },
+      // Agent should have used todo_write for this multi-file task
+    ],
+  },
+  {
+    name: "Todo - multi-step refactor",
+    prompt: "Refactor the safety module to use a class-based pattern instead of standalone functions.",
+    assertions: [
+      { type: "js", value: "!output.toLowerCase().includes('invalid arguments')", description: "No schema errors" },
+      { type: "js", value: "output.length > 200", description: "Provides detailed response" },
+    ],
+  },
+
+  // ===========================================
+  // PLAN MODE - Command filtering
+  // ===========================================
+  {
+    name: "Plan mode - git log allowed",
+    prompt: "Run git log --oneline -3",
+    assertions: [
+      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
+      { type: "js", value: "output.toLowerCase().includes('commit') || output.toLowerCase().includes('git') || /[a-f0-9]{7}/.test(output)", description: "Shows git output" },
+    ],
+  },
+  {
+    name: "Plan mode - ls allowed",
+    prompt: "Run ls -la src/agent",
+    assertions: [
+      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
+      { type: "js", value: "output.toLowerCase().includes('index') || output.toLowerCase().includes('tools') || output.toLowerCase().includes('types')", description: "Lists files" },
+    ],
+  },
 ];
 
 function checkAssertion(output: string, assertion: TestCase["assertions"][0]): boolean {
@@ -481,7 +523,7 @@ function checkAssertion(output: string, assertion: TestCase["assertions"][0]): b
   }
 }
 
-async function runTest(test: TestCase, model: string, host: string): Promise<{
+async function runTest(test: TestCase, model: string, host: string, sessionId: string): Promise<{
   passed: boolean;
   output: string;
   failedAssertions: string[];
@@ -495,6 +537,7 @@ async function runTest(test: TestCase, model: string, host: string): Promise<{
       host,
       userMessage: test.prompt,
       history: [],
+      sessionId,
       signal: new AbortController().signal,
       onReasoningToken: () => {},
       onToolCall: () => {},
@@ -560,6 +603,15 @@ async function main() {
     }
   }
 
+  // Initialize database and create a session for todo tools
+  initDatabase();
+  const session = await createSession({
+    projectPath: process.cwd(),
+    model,
+    host,
+    mode: "build",
+  });
+
   const testsToRun = filter 
     ? tests.filter(t => t.name.toLowerCase().includes(filter.toLowerCase()) || 
                         t.prompt.toLowerCase().includes(filter.toLowerCase()))
@@ -578,7 +630,7 @@ async function main() {
   for (const test of testsToRun) {
     process.stdout.write(`▶ ${test.name}... `);
     
-    const result = await runTest(test, model, host);
+    const result = await runTest(test, model, host, session.id);
     results.push({ test, result });
     
     if (result.passed) {
@@ -605,6 +657,7 @@ async function main() {
     }
   }
 
+  closeDatabase();
   process.exit(failed > 0 ? 1 : 0);
 }
 

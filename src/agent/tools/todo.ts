@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import type { ToolDefinition } from "../types";
+import type { ToolDefinition, ToolContext } from "../types";
 import {
   getTodos,
   updateTodos,
@@ -32,7 +32,6 @@ const TodoItemSchema = z.object({
 // ============================================================================
 
 const todoWriteInput = z.object({
-  sessionId: z.string().describe("The session ID to store todos for"),
   todos: z.array(TodoItemSchema).describe("The complete updated todo list"),
 });
 
@@ -71,7 +70,10 @@ Use this tool proactively for:
   parameters: todoWriteInput,
   outputSchema: todoWriteOutput,
   risk: "safe",
-  execute: async ({ sessionId, todos }) => {
+  execute: async ({ todos }, _signal?: AbortSignal, context?: ToolContext) => {
+    // Session ID is injected from context, not provided by the LLM
+    const sessionId = context?.sessionId ?? "default";
+    
     const todoInputs: TodoInput[] = todos.map((t) => ({
       id: t.id,
       content: t.content,
@@ -98,9 +100,7 @@ Use this tool proactively for:
 // TodoRead Tool
 // ============================================================================
 
-const todoReadInput = z.object({
-  sessionId: z.string().describe("The session ID to read todos from"),
-});
+const todoReadInput = z.object({});
 
 const todoReadOutput = z.object({
   summary: z.string(),
@@ -119,7 +119,9 @@ Use this when:
   parameters: todoReadInput,
   outputSchema: todoReadOutput,
   risk: "safe",
-  execute: async ({ sessionId }) => {
+  execute: async (_params, _signal?: AbortSignal, context?: ToolContext) => {
+    // Session ID is injected from context, not provided by the LLM
+    const sessionId = context?.sessionId ?? "default";
     const todos = getTodos(sessionId);
     const active = todos.filter((t) => t.status !== "completed" && t.status !== "cancelled");
 

@@ -7,7 +7,7 @@ import type { Message, ToolCall } from "ollama";
 import type { AgentMode } from "./modes";
 import { isToolAvailable } from "./modes";
 import { executeTool } from "./tools";
-import type { ToolResult } from "./types";
+import type { ToolResult, ToolContext } from "./types";
 import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse } from "./safety";
 import { log } from "./logger";
 
@@ -24,6 +24,13 @@ export type ToolProcessorCallbacks = {
   onToolResult: (result: ToolResult, index: number) => void;
   onToolBlocked?: (tool: string, reason: string) => void;
   onConfirmationNeeded?: (request: ConfirmationRequest) => Promise<ConfirmationResponse>;
+};
+
+/**
+ * Options for tool processing.
+ */
+export type ToolProcessorOptions = {
+  context?: ToolContext;
 };
 
 /**
@@ -169,12 +176,13 @@ async function executeToolCall(
   needsConfirmation: boolean,
   callbacks: ToolProcessorCallbacks,
   index: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  context?: ToolContext
 ): Promise<ProcessedToolCall> {
   log(`Executing tool: ${toolName}`, toolArgs);
   const toolStartTime = Date.now();
 
-  const result = await executeTool(toolName, toolArgs, signal);
+  const result = await executeTool(toolName, toolArgs, signal, context);
   const durationMs = Date.now() - toolStartTime;
 
   log(`Tool result:`, result.error ? `Error: ${result.error}` : `${result.output.length} chars`);
@@ -218,6 +226,7 @@ async function executeToolCall(
  * @param safetyLayer - Safety layer instance
  * @param callbacks - Event callbacks
  * @param signal - Abort signal
+ * @param options - Additional options including context
  * @returns Processing results with observations and messages
  */
 export async function processToolCalls(
@@ -225,7 +234,8 @@ export async function processToolCalls(
   mode: AgentMode,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options?: ToolProcessorOptions
 ): Promise<ToolProcessingResult> {
   log("Processing", toolCalls.length, "tool calls");
 
@@ -315,7 +325,8 @@ export async function processToolCalls(
       needsConfirmation,
       callbacks,
       i,
-      signal
+      signal,
+      options?.context
     );
 
     observations.push(processed.result);

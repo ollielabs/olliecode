@@ -8,6 +8,7 @@
  */
 
 import { runAgent } from "../src/agent";
+import { initDatabase, createSession } from "../src/session";
 
 const prompt = process.argv[2];
 
@@ -19,6 +20,15 @@ if (!prompt) {
 const model = process.env.OLLAMA_MODEL || "granite4:latest";
 const host = process.env.OLLAMA_HOST || "http://192.168.1.221:11434";
 
+// Initialize database and create a session for todo tools
+initDatabase();
+const session = await createSession({
+  projectPath: process.cwd(),
+  model,
+  host,
+  mode: "build",
+});
+
 const toolsCalled: string[] = [];
 const toolResults: Array<{ tool: string; success: boolean }> = [];
 
@@ -28,6 +38,7 @@ try {
     host,
     userMessage: prompt,
     history: [],
+    sessionId: session.id,
     signal: new AbortController().signal,
     onReasoningToken: () => {},
     onToolCall: (tc) => {

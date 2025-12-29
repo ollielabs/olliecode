@@ -19,10 +19,11 @@ import type {
   ConfirmationResponse,
 } from "./types";
 import { DEFAULT_SAFETY_CONFIG } from "./types";
-import { validatePath, getDisplayPath } from "./path-validation";
-import { validateCommand, validateCommandForMode, sanitizeEnvironment } from "./command-filter";
+import { SafetyValidator } from "./validator";
 import { RateLimiter } from "./rate-limiter";
 import { AuditLog } from "./audit-log";
+import { validatePath, getDisplayPath } from "./path-validation";
+import { validateCommand, validateCommandForMode, sanitizeEnvironment } from "./command-filter";
 import type { AgentMode } from "../modes";
 
 // Tools that operate on paths

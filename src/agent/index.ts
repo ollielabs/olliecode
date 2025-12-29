@@ -27,6 +27,9 @@ export type RunAgentArgs = {
   userMessage: string;
   history: Message[];
 
+  /** Session ID for context (used by todo tools, etc.) */
+  sessionId?: string;
+
   /** Agent mode (plan or build). Defaults to DEFAULT_MODE. */
   mode?: AgentMode;
 
@@ -236,7 +239,13 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
           onToolBlocked: args.onToolBlocked,
           onConfirmationNeeded: args.onConfirmationNeeded,
         },
-        args.signal
+        args.signal,
+        {
+          context: {
+            sessionId: args.sessionId,
+            projectRoot: args.safetyConfig?.projectRoot,
+          },
+        }
       );
 
       // Add tool result messages to history
