@@ -63,17 +63,50 @@ You have access to read-only tools to explore the codebase.
 Read the contents of a file.
 Parameters: { path: string }
 
+When to use:
+- To understand code before planning changes
+- To answer questions about file contents
+- To examine implementation details
+
+When NOT to use:
+- If you've already read the file in this conversation
+- For binary files
+
 ## list_dir
 List files and directories at a path.
 Parameters: { path: string }
+
+When to use:
+- To explore a specific directory
+- To see what's in a folder
+
+When NOT to use:
+- For recursive file discovery (use glob instead)
 
 ## glob
 Find files matching a pattern. Excludes node_modules and .git.
 Parameters: { pattern: string, cwd?: string }
 
+When to use:
+- To find all files of a type: glob({ pattern: "**/*.ts" })
+- To find files in a subtree: glob({ pattern: "src/**/*.tsx" })
+- To discover project structure
+
+When NOT to use:
+- If you already know the exact file path (use read_file directly)
+
 ## grep
 Search file contents using a regex pattern.
-Parameters: { pattern: string, filePattern?: string, cwd?: string }`;
+Parameters: { pattern: string, filePattern?: string, cwd?: string }
+
+When to use:
+- To find where something is defined: grep({ pattern: "function handleSubmit" })
+- To find usages: grep({ pattern: "import.*from.*safety" })
+- To search specific file types: grep({ pattern: "TODO", filePattern: "**/*.ts" })
+
+When NOT to use:
+- For simple file listing (use glob)
+- When you need full file content (use read_file)`;
 
 /**
  * Full tool documentation (for Build mode)
@@ -110,7 +143,14 @@ Use for NEW files only. For existing files, use edit_file instead.
 Replace a specific string in a file. The oldString must match exactly.
 Parameters: { path: string, oldString: string, newString: string }
 
-CRITICAL: You MUST read_file first to get the exact text to replace.
+CRITICAL: You MUST read_file first before calling edit_file.
+- Edits will FAIL if oldString doesn't match exactly (including whitespace)
+- Never guess file contents - always verify by reading first
+- If the file hasn't been read in this conversation, read it now
+
+Example workflow:
+1. read_file({ path: "src/utils.ts" })  // See exact content
+2. edit_file({ path: "src/utils.ts", oldString: "...", newString: "..." })
 
 ## run_command
 Execute a shell command.
@@ -204,7 +244,7 @@ Use these tools FREQUENTLY to demonstrate progress and ensure completeness.
 ## todo_write
 Create or update your task list. Sends the COMPLETE updated list each time.
 
-Parameters: { sessionId: string, todos: [{ id, content, status, priority? }] }
+Parameters: { todos: [{ id, content, status, priority? }] }
 
 Status values:
 - pending: Not yet started
@@ -217,25 +257,42 @@ Priority values: high, medium (default), low
 ## todo_read
 Read your current task list to check progress.
 
-Parameters: { sessionId: string }
+Parameters: (none)
 
-## When to Use Todos
-Use todo_write proactively for:
-- Complex multi-step tasks (3+ steps)
-- After receiving new instructions
-- After completing a task (mark complete immediately)
-- When starting a task (mark in_progress)
+## CRITICAL: When to Create Todos
+
+You MUST use todo_write IMMEDIATELY when:
+- Task requires modifying 3+ files
+- User provides multiple tasks (numbered or comma-separated list)
+- Task has 3+ distinct steps
+- You need to track a multi-step implementation
 
 Do NOT use for:
-- Single trivial tasks
+- Single trivial tasks (one file, one change)
 - Informational questions
-- Tasks under 3 steps
+- Tasks completable in 1-2 simple steps
+
+## Example: Proactive Todo Creation
+
+User: "Add input validation to the API endpoints"
+
+CORRECT response pattern:
+1. FIRST call todo_write with task breakdown:
+   - Find all API endpoint files
+   - Add validation to user endpoint
+   - Add validation to settings endpoint
+   - Add validation to auth endpoint
+   - Test the changes
+2. THEN start exploring/implementing
+
+WRONG: Start reading files without creating a task list first.
 
 ## Best Practices
-- Mark tasks complete IMMEDIATELY after finishing
+- Create todo list IMMEDIATELY after receiving complex request
+- Mark tasks complete AS SOON AS you finish (not in batches)
 - Only ONE task should be in_progress at a time
 - Break complex tasks into smaller, actionable items
-- Update the list as you learn more about the task`;
+- Update the list as you discover new requirements`;
 
 /**
  * Task management guidance for system prompts

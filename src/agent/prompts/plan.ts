@@ -16,7 +16,7 @@ import {
   PARALLEL_TOOL_CALLS,
   EXPLORATION_STRATEGY,
   CODE_REFERENCE_PATTERN,
-  TASK_MANAGEMENT_GUIDANCE,
+  TODO_TOOLS_DOC,
 } from "./shared";
 
 export function buildPlanModePrompt(ctx: SystemPromptContext): string {
@@ -56,7 +56,7 @@ ${TOOL_RESULT_NOTE}
 
 ${CODE_REFERENCE_PATTERN}
 
-${TASK_MANAGEMENT_GUIDANCE}
+${TODO_TOOLS_DOC}
 
 # Examples
 
