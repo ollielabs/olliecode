@@ -18,6 +18,7 @@ import { processStream, isAbortError } from "./stream-handler";
 import { processToolCalls } from "./tool-processor";
 import { detectConsecutiveLoop, detectDoomLoop, detectNotFoundPattern } from "./loop-detector";
 import { fetchModelInfo, getContextStats } from "../lib/tokenizer";
+import { compactMessages, getCompactionLevel, needsCompaction as checkNeedsCompaction } from "./compaction";
 
 /**
  * Arguments for running the agent.
@@ -342,6 +343,26 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
               attempts: config.loopThreshold,
             };
           }
+        }
+      }
+
+      // Check for context compaction
+      if (config.autoCompaction && maxContextTokens) {
+        const stats = getContextStats(messages, maxContextTokens);
+        if (checkNeedsCompaction(stats.usagePercent, config.compactionThreshold)) {
+          log("Context usage at", stats.usagePercent + "%, triggering compaction");
+          const level = getCompactionLevel(stats.usagePercent);
+          const result = await compactMessages(
+            messages,
+            level,
+            undefined, // use default config
+            args.model,
+            args.host
+          );
+          // Replace messages array with compacted version
+          messages.length = 0;
+          messages.push(...result.messages);
+          log("Compacted:", result.originalCount, "→", result.compactedCount, "messages");
         }
       }
     }

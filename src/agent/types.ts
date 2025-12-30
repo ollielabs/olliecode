@@ -112,6 +112,10 @@ export type AgentConfig = {
   maxIterations: number;
   loopDetection: boolean;
   loopThreshold: number;
+  /** Enable auto-compaction when context usage exceeds threshold */
+  autoCompaction: boolean;
+  /** Context usage threshold (0-100) to trigger compaction, default 80 */
+  compactionThreshold: number;
 };
 
 /**
@@ -123,9 +127,13 @@ export type AgentConfig = {
  * 
  * loopThreshold of 3 means 3 truly consecutive identical calls trigger detection.
  * The smarter loop detection allows interleaved patterns like read→edit→read.
+ * 
+ * autoCompaction enabled by default at 80% context usage threshold.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxIterations: 15,
   loopDetection: true,
   loopThreshold: 3,
+  autoCompaction: true,
+  compactionThreshold: 80,
 };
