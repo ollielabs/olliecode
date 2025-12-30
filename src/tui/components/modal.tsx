@@ -39,21 +39,28 @@ export function Modal({
   // Width based on size prop (matching OpenCode's pattern)
   const modalWidth = size === "large" ? 80 : 60;
 
+  // Calculate centered position
+  const leftOffset = Math.max(0, Math.floor((termWidth - modalWidth) / 2));
+  const topOffset = Math.floor(termHeight / 4);
+
   return (
-    // Full-screen backdrop with semi-transparent black (alpha = 150/255 ≈ 59%)
-    <box
-      position="absolute"
-      left={0}
-      top={0}
-      width={termWidth}
-      height={termHeight}
-      alignItems="center"
-      paddingTop={Math.floor(termHeight / 4)}
-      backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
-      zIndex={100}
-    >
-      {/* Centered modal dialog - no height constraint, content controls its own height */}
+    <>
+      {/* Full-screen backdrop with semi-transparent black */}
       <box
+        position="absolute"
+        left={0}
+        top={0}
+        width={termWidth}
+        height={termHeight}
+        backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+        zIndex={100}
+      />
+      
+      {/* Centered modal dialog - positioned separately */}
+      <box
+        position="absolute"
+        left={leftOffset}
+        top={topOffset}
         width={modalWidth}
         maxWidth={termWidth - 2}
         backgroundColor="#1a1a2e"
@@ -62,6 +69,7 @@ export function Modal({
         paddingBottom={1}
         paddingLeft={2}
         paddingRight={2}
+        zIndex={101}
       >
         {/* Header */}
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
@@ -72,6 +80,6 @@ export function Modal({
         {/* Content - rendered directly, no wrapper scrollbox */}
         {children}
       </box>
-    </box>
+    </>
   );
 }

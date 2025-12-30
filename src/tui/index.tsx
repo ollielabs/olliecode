@@ -16,6 +16,9 @@ import type { ToolResult, AgentStep } from "../agent/types";
 import type { ConfirmationRequest, ConfirmationResponse } from "../agent/safety/types";
 import type { AgentMode } from "../agent/modes";
 import { toggleMode, DEFAULT_MODE } from "../agent/modes";
+import { compactMessages, getCompactionLevel } from "../agent/compaction";
+import { fetchModelInfo, getContextStats, type ContextStats } from "../lib/tokenizer";
+import { ContextStatsModal } from "./components/context-stats-modal";
 import { InputBox } from "./components/input-box";
 import { ConfirmationDialog } from "./components/confirmation-dialog";
 import type { Status } from "./components/status-bar";
@@ -84,6 +87,13 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
   const [commandSelectedIndex, setCommandSelectedIndex] = useState(0);
+
+  // Context info state (for notifications)
+  const [contextInfo, setContextInfo] = useState<string | null>(null);
+  
+  // Context stats modal state
+  const [showContextStats, setShowContextStats] = useState(false);
+  const [contextStats, setContextStats] = useState<ContextStats | null>(null);
 
   // Refs to avoid stale closures in async handlers
   const statusRef = useRef(status);
@@ -373,6 +383,101 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
     setSessionRefreshKey((prev) => prev + 1);
   };
 
+  // Handle /clear command - reset context but keep session
+  const handleClearContext = () => {
+    setHistory([]);
+    setDisplayMessages([]);
+    setStreamingContent("");
+    setError("");
+    setContextInfo("Context cleared. Starting fresh conversation.");
+    setTimeout(() => setContextInfo(null), 3000);
+  };
+
+  // Handle /compact command - manually trigger compaction
+  const handleCompact = async () => {
+    if (history.length === 0) {
+      setContextInfo("Nothing to compact - context is empty.");
+      setTimeout(() => setContextInfo(null), 3000);
+      return;
+    }
+
+    try {
+      setContextInfo("Compacting context...");
+      const modelInfo = await fetchModelInfo(model, host);
+      const stats = getContextStats(history, modelInfo.contextLength);
+      const level = getCompactionLevel(stats.usagePercent);
+      
+      const result = await compactMessages(
+        [{ role: "system", content: "" }, ...history],
+        level,
+        undefined,
+        model,
+        host
+      );
+
+      // Remove the system prompt placeholder we added
+      const compactedHistory = result.messages.slice(1);
+      setHistory(compactedHistory);
+      
+      setContextInfo(
+        `Compacted: ${result.originalCount} → ${result.compactedCount} messages, ` +
+        `${result.tokensBefore} → ${result.tokensAfter} tokens (${Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)}% reduction)`
+      );
+      setTimeout(() => setContextInfo(null), 5000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setContextInfo(`Compaction failed: ${msg}`);
+      setTimeout(() => setContextInfo(null), 5000);
+    }
+  };
+
+  // Handle /context command - show usage stats in modal
+  const handleShowContext = async () => {
+    if (history.length === 0) {
+      setContextInfo("Context is empty.");
+      setTimeout(() => setContextInfo(null), 3000);
+      return;
+    }
+
+    try {
+      const modelInfo = await fetchModelInfo(model, host);
+      const stats = getContextStats(history, modelInfo.contextLength);
+      setContextStats(stats);
+      setShowContextStats(true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setContextInfo(`Could not get context stats: ${msg}`);
+      setTimeout(() => setContextInfo(null), 5000);
+    }
+  };
+  
+  // Handle context stats modal close
+  const handleContextStatsClose = () => {
+    setShowContextStats(false);
+    setContextStats(null);
+    setTimeout(() => textareaRef.current?.focus(), 10);
+  };
+
+  // Handle /forget command - drop last n messages
+  const handleForget = (n: number) => {
+    if (history.length === 0) {
+      setContextInfo("Nothing to forget - context is empty.");
+      setTimeout(() => setContextInfo(null), 3000);
+      return;
+    }
+
+    const toRemove = Math.min(n, history.length);
+    const newHistory = history.slice(0, -toRemove);
+    setHistory(newHistory);
+    
+    // Also remove from display (approximate - remove last n*2 since each turn has user+assistant)
+    const displayToRemove = Math.min(toRemove * 2, displayMessages.length);
+    setDisplayMessages((prev) => prev.slice(0, -displayToRemove));
+    
+    setContextInfo(`Forgot last ${toRemove} message${toRemove === 1 ? "" : "s"}.`);
+    setTimeout(() => setContextInfo(null), 3000);
+  };
+
   // Define available slash commands
   const slashCommands: SlashCommand[] = [
     {
@@ -388,6 +493,41 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       description: "Switch to a different session",
       action: () => {
         setShowSessionPicker(true);
+        textareaRef.current?.setText("");
+      },
+    },
+    {
+      name: "clear",
+      description: "Clear context (keep session)",
+      action: () => {
+        handleClearContext();
+        textareaRef.current?.setText("");
+      },
+    },
+    {
+      name: "compact",
+      description: "Manually compact context",
+      action: () => {
+        void handleCompact();
+        textareaRef.current?.setText("");
+      },
+    },
+    {
+      name: "context",
+      description: "Show context usage stats",
+      action: () => {
+        void handleShowContext();
+        textareaRef.current?.setText("");
+      },
+    },
+    {
+      name: "forget",
+      description: "Forget last N messages (e.g., /forget 3)",
+      action: () => {
+        // Default to 1 if no number provided
+        const filterNum = parseInt(commandFilter.replace("forget", "").trim(), 10);
+        const n = isNaN(filterNum) || filterNum < 1 ? 1 : filterNum;
+        handleForget(n);
         textareaRef.current?.setText("");
       },
     },
@@ -416,6 +556,15 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   if (displayMessages.length === 0) {
     return (
       <box key="greeting-container" flexDirection="column" flexGrow={1} alignItems="center" justifyContent="center">
+        {/* Context stats modal - rendered at top level for proper overlay */}
+        {showContextStats && contextStats && (
+          <ContextStatsModal
+            stats={contextStats}
+            modelName={model}
+            onClose={handleContextStatsClose}
+          />
+        )}
+        
         <box flexDirection="row">
           <ascii-font text="Olly" font="tiny" color={RGBA.fromHex("#7aa2f7")} />
           <text>{' '}</text>
@@ -431,6 +580,13 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
             onCancel={handleSessionPickerCancel}
             onSessionsChanged={handleSessionsChanged}
           />
+        )}
+        
+        {/* Context info notification */}
+        {contextInfo && (
+          <box marginTop={1}>
+            <text fg="#888">{contextInfo}</text>
+          </box>
         )}
         
         {/* Input container - command menu overlays above textarea */}
@@ -466,6 +622,27 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   // Chat screen
   return (
     <box key="chat-container" flexDirection="column" flexGrow={1} flexShrink={1} paddingTop={1} paddingLeft={2} paddingRight={2}>
+      {/* Context stats modal - rendered at top level for proper overlay */}
+      {showContextStats && contextStats && (
+        <ContextStatsModal
+          stats={contextStats}
+          modelName={model}
+          onClose={handleContextStatsClose}
+        />
+      )}
+      
+      {/* Session picker modal - rendered at top level for proper overlay */}
+      {showSessionPicker && (
+        <SessionPicker
+          key={sessionRefreshKey}
+          sessions={listSessions({ limit: 50 })}
+          projectPath={projectPath}
+          onSelect={handleSessionSelect}
+          onCancel={handleSessionPickerCancel}
+          onSessionsChanged={handleSessionsChanged}
+        />
+      )}
+      
       <scrollbox flexGrow={1} flexShrink={1} stickyScroll={true} stickyStart="bottom" scrollAcceleration={fastScrollAccel}>
         <box flexDirection="column" flexGrow={1}>
           <box>
@@ -518,6 +695,13 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       </scrollbox>
 
       <box flexDirection="column" flexShrink={0} position="relative">
+        {/* Context info notification */}
+        {contextInfo && (
+          <box paddingLeft={1}>
+            <text fg="#888">{contextInfo}</text>
+          </box>
+        )}
+        
         {showCommandMenu && (
           <CommandMenu
             commands={slashCommands}
@@ -527,17 +711,6 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
             onCancel={handleCommandMenuCancel}
             onIndexChange={handleCommandIndexChange}
             bottom={5}
-          />
-        )}
-        
-        {showSessionPicker && (
-          <SessionPicker
-            key={sessionRefreshKey}
-            sessions={listSessions({ limit: 50 })}
-            projectPath={projectPath}
-            onSelect={handleSessionSelect}
-            onCancel={handleSessionPickerCancel}
-            onSessionsChanged={handleSessionsChanged}
           />
         )}
         
