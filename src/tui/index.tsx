@@ -434,7 +434,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
         )}
         
         {/* Input container - command menu overlays above textarea */}
-        <box flexDirection="column" marginTop={2} width={60} position="relative">
+        <box flexDirection="column" marginTop={2} width={80} position="relative">
           {showCommandMenu && (
             <CommandMenu
               commands={slashCommands}
@@ -444,7 +444,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
               onCancel={handleCommandMenuCancel}
               onIndexChange={handleCommandIndexChange}
               bottom={5}
-              width={60}
+              width={80}
             />
           )}
           

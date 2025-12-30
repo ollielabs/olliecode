@@ -166,6 +166,8 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
   }
 
   // Check for oscillating pattern (A->B->A->B or similar)
+  // But exclude search tool oscillations - grep/glob alternation is normal search behavior
+  const searchTools = new Set(["grep", "glob", "read_file", "list_dir"]);
   if (recent.length >= 4) {
     const toolSequence = recent.map((s) => s.actions[0]?.function.name ?? "none");
     
@@ -176,16 +178,175 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
       toolSequence[1] === toolSequence[3] &&
       toolSequence[0] !== toolSequence[1]
     ) {
-      return {
-        detected: true,
-        type: "oscillating",
-        tool: toolSequence[0],
-        suggestion: `Agent is oscillating between "${toolSequence[0]}" and "${toolSequence[1]}". This pattern won't make progress - try a different approach.`,
-      };
+      // Don't flag oscillation between search tools - that's normal exploration
+      const isSearchOscillation = 
+        searchTools.has(toolSequence[0] ?? "") && 
+        searchTools.has(toolSequence[1] ?? "");
+      
+      if (!isSearchOscillation) {
+        return {
+          detected: true,
+          type: "oscillating",
+          tool: toolSequence[0],
+          suggestion: `Agent is oscillating between "${toolSequence[0]}" and "${toolSequence[1]}". This pattern won't make progress - try a different approach.`,
+        };
+      }
     }
   }
 
   return { detected: false, type: "none" };
+}
+
+/**
+ * Detects truly consecutive identical tool calls.
+ * 
+ * Unlike detectLoop() which checks if steps have the same first action,
+ * this flattens all tool calls and only triggers when the EXACT same
+ * tool+args appears N times in a row without ANY different tool in between.
+ * 
+ * This allows patterns like:
+ *   read_file(A) → edit_file(A) → read_file(A)  ← OK (different tool between)
+ * 
+ * But catches:
+ *   read_file(A) → read_file(A) → read_file(A)  ← LOOP (truly consecutive)
+ * 
+ * @param steps - Array of completed agent steps
+ * @param threshold - Number of consecutive identical calls to trigger detection
+ * @returns Detection result with action name if loop found
+ */
+export function detectConsecutiveLoop(
+  steps: AgentStep[],
+  threshold: number
+): LoopDetectionResult {
+  // Flatten all tool calls across all steps into a single sequence
+  const allCalls: Array<{ function: { name: string; arguments: unknown } }> = [];
+  for (const step of steps) {
+    for (const action of step.actions) {
+      allCalls.push(action);
+    }
+  }
+
+  if (allCalls.length < threshold) {
+    return { detected: false };
+  }
+
+  // Check for consecutive identical calls
+  let consecutiveCount = 1;
+  let currentSignature = allCalls[0] ? getActionSignature(allCalls[0]) : "";
+
+  for (let i = 1; i < allCalls.length; i++) {
+    const call = allCalls[i];
+    if (!call) continue;
+
+    const signature = getActionSignature(call);
+
+    if (signature === currentSignature) {
+      consecutiveCount++;
+      if (consecutiveCount >= threshold) {
+        return {
+          detected: true,
+          action: call.function.name,
+          signature,
+        };
+      }
+    } else {
+      // Different tool - reset counter
+      consecutiveCount = 1;
+      currentSignature = signature;
+    }
+  }
+
+  return { detected: false };
+}
+
+/**
+ * Result of not-found pattern detection
+ */
+export type NotFoundResult = {
+  detected: boolean;
+  /** The search term or pattern that wasn't found */
+  searchTerm?: string;
+  /** The tool(s) that returned empty results */
+  tools?: string[];
+  /** Suggestion for what to do */
+  suggestion?: string;
+};
+
+/**
+ * Detects when the agent is searching for something that doesn't exist.
+ * 
+ * Triggers when search tools (grep, glob) return empty results or errors
+ * repeatedly, suggesting the item being searched for doesn't exist.
+ * 
+ * @param steps - Array of completed agent steps
+ * @param threshold - Number of failed searches to trigger detection (default 3)
+ * @returns Detection result with search info if pattern found
+ */
+export function detectNotFoundPattern(
+  steps: AgentStep[],
+  threshold: number = 3
+): NotFoundResult {
+  if (steps.length < 2) {
+    return { detected: false };
+  }
+
+  // Track search tool results
+  const searchTools = ["grep", "glob", "read_file"];
+  const emptySearches: Array<{ tool: string; args: unknown }> = [];
+  const recentSteps = steps.slice(-Math.max(threshold + 2, 5));
+
+  for (const step of recentSteps) {
+    for (let i = 0; i < step.actions.length; i++) {
+      const action = step.actions[i];
+      const observation = step.observations[i];
+
+      if (!action || !observation) continue;
+
+      const toolName = action.function.name;
+      if (!searchTools.includes(toolName)) continue;
+
+      // Check if search returned empty or error
+      const isEmptyOrError =
+        observation.error !== undefined ||
+        observation.output === "" ||
+        observation.output === "[]" ||
+        observation.output.includes("No matches found") ||
+        observation.output.includes("no matches") ||
+        observation.output.includes("0 matches") ||
+        (toolName === "read_file" &&
+          (observation.output.includes("ENOENT") ||
+            observation.output.includes("no such file") ||
+            observation.output.includes("does not exist")));
+
+      if (isEmptyOrError) {
+        emptySearches.push({ tool: toolName, args: action.function.arguments });
+      }
+    }
+  }
+
+  if (emptySearches.length >= threshold) {
+    // Try to extract what was being searched for
+    const searchTerms = new Set<string>();
+    const tools = new Set<string>();
+
+    for (const search of emptySearches) {
+      tools.add(search.tool);
+      const args = search.args as Record<string, unknown>;
+      if (args.pattern) searchTerms.add(String(args.pattern));
+      if (args.path) searchTerms.add(String(args.path));
+    }
+
+    const searchTerm = [...searchTerms].join(", ") || "unknown";
+
+    return {
+      detected: true,
+      searchTerm,
+      tools: [...tools],
+      suggestion: `Searches for "${searchTerm}" have returned empty ${emptySearches.length} times. The item likely doesn't exist in this codebase.`,
+    };
+  }
+
+  return { detected: false };
 }
 
 /**

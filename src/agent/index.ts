@@ -16,7 +16,7 @@ import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse, type 
 import { log } from "./logger";
 import { processStream, isAbortError } from "./stream-handler";
 import { processToolCalls } from "./tool-processor";
-import { detectLoop, detectDoomLoop } from "./loop-detector";
+import { detectConsecutiveLoop, detectDoomLoop, detectNotFoundPattern } from "./loop-detector";
 
 /**
  * Arguments for running the agent.
@@ -49,6 +49,9 @@ export type RunAgentArgs = {
   /** Configuration overrides */
   config?: Partial<AgentConfig>;
   safetyConfig?: Partial<SafetyConfig>;
+
+  /** Override the system prompt (used by subagents) */
+  systemPromptOverride?: string;
 };
 
 /**
@@ -123,7 +126,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
 
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
-  const systemPrompt = getSystemPromptForMode(mode);
+  const systemPrompt = args.systemPromptOverride ?? getSystemPromptForMode(mode);
 
   log("Starting agent with model:", args.model, "host:", args.host, "mode:", mode);
   log("Tools available:", modeTools.map((t) => t.function.name));
@@ -244,6 +247,8 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
           context: {
             sessionId: args.sessionId,
             projectRoot: args.safetyConfig?.projectRoot,
+            model: args.model,
+            host: args.host,
           },
         }
       );
@@ -267,10 +272,11 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
 
       // Check for loops (both identical and doom loops)
       if (config.loopDetection) {
-        // Check for identical loops first
-        const loopCheck = detectLoop(steps, config.loopThreshold);
+        // Check for truly consecutive identical loops
+        // This allows read→edit→read patterns but catches read→read→read
+        const loopCheck = detectConsecutiveLoop(steps, config.loopThreshold);
         if (loopCheck.detected) {
-          log("Loop detected:", loopCheck.signature);
+          log("Consecutive loop detected:", loopCheck.signature);
           return {
             type: "loop_detected",
             action: loopCheck.action ?? "unknown",
@@ -278,15 +284,36 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
           };
         }
 
-        // Check for doom loops (error patterns, oscillations)
-        const doomCheck = detectDoomLoop(steps, config.loopThreshold + 1);
-        if (doomCheck.detected) {
-          log("Doom loop detected:", doomCheck.type, doomCheck.suggestion);
-          return {
-            type: "loop_detected",
-            action: doomCheck.tool ?? "unknown",
-            attempts: config.loopThreshold,
-          };
+        // Check for not-found patterns BEFORE doom loops
+        // This prevents treating "searching for nonexistent item" as a doom loop
+        const notFoundCheck = detectNotFoundPattern(steps, config.loopThreshold);
+        if (notFoundCheck.detected) {
+          log("Not-found pattern detected:", notFoundCheck.searchTerm);
+          // Inject a system reminder to help the agent give up gracefully
+          // Don't return an error - give the agent a chance to report "not found"
+          messages.push({
+            role: "system",
+            content: `<system-reminder>
+Your searches for "${notFoundCheck.searchTerm}" have returned empty multiple times.
+This likely means it doesn't exist in this codebase.
+Report this finding to the user rather than continuing to search.
+A response like "I couldn't find X in this codebase" is helpful and valid.
+</system-reminder>`,
+          });
+          // Don't check doom loops when not-found is detected
+          // The agent should respond with "not found" on the next iteration
+        } else {
+          // Check for doom loops (error patterns, oscillations)
+          // Only check if NOT already handling a not-found pattern
+          const doomCheck = detectDoomLoop(steps, config.loopThreshold + 1);
+          if (doomCheck.detected) {
+            log("Doom loop detected:", doomCheck.type, doomCheck.suggestion);
+            return {
+              type: "loop_detected",
+              action: doomCheck.tool ?? "unknown",
+              attempts: config.loopThreshold,
+            };
+          }
         }
       }
     }

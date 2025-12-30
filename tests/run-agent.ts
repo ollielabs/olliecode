@@ -17,8 +17,8 @@ if (!prompt) {
   process.exit(1);
 }
 
-const model = process.env.OLLAMA_MODEL || "granite4:latest";
-const host = process.env.OLLAMA_HOST || "http://192.168.1.221:11434";
+const model = process.env.OLLAMA_MODEL || "gpt-oss:120b-cloud";
+const host = process.env.OLLAMA_HOST || "https://ollama.com";
 
 // Initialize database and create a session for todo tools
 initDatabase();

@@ -16,6 +16,7 @@ import {
   PARALLEL_TOOL_CALLS,
   CODE_REFERENCE_PATTERN,
   TODO_TOOLS_DOC,
+  SEARCH_GUIDANCE,
 } from "./shared";
 
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
@@ -55,6 +56,8 @@ ${PARALLEL_TOOL_CALLS}
 ${TOOL_RESULT_NOTE}
 
 ${CODE_REFERENCE_PATTERN}
+
+${SEARCH_GUIDANCE}
 
 ${TODO_TOOLS_DOC}
 

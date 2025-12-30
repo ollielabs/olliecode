@@ -11,6 +11,7 @@ import { writeFileTool } from "./write-file";
 import { editFileTool } from "./edit-file";
 import { runCommandTool } from "./run-command";
 import { todoWriteTool, todoReadTool } from "./todo";
+import { taskTool } from "./task";
 
 // All registered tools
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,6 +25,7 @@ const tools: ToolDefinition<any, any>[] = [
   runCommandTool,
   todoWriteTool,
   todoReadTool,
+  taskTool,
 ];
 
 // Tool name constants for reference
@@ -37,6 +39,7 @@ export const TOOL_NAMES = {
   RUN_COMMAND: "run_command",
   TODO_WRITE: "todo_write",
   TODO_READ: "todo_read",
+  TASK: "task",
 } as const;
 
 // Convert ToolDefinition to Ollama Tool format
@@ -63,6 +66,32 @@ function toOllamaTool(def: ToolDefinition<any, any>): Tool {
 
 // Ollama-compatible tool schemas (all tools)
 export const ollamaTools: Tool[] = tools.map(toOllamaTool);
+
+/**
+ * Get a tool definition by name.
+ * Useful for checking tool properties like risk level.
+ */
+export function getToolDefinition(
+  name: string
+): ToolDefinition<any, any> | undefined {
+  return tools.find((t) => t.name === name);
+}
+
+/**
+ * Check if a tool is safe for parallel execution.
+ * Safe tools have risk: "safe" and don't require confirmation.
+ */
+export function isToolSafeForParallel(name: string): boolean {
+  const tool = getToolDefinition(name);
+  return tool?.risk === "safe";
+}
+
+/**
+ * Get all tools that are safe for parallel execution.
+ */
+export function getSafeParallelTools(): string[] {
+  return tools.filter((t) => t.risk === "safe").map((t) => t.name);
+}
 
 /**
  * Get Ollama-compatible tools filtered by mode

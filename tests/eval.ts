@@ -483,22 +483,338 @@ const tests: TestCase[] = [
   },
 
   // ===========================================
+  // TASK TOOL - Subagent delegation (complex exploration)
+  // ===========================================
+  {
+    name: "Task tool - project architecture",
+    prompt: "What is the architecture of this project? Give me a comprehensive overview.",
+    assertions: [
+      { type: "js", value: "output.length > 300", description: "Provides comprehensive response" },
+      { type: "js", value: "output.toLowerCase().includes('agent') || output.toLowerCase().includes('src')", description: "Discusses project structure" },
+    ],
+  },
+  {
+    name: "Task tool - agent system flow",
+    prompt: "How does the entire agent system work from start to finish?",
+    assertions: [
+      { type: "js", value: "output.length > 200", description: "Provides detailed response" },
+      { type: "js", value: "output.toLowerCase().includes('tool') || output.toLowerCase().includes('loop') || output.toLowerCase().includes('message')", description: "Explains agent mechanics" },
+    ],
+  },
+  {
+    name: "Task tool - safety enforcement",
+    prompt: "How is safety enforced across the codebase?",
+    assertions: [
+      { type: "js", value: "output.length > 200", description: "Provides detailed response" },
+      { type: "js", value: "output.toLowerCase().includes('safety') || output.toLowerCase().includes('valid')", description: "Discusses safety" },
+    ],
+  },
+
+  // ===========================================
   // PLAN MODE - Command filtering
   // ===========================================
   {
     name: "Plan mode - git log allowed",
     prompt: "Run git log --oneline -3",
     assertions: [
-      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
       { type: "js", value: "output.toLowerCase().includes('commit') || output.toLowerCase().includes('git') || /[a-f0-9]{7}/.test(output)", description: "Shows git output" },
+      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
     ],
   },
   {
     name: "Plan mode - ls allowed",
     prompt: "Run ls -la src/agent",
     assertions: [
-      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
       { type: "js", value: "output.toLowerCase().includes('index') || output.toLowerCase().includes('tools') || output.toLowerCase().includes('types')", description: "Lists files" },
+      { type: "js", value: "!output.toLowerCase().includes('not available')", description: "Command not blocked" },
+    ],
+  },
+
+  // ===========================================
+  // READ_FILE - Line numbers (new feature)
+  // ===========================================
+  {
+    name: "File display shows line numbers",
+    prompt: "Show me the first 10 lines of package.json",
+    assertions: [
+      // Agent may format line numbers as "1|" or "lines 1-10" or "first 10 lines" etc
+      { type: "js", value: "/\\d+\\|/.test(output) || /line[s]?/i.test(output) || /first\\s*\\d+/i.test(output)", description: "References lines" },
+      { type: "icontains", value: "name", description: "Shows package name" },
+    ],
+  },
+  {
+    name: "File read includes context",
+    prompt: "What's on line 5 of src/agent/types.ts?",
+    assertions: [
+      { type: "js", value: "output.length > 20", description: "Provides content" },
+    ],
+  },
+
+  // ===========================================
+  // PARALLEL EXPLORATION - Natural multi-file queries
+  // ===========================================
+  {
+    name: "Multi-file query",
+    prompt: "Compare package.json and tsconfig.json - what do they tell us about this project?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('typescript') || output.toLowerCase().includes('dependencies') || output.toLowerCase().includes('compiler')", description: "Discusses both files" },
+      { type: "js", value: "output.length > 200", description: "Comprehensive response" },
+    ],
+  },
+  {
+    name: "Dual module exploration",
+    prompt: "How do the agent and TUI modules work together in this project?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('agent')", description: "Discusses agent" },
+      { type: "js", value: "output.toLowerCase().includes('tui') || output.toLowerCase().includes('terminal') || output.toLowerCase().includes('interface') || output.toLowerCase().includes('ui')", description: "Discusses TUI" },
+      { type: "js", value: "output.length > 250", description: "Detailed response" },
+    ],
+  },
+
+  // ===========================================
+  // COMPLEX EXPLORATION - Should trigger task delegation
+  // ===========================================
+  {
+    name: "Deep architecture question",
+    prompt: "Give me a comprehensive overview of how this codebase is organized and what each major module does",
+    assertions: [
+      { type: "js", value: "output.length > 400", description: "Comprehensive response" },
+      { type: "js", value: "output.toLowerCase().includes('agent') || output.toLowerCase().includes('src')", description: "Discusses structure" },
+    ],
+  },
+  {
+    name: "Cross-cutting concern analysis",
+    prompt: "How is error handling implemented across this codebase?",
+    assertions: [
+      { type: "js", value: "output.length > 200", description: "Detailed response" },
+      { type: "js", value: "output.toLowerCase().includes('error') || output.toLowerCase().includes('catch') || output.toLowerCase().includes('try')", description: "Discusses error handling" },
+    ],
+  },
+  {
+    name: "Safety system deep dive",
+    prompt: "Explain the entire safety system - how does it protect against dangerous operations?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('safety') || output.toLowerCase().includes('block') || output.toLowerCase().includes('valid')", description: "Discusses safety" },
+      { type: "js", value: "output.length > 250", description: "Thorough explanation" },
+    ],
+  },
+
+  // ===========================================
+  // HALLUCINATION DETECTION - Agent must not invent facts
+  // Should gracefully report "not found" instead of looping
+  // ===========================================
+  {
+    name: "Hallucination - nonexistent file",
+    prompt: "What's in the file src/database/connection.ts?",
+    assertions: [
+      // Should NOT hit agent errors - should report gracefully
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should report that the file doesn't exist (many valid phrasings)
+      { type: "js", value: "output.toLowerCase().includes('not found') || output.toLowerCase().includes('does not exist') || output.toLowerCase().includes('no such') || output.toLowerCase().includes('couldn\\'t find') || output.toLowerCase().includes('doesn\\'t exist') || output.toLowerCase().includes('not present') || output.toLowerCase().includes('does not contain') || output.toLowerCase().includes('is not in')", description: "Reports file doesn't exist" },
+      { type: "not-icontains", value: "here is the content", description: "No hallucinated content" },
+    ],
+  },
+  {
+    name: "Hallucination - nonexistent function",
+    prompt: "Show me the implementation of the validateUserCredentials function",
+    assertions: [
+      // Should NOT hit agent errors - should report gracefully
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should report that the function doesn't exist (many valid phrasings)
+      { type: "js", value: "output.toLowerCase().includes('not found') || output.toLowerCase().includes('does not exist') || output.toLowerCase().includes('couldn\\'t find') || output.toLowerCase().includes('no function') || output.toLowerCase().includes('doesn\\'t exist') || output.toLowerCase().includes('does not contain') || output.toLowerCase().includes('not defined') || output.toLowerCase().includes('no implementation')", description: "Reports function not found" },
+      // Should not hallucinate an actual implementation (code block with function body)
+      { type: "js", value: "!output.includes('function validateUserCredentials(') && !output.includes('validateUserCredentials = ') && !output.includes('const validateUserCredentials')", description: "No hallucinated implementation" },
+    ],
+  },
+  {
+    name: "Hallucination - invented dependency",
+    prompt: "How does this project use the axios library?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('not') || output.toLowerCase().includes('doesn\\'t') || output.toLowerCase().includes('does not') || output.toLowerCase().includes('no axios')", description: "Reports axios not used" },
+      { type: "not-icontains", value: "axios is used to", description: "No invented usage" },
+    ],
+  },
+
+  // ===========================================
+  // LOOP DETECTION - Smart loop detection (Phase 4)
+  // Agent should NOT trigger loop detection on legitimate patterns
+  // ===========================================
+  {
+    name: "Loop detection - read-edit-read allowed",
+    prompt: "Read src/agent/types.ts, then add a comment at the top saying '// Phase 4 test', then show me the updated file",
+    assertions: [
+      // Should NOT hit loop detection - check for actual error format, not code content
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should complete the task - show the file with the comment
+      { type: "icontains", value: "phase 4", description: "Shows Phase 4 comment" },
+    ],
+  },
+  {
+    name: "Loop detection - multiple file reads allowed",
+    prompt: "Read package.json, tsconfig.json, and README.md and summarize each",
+    assertions: [
+      // Should NOT hit agent errors - reading different files is legitimate
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should discuss all three files
+      { type: "js", value: "output.toLowerCase().includes('package') || output.toLowerCase().includes('dependencies')", description: "Discusses package.json" },
+      { type: "js", value: "output.toLowerCase().includes('typescript') || output.toLowerCase().includes('compiler') || output.toLowerCase().includes('tsconfig')", description: "Discusses tsconfig" },
+    ],
+  },
+  {
+    name: "Loop detection - graceful not-found",
+    prompt: "Find the DatabaseManager class in this codebase",
+    assertions: [
+      // Should NOT hit agent errors - should report not found gracefully
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should report it doesn't exist
+      { type: "js", value: "output.toLowerCase().includes('not found') || output.toLowerCase().includes('does not exist') || output.toLowerCase().includes('couldn\\'t find') || output.toLowerCase().includes('no ') || output.toLowerCase().includes('doesn\\'t')", description: "Reports class not found" },
+    ],
+  },
+
+  // ===========================================
+  // PARALLEL EXECUTION - Multiple tools in parallel (Phase 4)
+  // ===========================================
+  {
+    name: "Parallel execution - dual file read",
+    prompt: "Show me both src/agent/index.ts and src/agent/types.ts side by side comparison",
+    assertions: [
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      // Should have content from both files
+      { type: "js", value: "output.toLowerCase().includes('runagent') || output.toLowerCase().includes('agent')", description: "Has index.ts content" },
+      { type: "js", value: "output.toLowerCase().includes('type') || output.toLowerCase().includes('toolresult') || output.toLowerCase().includes('agentstep')", description: "Has types.ts content" },
+    ],
+  },
+  {
+    name: "Parallel execution - multi-search",
+    prompt: "Find all usages of 'SafetyLayer' and 'ToolResult' in the codebase",
+    assertions: [
+      { type: "not-icontains", value: "[agent error:", description: "No agent error" },
+      { type: "js", value: "output.toLowerCase().includes('safety')", description: "Found SafetyLayer usages" },
+      { type: "js", value: "output.toLowerCase().includes('tool') || output.toLowerCase().includes('result')", description: "Found ToolResult usages" },
+    ],
+  },
+
+  // ===========================================
+  // FAITHFULNESS - Response must match actual file contents
+  // ===========================================
+  {
+    name: "Faithfulness - exact project name",
+    prompt: "What is the exact name field in package.json?",
+    assertions: [
+      { type: "icontains", value: "node-ollama-tui", description: "Exact package name" },
+      { type: "not-icontains", value: "node-llama", description: "Not a variation" },
+    ],
+  },
+  {
+    name: "Faithfulness - actual dependencies",
+    prompt: "List the runtime dependencies from package.json (not devDependencies)",
+    assertions: [
+      { type: "icontains", value: "ollama", description: "Lists ollama" },
+      { type: "icontains", value: "react", description: "Lists react" },
+      { type: "icontains", value: "zod", description: "Lists zod" },
+    ],
+  },
+  {
+    name: "Faithfulness - config values",
+    prompt: "What is the TypeScript target in tsconfig.json?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('esnext') || output.toLowerCase().includes('es20')", description: "Reports actual target" },
+    ],
+  },
+
+  // ===========================================
+  // TOOL CALL ACCURACY - Appropriate tool selection
+  // ===========================================
+  {
+    name: "Tool accuracy - file read vs search",
+    prompt: "Show me exactly what's in src/index.tsx",
+    assertions: [
+      { type: "js", value: "output.includes('import') || output.includes('export') || output.includes('function') || output.includes('const')", description: "Shows actual code" },
+      { type: "js", value: "output.length > 100", description: "Substantial content" },
+    ],
+  },
+  {
+    name: "Tool accuracy - search across files",
+    prompt: "Find all files that export a 'Tool' type",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('types') || output.toLowerCase().includes('tool')", description: "Found relevant files" },
+      { type: "js", value: "output.includes('.ts')", description: "Lists TypeScript files" },
+    ],
+  },
+  {
+    name: "Tool accuracy - directory listing",
+    prompt: "What directories are in src/agent?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('tools') || output.toLowerCase().includes('safety') || output.toLowerCase().includes('prompts')", description: "Lists subdirectories" },
+    ],
+  },
+
+  // ===========================================
+  // COMPLETENESS - Covers all aspects of question
+  // ===========================================
+  {
+    name: "Completeness - multi-part question",
+    prompt: "What does this project do, what technologies does it use, and how do I run it?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('ollama') || output.toLowerCase().includes('llm') || output.toLowerCase().includes('ai')", description: "Explains purpose" },
+      { type: "js", value: "output.toLowerCase().includes('react') || output.toLowerCase().includes('typescript') || output.toLowerCase().includes('bun')", description: "Lists technologies" },
+      { type: "js", value: "output.toLowerCase().includes('bun') || output.toLowerCase().includes('dev') || output.toLowerCase().includes('run') || output.toLowerCase().includes('install')", description: "Explains how to run" },
+    ],
+  },
+  {
+    name: "Completeness - enumeration request",
+    prompt: "List all the tools available to the agent",
+    assertions: [
+      { type: "icontains", value: "read", description: "Mentions read tool" },
+      { type: "icontains", value: "write", description: "Mentions write tool" },
+      { type: "icontains", value: "grep", description: "Mentions grep tool" },
+      { type: "js", value: "(output.match(/tool|glob|read|write|edit|grep|command/gi) || []).length >= 4", description: "Lists multiple tools" },
+    ],
+  },
+
+  // ===========================================
+  // ANSWER RELEVANCY - Response addresses the query
+  // ===========================================
+  {
+    name: "Relevancy - specific question",
+    prompt: "How many lines of code are in src/agent/index.ts?",
+    assertions: [
+      { type: "js", value: "/\\d+/.test(output)", description: "Provides a number" },
+      { type: "js", value: "output.toLowerCase().includes('line')", description: "Mentions lines" },
+    ],
+  },
+  {
+    name: "Relevancy - comparison request",
+    prompt: "Which file is larger: src/agent/index.ts or src/agent/tool-processor.ts?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('larger') || output.toLowerCase().includes('bigger') || output.toLowerCase().includes('more lines') || output.toLowerCase().includes('index') || output.toLowerCase().includes('processor')", description: "Makes comparison" },
+    ],
+  },
+  {
+    name: "Relevancy - yes/no question",
+    prompt: "Does this project use SQLite?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('yes') || output.toLowerCase().includes('sqlite') || output.toLowerCase().includes('database') || output.toLowerCase().includes('no')", description: "Answers yes/no with context" },
+    ],
+  },
+
+  // ===========================================
+  // CONTEXT RELEVANCE - Uses appropriate sources
+  // ===========================================
+  {
+    name: "Context relevance - config question",
+    prompt: "What TypeScript compiler options are configured?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('strict') || output.toLowerCase().includes('target') || output.toLowerCase().includes('module')", description: "Discusses actual tsconfig options" },
+      { type: "not-icontains", value: "package.json", description: "Focuses on tsconfig, not package.json" },
+    ],
+  },
+  {
+    name: "Context relevance - code question",
+    prompt: "How does the agent loop work?",
+    assertions: [
+      { type: "js", value: "output.toLowerCase().includes('loop') || output.toLowerCase().includes('iteration') || output.toLowerCase().includes('step')", description: "Discusses loop mechanics" },
+      { type: "js", value: "output.toLowerCase().includes('tool') || output.toLowerCase().includes('model') || output.toLowerCase().includes('message')", description: "References relevant concepts" },
     ],
   },
 ];
@@ -516,7 +832,9 @@ function checkAssertion(output: string, assertion: TestCase["assertions"][0]): b
       return !lower.includes(assertion.value.toLowerCase());
     case "js":
       try {
-        return eval(assertion.value);
+        // Use Function constructor to properly pass output into scope
+        const fn = new Function("output", `return (${assertion.value})`);
+        return fn(output);
       } catch {
         return false;
       }
@@ -586,8 +904,8 @@ async function runTest(test: TestCase, model: string, host: string, sessionId: s
 async function main() {
   const args = process.argv.slice(2);
   
-  let model = process.env.OLLAMA_MODEL || "granite4:latest";
-  let host = process.env.OLLAMA_HOST || "http://192.168.1.221:11434";
+  let model = process.env.OLLAMA_MODEL || "gpt-oss:120b-cloud";
+  let host = process.env.OLLAMA_HOST || "https://ollama.com";
   let filter: string | null = null;
   
   for (let i = 0; i < args.length; i++) {

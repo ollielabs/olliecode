@@ -5,7 +5,8 @@
  * functions in `path-validation.ts` and `command-filter.ts`.
  */
 
-import type { SafetyConfig, AgentMode } from "./types";
+import type { SafetyConfig } from "./types";
+import type { AgentMode } from "../modes";
 import { validatePath as validatePathFn, getDisplayPath as getDisplayPathFn } from "./path-validation";
 import {
   validateCommand as validateCommandFn,

@@ -1,13 +1,33 @@
+// Phase 4 test
 import type { z } from "zod";
 import type { ToolCall, Message } from "ollama";
+import path from "path";
 
 // Re-export safety types for convenience
 export type { ConfirmationRequest, ConfirmationResponse } from "./safety/types";
 
 /**
  * Risk level for a tool
+ * - safe: No confirmation needed, can run in parallel
+ * - low: Minor risk, no confirmation usually
+ * - medium: May modify files, confirmation recommended
+ * - high: Destructive or dangerous, always confirm
+ * - prompt: Always prompt user for confirmation before execution
  */
-export type ToolRisk = "safe" | "low" | "medium" | "high";
+export type ToolRisk = "safe" | "low" | "medium" | "high" | "prompt";
+
+/**
+ * Context passed to tools at execution time.
+ * Contains session info and other runtime context not provided by the LLM.
+ */
+export type ToolContext = {
+  sessionId?: string;
+  projectRoot?: string;
+  /** Model name for subagent delegation */
+  model?: string;
+  /** Host URL for subagent delegation */
+  host?: string;
+};
 
 /**
  * Tool definition with typed parameters and output
@@ -23,7 +43,8 @@ export type ToolDefinition<
   risk: ToolRisk;
   execute: (
     params: z.infer<TParams>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    context?: ToolContext
   ) => Promise<z.infer<TOutput>>;
 };
 
@@ -82,12 +103,15 @@ export type AgentConfig = {
 /**
  * Default agent configuration
  * 
- * maxIterations increased to 25 to support complex exploration tasks.
+ * maxIterations set to 15 to support complex exploration tasks.
  * Complex codebase analysis may need 15-20 iterations to systematically
  * explore structure, read key files, and synthesize findings.
+ * 
+ * loopThreshold of 3 means 3 truly consecutive identical calls trigger detection.
+ * The smarter loop detection allows interleaved patterns like read→edit→read.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  maxIterations: 25,
+  maxIterations: 15,
   loopDetection: true,
   loopThreshold: 3,
 };

@@ -106,7 +106,24 @@ When to use:
 
 When NOT to use:
 - For simple file listing (use glob)
-- When you need full file content (use read_file)`;
+- When you need full file content (use read_file)
+
+## task
+Delegate complex exploration to a specialized subagent with its own context.
+Parameters: { description: string, prompt: string, thoroughness?: "quick" | "medium" | "thorough" }
+
+CRITICAL: Use task for comprehensive exploration questions:
+- "What is the architecture of this project?"
+- "How does the X system work end-to-end?"
+- "Give me a comprehensive overview of this codebase"
+- Any question requiring exploration of 5+ files
+
+The subagent has its own iteration budget and context window, making it more efficient for deep exploration than doing it yourself.
+
+Thoroughness levels:
+- quick: Fast surface scan (8 iterations)
+- medium: Balanced exploration (15 iterations, default)
+- thorough: Deep comprehensive analysis (25 iterations)`;
 
 /**
  * Full tool documentation (for Build mode)
@@ -157,7 +174,27 @@ Execute a shell command.
 Parameters: { command: string, cwd?: string, timeout?: number }
 
 Use for: npm install, npm test, git commands, etc.
-Do NOT use for file operations (use the dedicated tools instead).`;
+Do NOT use for file operations (use the dedicated tools instead).
+
+## task
+Delegate complex exploration to a specialized subagent.
+Parameters: { description: string, prompt: string, thoroughness?: "quick" | "medium" | "thorough" }
+
+IMPORTANT: Use task for comprehensive codebase exploration:
+- "What is the architecture of this project?"
+- "How does X system work?"
+- "Give me an overview of the codebase"
+- Questions requiring 5+ files to answer
+
+Do NOT use task for:
+- Reading a specific known file (use read_file)
+- Simple grep for a single pattern (use grep)
+- Quick directory listing (use list_dir)
+
+Thoroughness levels:
+- quick: Surface overview (8 iterations)
+- medium: Balanced exploration (15 iterations, default)
+- thorough: Comprehensive analysis (25 iterations)`;
 
 /**
  * Tool result visibility note
@@ -172,14 +209,35 @@ Never say "as shown above" - the user cannot see tool output.`;
  */
 export const PARALLEL_TOOL_CALLS = `# Parallel Tool Calls
 
-You can call MULTIPLE tools in a single response for efficiency. Use this for:
-- Independent file reads (read multiple files at once)
-- Multiple grep searches for different patterns
-- Glob + read_file patterns (find files, then read key ones)
+You can invoke MULTIPLE tools in a single response. Independent operations execute concurrently for faster results.
 
-Example: When exploring a codebase, call glob to find files AND read_file for package.json in parallel.
+## When to Use Parallel Calls
+- Multiple \`task\` calls for different exploration areas
+- Multiple \`read_file\` for different files
+- Multiple \`grep\` searches for different patterns
+- \`glob\` + \`read_file\` (find files AND read key ones together)
 
-If tools depend on each other (e.g., need glob results before reading), call them sequentially.`;
+## Example: Parallel Exploration
+When asked "explore both the agent and TUI code":
+- Call task(prompt="explore agent/") AND task(prompt="explore tui/") together
+- They will execute concurrently and you'll receive both results
+
+## Example: Parallel File Reads
+When checking multiple files:
+\`\`\`
+[Call read_file({ path: "src/index.ts" })]
+[Call read_file({ path: "package.json" })]  
+[Call read_file({ path: "tsconfig.json" })]
+\`\`\`
+All three execute in parallel.
+
+## When to Use Sequential Calls
+If tools depend on each other's results:
+1. First call glob to find files
+2. WAIT for results
+3. Then read specific files based on what glob found
+
+Safe tools (read_file, glob, grep, list_dir, task) always run in parallel when called together.`;
 
 /**
  * Exploration strategy for codebase analysis
@@ -314,3 +372,28 @@ Example workflow:
 4. Complete the task
 5. Use todo_write to mark complete and start next
 6. Repeat until all tasks done`;
+
+/**
+ * Search behavior guidance - helps agent know when to stop searching
+ */
+export const SEARCH_GUIDANCE = `# Search Behavior
+
+When searching for files, functions, or patterns:
+
+1. **Empty results mean it may not exist**
+   - If grep/glob returns empty, the item might not be in this codebase
+   - Don't assume you searched wrong - consider it might not exist
+
+2. **Know when to stop**
+   - After 2-3 failed searches with different patterns, conclude the item doesn't exist
+   - Don't keep trying variations indefinitely
+   - Report "not found" to the user - this is a valid and helpful answer
+
+3. **Be direct about failures**
+   - "I couldn't find X in this codebase" is a complete answer
+   - "The file/function doesn't appear to exist" is helpful information
+   - Don't apologize excessively - just state the facts
+
+4. **Suggest alternatives if appropriate**
+   - "X doesn't exist, but I found Y which might be related"
+   - "There's no database/connection.ts, but database logic is in src/db/"`;

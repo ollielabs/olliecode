@@ -4,7 +4,7 @@
  */
 
 import { runAgent } from "../src/agent";
-import type { Message } from "../src/agent/types";
+import type { Message } from "ollama";
 
 type ProviderOptions = {
   config?: {

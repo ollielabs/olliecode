@@ -17,6 +17,7 @@ import {
   EXPLORATION_STRATEGY,
   CODE_REFERENCE_PATTERN,
   TODO_TOOLS_DOC,
+  SEARCH_GUIDANCE,
 } from "./shared";
 
 export function buildPlanModePrompt(ctx: SystemPromptContext): string {
@@ -55,6 +56,8 @@ ${READ_ONLY_TOOLS_DOC}
 ${TOOL_RESULT_NOTE}
 
 ${CODE_REFERENCE_PATTERN}
+
+${SEARCH_GUIDANCE}
 
 ${TODO_TOOLS_DOC}
 

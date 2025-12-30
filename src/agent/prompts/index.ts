@@ -12,6 +12,7 @@ import { buildPlanModePrompt } from "./plan";
 import { buildBuildModePrompt } from "./build";
 
 export { type SystemPromptContext, getDefaultContext } from "./shared";
+export { buildExplorePrompt, type ThoroughnessLevel } from "./explore";
 export {
   getModeReminder,
   getModeSwitchReminder,

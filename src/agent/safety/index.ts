@@ -43,6 +43,7 @@ const TOOL_RISK: Record<string, RiskLevel> = {
   run_command: "prompt",
   todo_write: "safe",
   todo_read: "safe",
+  task: "safe", // Subagent delegation is read-only
 };
 
 /**
