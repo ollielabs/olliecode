@@ -1,7 +1,5 @@
-// Phase 4 test
 import type { z } from "zod";
 import type { ToolCall, Message } from "ollama";
-import path from "path";
 
 // Re-export safety types for convenience
 export type { ConfirmationRequest, ConfirmationResponse } from "./safety/types";
@@ -68,6 +66,20 @@ export type AgentStep = {
 };
 
 /**
+ * Context usage statistics for the agent run.
+ */
+export type ContextUsage = {
+  /** Estimated tokens used at end of run */
+  totalTokens: number;
+  /** Maximum context window for the model */
+  maxTokens: number;
+  /** Usage as percentage (0-100) */
+  usagePercent: number;
+  /** Whether context exceeded 80% threshold */
+  exceededThreshold: boolean;
+};
+
+/**
  * Successful agent result
  */
 export type AgentResult = {
@@ -79,6 +91,8 @@ export type AgentResult = {
     totalToolCalls: number;
     totalDurationMs: number;
   };
+  /** Context usage statistics (if available) */
+  contextUsage?: ContextUsage;
 };
 
 /**

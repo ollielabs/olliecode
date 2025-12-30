@@ -10,13 +10,14 @@ import { getToolsForMode } from "./tools";
 import { getSystemPromptForMode } from "./prompts";
 import type { AgentMode } from "./modes";
 import { DEFAULT_MODE } from "./modes";
-import type { AgentStep, AgentResult, AgentError, AgentConfig, ToolResult } from "./types";
+import type { AgentStep, AgentResult, AgentError, AgentConfig, ToolResult, ContextUsage } from "./types";
 import { DEFAULT_AGENT_CONFIG } from "./types";
 import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse, type SafetyConfig } from "./safety";
 import { log } from "./logger";
 import { processStream, isAbortError } from "./stream-handler";
 import { processToolCalls } from "./tool-processor";
 import { detectConsecutiveLoop, detectDoomLoop, detectNotFoundPattern } from "./loop-detector";
+import { fetchModelInfo, getContextStats } from "../lib/tokenizer";
 
 /**
  * Arguments for running the agent.
@@ -78,7 +79,8 @@ function buildFinalResult(
   messages: Message[],
   iteration: number,
   totalToolCalls: number,
-  startTime: number
+  startTime: number,
+  contextUsage?: ContextUsage
 ): AgentResult {
   // Return messages WITHOUT the system prompt (index 0)
   // The system prompt is added fresh each turn by the agent
@@ -93,6 +95,7 @@ function buildFinalResult(
       totalToolCalls,
       totalDurationMs: Date.now() - startTime,
     },
+    contextUsage,
   };
 }
 
@@ -130,6 +133,17 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
 
   log("Starting agent with model:", args.model, "host:", args.host, "mode:", mode);
   log("Tools available:", modeTools.map((t) => t.function.name));
+
+  // Fetch model info for context tracking (non-blocking, best effort)
+  let maxContextTokens: number | undefined;
+  try {
+    const modelInfo = await fetchModelInfo(args.model, args.host);
+    maxContextTokens = modelInfo.contextLength;
+    log("Model context window:", maxContextTokens, "tokens");
+  } catch (e) {
+    log("Could not fetch model info for context tracking:", e);
+    // Continue without context tracking
+  }
 
   const client = new Ollama({ host: args.host });
   const messages = buildInitialMessages(systemPrompt, args.history, args.userMessage);
@@ -215,13 +229,27 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
           content,
         });
 
+        // Calculate final context usage if we have model info
+        let contextUsage: ContextUsage | undefined;
+        if (maxContextTokens) {
+          const stats = getContextStats(messages, maxContextTokens);
+          contextUsage = {
+            totalTokens: stats.totalTokens,
+            maxTokens: stats.maxTokens,
+            usagePercent: stats.usagePercent,
+            exceededThreshold: stats.isNearLimit,
+          };
+          log("Final context usage:", contextUsage.usagePercent + "%");
+        }
+
         return buildFinalResult(
           steps,
           content,
           messages,
           iteration,
           totalToolCalls,
-          startTime
+          startTime,
+          contextUsage
         );
       }
 
