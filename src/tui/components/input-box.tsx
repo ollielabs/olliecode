@@ -1,5 +1,6 @@
 import type { TextareaRenderable } from "@opentui/core";
 import type { AgentMode } from "../../agent/modes";
+import { useTheme } from "../../design";
 import { StatusBar, type Status } from "./status-bar";
 
 const TEXTAREA_KEY_BINDINGS: { name: string; action: "submit" | "newline"; ctrl?: boolean }[] = [
@@ -20,6 +21,8 @@ export type InputBoxProps = {
 };
 
 export function InputBox({ id, model, status, error, mode, textareaRef, statusRef, onSubmit, centered }: InputBoxProps) {
+  const { tokens } = useTheme();
+
   const handleSubmit = () => {
     if (statusRef.current === "thinking") return;
     const text = textareaRef.current?.plainText?.trim();
@@ -30,14 +33,16 @@ export function InputBox({ id, model, status, error, mode, textareaRef, statusRe
 
   return (
     <box
-      border={["left"]}
-      borderStyle="heavy"
-      borderColor="#7aa2f7"
-      backgroundColor="#333"
-      padding={1}
-      paddingLeft={2}
-      paddingRight={2}
-      {...(centered ? { marginTop: 2, width: 60 } : {})}
+      style={{
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: tokens.borderAccent,
+        backgroundColor: tokens.bgInput,
+        padding: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
+        ...(centered && { marginTop: 2, width: 60 }),
+      }}
     >
       <textarea
         id={id}

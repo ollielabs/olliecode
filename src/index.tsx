@@ -4,6 +4,7 @@ import { createRoot } from "@opentui/react";
 import { initializeTreeSitterParsers } from "./lib/tree-sitter";
 import { App } from "./tui";
 import { initDatabase, getSession, getLatestSession, closeDatabase } from "./session";
+import { getConfigValue } from "./config";
 
 const program = new Command();
 
@@ -58,12 +59,16 @@ program
       exitOnCtrlC: true,
     });
 
+    // Load theme preference from config
+    const initialTheme = getConfigValue("theme");
+
     createRoot(renderer).render(
       <App
         model={model}
         host={ollamaHost}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
+        initialTheme={initialTheme}
       />
     );
 

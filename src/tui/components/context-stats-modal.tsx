@@ -4,6 +4,7 @@
 
 import { Modal } from "./modal";
 import type { ContextStats } from "../../lib/tokenizer";
+import { useTheme } from "../../design";
 
 export type ContextStatsModalProps = {
   stats: ContextStats;
@@ -11,89 +12,72 @@ export type ContextStatsModalProps = {
   onClose: () => void;
 };
 
-/**
- * Create a visual progress bar.
- */
-function ProgressBar({ percent, width = 30 }: { percent: number; width?: number }) {
+function ProgressBar({ percent, width = 30, filledColor, emptyColor }: { percent: number; width?: number; filledColor: string; emptyColor: string }) {
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
-  
-  // Color based on usage level
-  const color = percent >= 90 ? "#e74c3c" : percent >= 80 ? "#f39c12" : "#27ae60";
-  
+
   return (
     <box flexDirection="row">
-      <text fg={color}>{"█".repeat(filled)}</text>
-      <text fg="#444">{"░".repeat(empty)}</text>
+      <text style={{ fg: filledColor }}>{"█".repeat(filled)}</text>
+      <text style={{ fg: emptyColor }}>{"░".repeat(empty)}</text>
     </box>
   );
 }
 
 export function ContextStatsModal({ stats, modelName, onClose }: ContextStatsModalProps) {
-  const statusColor = stats.isCritical 
-    ? "#e74c3c" 
-    : stats.isNearLimit 
-      ? "#f39c12" 
-      : "#27ae60";
-  
-  const statusText = stats.isCritical 
-    ? "CRITICAL" 
-    : stats.isNearLimit 
-      ? "Near Limit" 
-      : "OK";
+  const { tokens } = useTheme();
+
+  const statusColor = stats.isCritical ? tokens.error : stats.isNearLimit ? tokens.warning : tokens.success;
+  const statusText = stats.isCritical ? "CRITICAL" : stats.isNearLimit ? "Near Limit" : "OK";
+  const progressColor = stats.usagePercent >= 90 ? tokens.error : stats.usagePercent >= 80 ? tokens.warning : tokens.success;
 
   return (
     <Modal title="Context Usage" onClose={onClose} size="medium">
       <box flexDirection="column">
-        {/* Model info */}
         <box flexDirection="row" marginBottom={1}>
-          <text fg="#888">Model: </text>
-          <text fg="#ffffff">{modelName}</text>
+          <text style={{ fg: tokens.textMuted }}>Model: </text>
+          <text style={{ fg: tokens.textBase }}>{modelName}</text>
         </box>
 
-        {/* Usage bar */}
         <box flexDirection="column" marginBottom={1}>
           <box flexDirection="row" marginBottom={0}>
-            <text fg="#888">Usage: </text>
-            <text fg="#ffffff">{stats.usagePercent}%</text>
-            <text fg="#888"> </text>
-            <text fg={statusColor}>[{statusText}]</text>
+            <text style={{ fg: tokens.textMuted }}>Usage: </text>
+            <text style={{ fg: tokens.textBase }}>{stats.usagePercent}%</text>
+            <text style={{ fg: tokens.textMuted }}> </text>
+            <text style={{ fg: statusColor }}>[{statusText}]</text>
           </box>
-          <ProgressBar percent={stats.usagePercent} width={40} />
+          <ProgressBar percent={stats.usagePercent} width={40} filledColor={progressColor} emptyColor={tokens.borderMuted} />
         </box>
 
-        {/* Token counts */}
         <box flexDirection="row" marginBottom={1}>
-          <text fg="#888">Tokens: </text>
-          <text fg="#ffffff">{stats.totalTokens.toLocaleString()}</text>
-          <text fg="#888"> / </text>
-          <text fg="#ffffff">{stats.maxTokens.toLocaleString()}</text>
+          <text style={{ fg: tokens.textMuted }}>Tokens: </text>
+          <text style={{ fg: tokens.textBase }}>{stats.totalTokens.toLocaleString()}</text>
+          <text style={{ fg: tokens.textMuted }}> / </text>
+          <text style={{ fg: tokens.textBase }}>{stats.maxTokens.toLocaleString()}</text>
         </box>
 
-        {/* Breakdown by role */}
         <box flexDirection="column" marginTop={1}>
-          <text fg="#888" marginBottom={0}>Breakdown:</text>
+          <text style={{ fg: tokens.textMuted }} marginBottom={0}>Breakdown:</text>
           <box flexDirection="row" paddingLeft={2}>
-            <text fg="#888">System:    </text>
-            <text fg="#ffffff">{stats.byRole.system.toLocaleString()}</text>
+            <text style={{ fg: tokens.textMuted }}>System:    </text>
+            <text style={{ fg: tokens.textBase }}>{stats.byRole.system.toLocaleString()}</text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
-            <text fg="#888">User:      </text>
-            <text fg="#ffffff">{stats.byRole.user.toLocaleString()}</text>
+            <text style={{ fg: tokens.textMuted }}>User:      </text>
+            <text style={{ fg: tokens.textBase }}>{stats.byRole.user.toLocaleString()}</text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
-            <text fg="#888">Assistant: </text>
-            <text fg="#ffffff">{stats.byRole.assistant.toLocaleString()}</text>
+            <text style={{ fg: tokens.textMuted }}>Assistant: </text>
+            <text style={{ fg: tokens.textBase }}>{stats.byRole.assistant.toLocaleString()}</text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
-            <text fg="#888">Tools:     </text>
-            <text fg="#ffffff">{stats.byRole.tool.toLocaleString()}</text>
+            <text style={{ fg: tokens.textMuted }}>Tools:     </text>
+            <text style={{ fg: tokens.textBase }}>{stats.byRole.tool.toLocaleString()}</text>
           </box>
         </box>
 
-        {/* Hint */}
         <box marginTop={2}>
-          <text fg="#666">Use /compact to reduce context size</text>
+          <text style={{ fg: tokens.textSubtle }}>Use /compact to reduce context size</text>
         </box>
       </box>
     </Modal>

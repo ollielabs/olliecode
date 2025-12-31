@@ -1,11 +1,11 @@
 /**
  * Slash command menu component.
  * Overlays above the textarea when user types '/'.
- * Uses absolute positioning to avoid pushing content.
  */
 
 import { useKeyboard } from "@opentui/react";
 import { useEffect } from "react";
+import { useTheme } from "../../design";
 
 export type SlashCommand = {
   name: string;
@@ -20,19 +20,12 @@ export type CommandMenuProps = {
   onSelect: (command: SlashCommand) => void;
   onCancel: () => void;
   onIndexChange: (index: number) => void;
-  /** Bottom position offset (distance from bottom of parent) */
   bottom?: number;
-  /** Width of the menu */
   width?: number;
 };
 
-/**
- * Get filtered commands based on current filter text.
- */
 export function getFilteredCommands(commands: SlashCommand[], filter: string): SlashCommand[] {
-  return commands.filter((cmd) =>
-    cmd.name.toLowerCase().startsWith(filter.toLowerCase())
-  );
+  return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(filter.toLowerCase()));
 }
 
 export function CommandMenu({
@@ -45,18 +38,16 @@ export function CommandMenu({
   bottom = 0,
   width,
 }: CommandMenuProps) {
-  // Filter commands based on input
+  const { tokens } = useTheme();
   const filteredCommands = getFilteredCommands(commands, filter);
 
-  // Ensure selectedIndex is within bounds when filtered list changes
   useEffect(() => {
     if (selectedIndex >= filteredCommands.length && filteredCommands.length > 0) {
       onIndexChange(filteredCommands.length - 1);
     }
   }, [filteredCommands.length, selectedIndex, onIndexChange]);
 
-  // Handle keyboard navigation
-  const handleKeyPress = (key: { name?: string }) => {
+  useKeyboard((key: { name?: string }) => {
     switch (key.name) {
       case "up":
       case "k":
@@ -68,46 +59,47 @@ export function CommandMenu({
         break;
       case "return": {
         const selected = filteredCommands[selectedIndex];
-        if (selected) {
-          onSelect(selected);
-        }
+        if (selected) onSelect(selected);
         break;
       }
       case "escape":
         onCancel();
         break;
     }
-  };
-
-  useKeyboard(handleKeyPress);
-
-  const baseStyles = {
-    position: "absolute" as const,
-    bottom,
-    left: 0,
-    width,
-    zIndex: 100,
-    backgroundColor: "#1e1e2e",
-  };
+  });
 
   if (filteredCommands.length === 0) {
     return (
       <box
-        flexDirection="column"
-        paddingLeft={1}
-        paddingRight={1}
-        {...baseStyles}
+        style={{
+          position: "absolute",
+          left: 0,
+          bottom,
+          width,
+          zIndex: 100,
+          backgroundColor: tokens.bgSurface,
+          flexDirection: "column",
+          paddingLeft: 1,
+          paddingRight: 1,
+        }}
       >
-        <text fg="#666">No matching commands</text>
+        <text style={{ fg: tokens.textSubtle }}>No matching commands</text>
       </box>
     );
   }
 
   return (
     <box
-      flexDirection="column"
-      maxHeight={8}
-      {...baseStyles}
+      style={{
+        position: "absolute",
+        left: 0,
+        bottom,
+        width,
+        zIndex: 100,
+        backgroundColor: tokens.bgSurface,
+        flexDirection: "column",
+        maxHeight: 8,
+      }}
     >
       <scrollbox maxHeight={6} stickyScroll={false}>
         <box flexDirection="column">
@@ -116,15 +108,17 @@ export function CommandMenu({
             return (
               <box
                 key={cmd.name}
-                flexDirection="row"
-                backgroundColor={isSelected ? "#333" : undefined}
-                paddingLeft={1}
-                paddingRight={1}
+                style={{
+                  flexDirection: "row",
+                  paddingLeft: 1,
+                  paddingRight: 1,
+                  ...(isSelected && { backgroundColor: tokens.selected }),
+                }}
               >
-                <text fg={isSelected ? "#7aa2f7" : "#ffffff"}>
+                <text style={{ fg: isSelected ? tokens.primaryBase : tokens.textBase }}>
                   <b>/{cmd.name}</b>
                 </text>
-                <text fg="#666"> {cmd.description}</text>
+                <text style={{ fg: tokens.textSubtle }}> {cmd.description}</text>
               </box>
             );
           })}
