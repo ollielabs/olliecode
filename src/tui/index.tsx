@@ -37,6 +37,8 @@ import {
 } from "../session";
 import { SessionPicker } from "./components/session-picker";
 import { CommandMenu, type SlashCommand } from "./components/command-menu";
+import { SidePanel } from "./components/side-panel";
+import { getTodos, type Todo } from "../session/todo";
 
 // Display message - can be user, assistant, or tool activity
 type DisplayMessage =
@@ -95,6 +97,10 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
   const [showContextStats, setShowContextStats] = useState(false);
   const [contextStats, setContextStats] = useState<ContextStats | null>(null);
 
+  // Sidebar state
+  const [sidebarStats, setSidebarStats] = useState<ContextStats | null>(null);
+  const [sidebarTodos, setSidebarTodos] = useState<Todo[]>([]);
+
   // Refs to avoid stale closures in async handlers
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -126,6 +132,35 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       }
     }
   }, [initialSessionId]);
+
+  // Update sidebar context stats when history changes
+  useEffect(() => {
+    if (history.length === 0) {
+      setSidebarStats(null);
+      return;
+    }
+
+    // Fetch context stats asynchronously
+    void (async () => {
+      try {
+        const modelInfo = await fetchModelInfo(model, host);
+        const stats = getContextStats(history, modelInfo.contextLength);
+        setSidebarStats(stats);
+      } catch {
+        // Silently fail - sidebar will just not show context stats
+        setSidebarStats(null);
+      }
+    })();
+  }, [history, model, host]);
+
+  // Update sidebar todos when session changes
+  useEffect(() => {
+    if (currentSession) {
+      setSidebarTodos(getTodos(currentSession.id));
+    } else {
+      setSidebarTodos([]);
+    }
+  }, [currentSession]);
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "k") {
@@ -308,6 +343,11 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
       ]);
       setHistory(result.messages);
       setStatus("idle");
+
+      // Refresh sidebar todos (agent may have updated them)
+      if (session) {
+        setSidebarTodos(getTodos(session.id));
+      }
 
       // Persist assistant response with tool calls/results
       if (session) {
@@ -621,7 +661,7 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
 
   // Chat screen
   return (
-    <box key="chat-container" flexDirection="column" flexGrow={1} flexShrink={1} paddingTop={1} paddingLeft={2} paddingRight={2}>
+    <box key="chat-container" flexDirection="row" flexGrow={1} flexShrink={1}>
       {/* Context stats modal - rendered at top level for proper overlay */}
       {showContextStats && contextStats && (
         <ContextStatsModal
@@ -643,88 +683,98 @@ export function App({ model, host, projectPath, initialSessionId }: AppProps) {
         />
       )}
       
-      <scrollbox flexGrow={1} flexShrink={1} stickyScroll={true} stickyStart="bottom" scrollAcceleration={fastScrollAccel}>
-        <box flexDirection="column" flexGrow={1}>
-          <box>
-            <text>Olly • Enter to send • Ctrl+C to quit{"\n"}</text>
-          </box>
-
-          {displayMessages.map((msg, idx) => (
-            <box key={`msg-${idx}`} marginBottom={1}>
-              {msg.type === "user" && (
-                <box backgroundColor="#333" padding={1} border={["left"]} borderStyle="heavy" borderColor="#23bc38">
-                  <text>{msg.content}</text>
-                </box>
-              )}
-              {msg.type === "assistant" && (
-                <box flexDirection="column">
-                  <code selectable={true} content={msg.content} filetype="markdown" syntaxStyle={markdownStyle} drawUnstyledText={true} />
-                </box>
-              )}
-              {msg.type === "tool_call" && (
-                <box backgroundColor="#1a1a2e" padding={1} border={["left"]} borderStyle="heavy" borderColor="#f39c12">
-                  <text fg="#f39c12">⚡ {msg.name}</text>
-                  <text fg="#888"> {JSON.stringify(msg.args)}</text>
-                </box>
-              )}
-              {msg.type === "tool_result" && (
-                <box backgroundColor="#1a1a2e" padding={1} border={["left"]} borderStyle="heavy" borderColor={msg.error ? "#e74c3c" : "#27ae60"}>
-                  {msg.error ? (
-                    <text fg="#e74c3c">✗ {msg.name}: {msg.error}</text>
-                  ) : (
-                    <text fg="#27ae60">✓ {msg.name}: {msg.output.length > 100 ? msg.output.slice(0, 100) + "..." : msg.output}</text>
-                  )}
-                </box>
-              )}
+      {/* Main chat area */}
+      <box flexDirection="column" flexGrow={1} flexShrink={1} paddingTop={1} paddingLeft={2} paddingRight={2}>
+        <scrollbox flexGrow={1} flexShrink={1} stickyScroll={true} stickyStart="bottom" scrollAcceleration={fastScrollAccel}>
+          <box flexDirection="column" flexGrow={1}>
+            <box>
+              <text>Olly • Enter to send • Ctrl+C to quit{"\n"}</text>
             </box>
-          ))}
 
-          {streamingContent && (
-            <box key="streaming">
-              <text>{streamingContent}</text>
+            {displayMessages.map((msg, idx) => (
+              <box key={`msg-${idx}`} marginBottom={1}>
+                {msg.type === "user" && (
+                  <box backgroundColor="#333" padding={1} border={["left"]} borderStyle="heavy" borderColor="#23bc38">
+                    <text>{msg.content}</text>
+                  </box>
+                )}
+                {msg.type === "assistant" && (
+                  <box flexDirection="column">
+                    <code selectable={true} content={msg.content} filetype="markdown" syntaxStyle={markdownStyle} drawUnstyledText={true} />
+                  </box>
+                )}
+                {msg.type === "tool_call" && (
+                  <box backgroundColor="#1a1a2e" padding={1} border={["left"]} borderStyle="heavy" borderColor="#f39c12">
+                    <text fg="#f39c12">⚡ {msg.name}</text>
+                    <text fg="#888"> {JSON.stringify(msg.args)}</text>
+                  </box>
+                )}
+                {msg.type === "tool_result" && (
+                  <box backgroundColor="#1a1a2e" padding={1} border={["left"]} borderStyle="heavy" borderColor={msg.error ? "#e74c3c" : "#27ae60"}>
+                    {msg.error ? (
+                      <text fg="#e74c3c">✗ {msg.name}: {msg.error}</text>
+                    ) : (
+                      <text fg="#27ae60">✓ {msg.name}: {msg.output.length > 100 ? msg.output.slice(0, 100) + "..." : msg.output}</text>
+                    )}
+                  </box>
+                )}
+              </box>
+            ))}
+
+            {streamingContent && (
+              <box key="streaming">
+                <text>{streamingContent}</text>
+              </box>
+            )}
+            
+            {pendingConfirmation && (
+              <ConfirmationDialog
+                request={pendingConfirmation}
+                onResponse={handleConfirmationResponse}
+              />
+            )}
+          </box>
+        </scrollbox>
+
+        <box flexDirection="column" flexShrink={0} position="relative">
+          {/* Context info notification */}
+          {contextInfo && (
+            <box paddingLeft={1}>
+              <text fg="#888">{contextInfo}</text>
             </box>
           )}
           
-          {pendingConfirmation && (
-            <ConfirmationDialog
-              request={pendingConfirmation}
-              onResponse={handleConfirmationResponse}
+          {showCommandMenu && (
+            <CommandMenu
+              commands={slashCommands}
+              filter={commandFilter}
+              selectedIndex={commandSelectedIndex}
+              onSelect={handleCommandSelect}
+              onCancel={handleCommandMenuCancel}
+              onIndexChange={handleCommandIndexChange}
+              bottom={5}
             />
           )}
-        </box>
-      </scrollbox>
-
-      <box flexDirection="column" flexShrink={0} position="relative">
-        {/* Context info notification */}
-        {contextInfo && (
-          <box paddingLeft={1}>
-            <text fg="#888">{contextInfo}</text>
-          </box>
-        )}
-        
-        {showCommandMenu && (
-          <CommandMenu
-            commands={slashCommands}
-            filter={commandFilter}
-            selectedIndex={commandSelectedIndex}
-            onSelect={handleCommandSelect}
-            onCancel={handleCommandMenuCancel}
-            onIndexChange={handleCommandIndexChange}
-            bottom={5}
+          
+          <InputBox
+            id="chat-textarea"
+            model={model}
+            status={status}
+            error={error}
+            mode={mode}
+            textareaRef={textareaRef}
+            statusRef={statusRef}
+            onSubmit={handleSubmit}
           />
-        )}
-        
-        <InputBox
-          id="chat-textarea"
-          model={model}
-          status={status}
-          error={error}
-          mode={mode}
-          textareaRef={textareaRef}
-          statusRef={statusRef}
-          onSubmit={handleSubmit}
-        />
+        </box>
       </box>
+
+      {/* Sidebar */}
+      <SidePanel
+        contextStats={sidebarStats}
+        todos={sidebarTodos}
+        width={40}
+      />
     </box>
   );
 }
