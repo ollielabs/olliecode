@@ -58,8 +58,8 @@ export function ConfirmationDialog({ request, onResponse }: ConfirmationDialogPr
     <box
       style={{
         flexDirection: "column",
-        border: ["top", "bottom", "left", "right"],
-        borderStyle: "rounded",
+        border: ["left", "right"],
+        borderStyle: "heavy",
         backgroundColor: tokens.bgSurface,
         padding: 1,
         marginTop: 1,
@@ -123,15 +123,17 @@ export function ConfirmationDialog({ request, onResponse }: ConfirmationDialogPr
       )}
 
       <box style={{ flexDirection: "row" }}>
-        <text style={{ fg: tokens.textMuted }}>[</text>
-        <text style={{ fg: tokens.success }}>Y</text>
-        <text style={{ fg: tokens.textMuted }}>]es  [</text>
-        <text style={{ fg: tokens.error }}>N</text>
-        <text style={{ fg: tokens.textMuted }}>/Esc]o  [</text>
-        <text style={{ fg: tokens.primaryBase }}>A</text>
-        <text style={{ fg: tokens.textMuted }}>]lways  [</text>
-        <text style={{ fg: tokens.warning }}>D</text>
-        <text style={{ fg: tokens.textMuted }}>]eny always</text>
+        <text>
+          <span style={{ fg: tokens.textMuted }}>[</span>
+          <u style={{ fg: tokens.success }}>Y</u>
+          <span style={{ fg: tokens.textMuted }}>]es  [</span>
+          <u style={{ fg: tokens.error }}>N</u>
+          <span style={{ fg: tokens.textMuted }}>/Esc]o  [</span>
+          <u style={{ fg: tokens.primaryBase }}>A</u>
+          <span style={{ fg: tokens.textMuted }}>]lways  [</span>
+          <u style={{ fg: tokens.warning }}>D</u>
+          <span style={{ fg: tokens.textMuted }}>]eny always</span>
+        </text>
       </box>
     </box>
   );
