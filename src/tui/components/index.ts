@@ -1,0 +1,25 @@
+/**
+ * TUI Components barrel export.
+ */
+
+// Message components
+export { AssistantMessage, type AssistantMessageProps } from "./assistant-message";
+export { UserMessage, type UserMessageProps } from "./user-message";
+export { ToolCallMessage, type ToolCallMessageProps } from "./tool-call-message";
+export { ToolResultMessage, type ToolResultMessageProps } from "./tool-result-message";
+export { ContextInfoNotification, type ContextInfoNotificationProps } from "./context-info-notification";
+
+// Dialog and modal components
+export { CommandMenu, type SlashCommand } from "./command-menu";
+export { ConfirmationDialog, type ConfirmationDialogProps } from "./confirmation-dialog";
+export { ContextStatsModal } from "./context-stats-modal";
+export { Modal } from "./modal";
+export { SessionPicker } from "./session-picker";
+export { ThemePicker } from "./theme-picker";
+
+// Input components
+export { InputBox, type InputBoxProps } from "./input-box";
+export { StatusBar, type Status } from "./status-bar";
+
+// Layout components
+export { SidePanel } from "./side-panel";
