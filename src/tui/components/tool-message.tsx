@@ -1,0 +1,221 @@
+/**
+ * Tool message component.
+ * Displays tool calls and results with status icons and tool-specific formatting.
+ */
+
+import { useTheme } from "../../design";
+
+export type ToolMessageProps = {
+  type: "call" | "result";
+  name: string;
+  args?: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  expanded?: boolean;
+};
+
+const MAX_COLLAPSED_LINES = 10;
+
+/**
+ * Format the tool header based on tool type and arguments.
+ */
+function formatToolHeader(name: string, args?: Record<string, unknown>): string {
+  if (!args) return "";
+
+  switch (name) {
+    case "read_file":
+      return String(args.path ?? "");
+    case "write_file":
+      return String(args.path ?? "");
+    case "edit_file":
+      return String(args.path ?? "");
+    case "run_command": {
+      const cmd = String(args.command ?? "");
+      return `$ ${cmd.length > 50 ? cmd.slice(0, 50) + "..." : cmd}`;
+    }
+    case "glob":
+      return String(args.pattern ?? "");
+    case "grep":
+      return `"${args.pattern}" in ${args.include || "*"}`;
+    case "list_dir":
+      return String(args.path ?? ".");
+    case "task":
+      return String(args.description ?? "");
+    case "todo_write": {
+      const todos = args.todos as Array<{ status: string }> | undefined;
+      const pending = todos?.filter((t) => t.status !== "completed").length ?? 0;
+      return `${pending} active`;
+    }
+    case "todo_read":
+      return "";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Format the tool output based on tool type.
+ * Returns the text to display based on expanded state.
+ */
+function formatToolOutput(
+  name: string,
+  output?: string,
+  error?: string,
+  expanded?: boolean,
+  args?: Record<string, unknown>
+): string {
+  if (error) {
+    return error;
+  }
+
+  if (!output) {
+    return "";
+  }
+
+  const lines = output.split("\n");
+
+  // Tool-specific formatting
+  switch (name) {
+    case "read_file":
+      if (!expanded) {
+        return `${lines.length} lines`;
+      }
+      return output;
+
+    case "glob":
+      try {
+        const files = JSON.parse(output) as string[];
+        if (!expanded) {
+          return `${files.length} files found`;
+        }
+        return files.join("\n");
+      } catch {
+        break;
+      }
+
+    case "grep":
+      try {
+        const result = JSON.parse(output) as { matches?: unknown[] };
+        const matchCount = result.matches?.length ?? 0;
+        if (!expanded) {
+          return `${matchCount} matches`;
+        }
+        return output;
+      } catch {
+        break;
+      }
+
+    case "run_command":
+      try {
+        const result = JSON.parse(output) as { exitCode: number; stdout: string; stderr: string };
+        const stdoutLines = result.stdout.split("\n").length;
+        if (!expanded) {
+          return `Exit ${result.exitCode}${stdoutLines > 1 ? ` (${stdoutLines} lines)` : ""}`;
+        }
+        return result.stdout || result.stderr;
+      } catch {
+        break;
+      }
+
+    case "list_dir":
+      try {
+        const result = JSON.parse(output) as { entries?: unknown[] };
+        const entryCount = result.entries?.length ?? 0;
+        if (!expanded) {
+          return `${entryCount} entries`;
+        }
+        return output;
+      } catch {
+        break;
+      }
+
+    case "task":
+      try {
+        const result = JSON.parse(output) as { success?: boolean; iterations?: number };
+        const status = result.success ? "Completed" : "Failed";
+        const iterations = result.iterations ? ` in ${result.iterations} iterations` : "";
+        if (!expanded) {
+          return `${status}${iterations}`;
+        }
+        return output;
+      } catch {
+        break;
+      }
+
+    case "write_file":
+      if (!expanded) {
+        return output; // "Wrote X bytes to path"
+      }
+      // When expanded, show the content that was written
+      if (args?.content) {
+        return `${output}\n\n${String(args.content)}`;
+      }
+      return output;
+
+    case "edit_file":
+      if (!expanded) {
+        return output; // "Replaced X occurrences"
+      }
+      // When expanded, show the before/after
+      if (args?.oldString && args?.newString) {
+        return `${output}\n\n--- Before:\n${String(args.oldString)}\n\n+++ After:\n${String(args.newString)}`;
+      }
+      return output;
+
+    case "todo_write":
+    case "todo_read":
+      // Don't show output for todo operations
+      return "";
+  }
+
+  // Default: truncate to MAX_COLLAPSED_LINES when collapsed
+  if (!expanded && lines.length > MAX_COLLAPSED_LINES) {
+    const truncated = lines.slice(0, MAX_COLLAPSED_LINES).join("\n");
+    return `${truncated}\n... (${lines.length - MAX_COLLAPSED_LINES} more lines)`;
+  }
+
+  return output;
+}
+
+export function ToolMessage({ type, name, args, output, error, expanded }: ToolMessageProps) {
+  const { tokens } = useTheme();
+
+  // Status icon and color based on type and error state
+  const icon = type === "call" ? "\u25D0" : error ? "\u2717" : "\u2713"; // ◐ ✗ ✓
+  const iconColor = type === "call" ? tokens.warning : error ? tokens.error : tokens.success;
+
+  // Format header and output
+  const header = formatToolHeader(name, args);
+  const formattedOutput = type === "result" ? formatToolOutput(name, output, error, expanded, args) : "";
+
+  // Show expand hint when there's collapsible output
+  const isCollapsible = type === "result" && output && !error;
+  const showExpandHint = isCollapsible && !expanded;
+
+  return (
+    <box
+      style={{
+        backgroundColor: tokens.bgSurface,
+        padding: 1,
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: iconColor,
+      }}
+    >
+      {/* Header line: icon + tool name + formatted args + expand hint */}
+      <box style={{ flexDirection: "row" }}>
+        <text style={{ fg: iconColor }}>{icon} </text>
+        <text style={{ fg: tokens.primaryBase }}>{name}</text>
+        {header && <text style={{ fg: tokens.textMuted }}> {header}</text>}
+        {showExpandHint && <text style={{ fg: tokens.textMuted }}> [ctrl+e to expand]</text>}
+      </box>
+
+      {/* Output (only for results) */}
+      {type === "result" && formattedOutput && (
+        <box style={{ marginTop: 1 }}>
+          <text style={{ fg: error ? tokens.error : tokens.textMuted }}>{formattedOutput}</text>
+        </box>
+      )}
+    </box>
+  );
+}

@@ -27,8 +27,7 @@ import {
   SidePanel,
   UserMessage,
   AssistantMessage,
-  ToolCallMessage,
-  ToolResultMessage,
+  ToolMessage,
 } from "./components";
 import { fastScrollAccel } from "./utils";
 import type { AppProps, Status } from "./types";
@@ -100,7 +99,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
   });
 
   // Global keyboard shortcuts
-  useKeyboardShortcuts({
+  const { toolsExpanded } = useKeyboardShortcuts({
     status: agent.status,
     mode: session.mode,
     setMode: session.setMode,
@@ -222,9 +221,11 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
               <box key={`msg-${idx}`} marginBottom={1}>
                 {msg.type === "user" && <UserMessage content={msg.content} />}
                 {msg.type === "assistant" && <AssistantMessage content={msg.content} />}
-                {msg.type === "tool_call" && <ToolCallMessage name={msg.name} args={msg.args} />}
+                {msg.type === "tool_call" && (
+                  <ToolMessage type="call" name={msg.name} args={msg.args} expanded={toolsExpanded} />
+                )}
                 {msg.type === "tool_result" && (
-                  <ToolResultMessage name={msg.name} output={msg.output} error={msg.error} />
+                  <ToolMessage type="result" name={msg.name} output={msg.output} error={msg.error} args={msg.args} expanded={toolsExpanded} />
                 )}
               </box>
             ))}

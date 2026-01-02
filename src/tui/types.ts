@@ -23,7 +23,7 @@ export type DisplayMessage =
   | { type: "user"; content: string }
   | { type: "assistant"; content: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; name: string; output: string; error?: string };
+  | { type: "tool_result"; name: string; output: string; error?: string; args?: Record<string, unknown> };
 
 /**
  * Props for the main App component.

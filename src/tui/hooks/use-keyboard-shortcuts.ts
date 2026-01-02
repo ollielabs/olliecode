@@ -1,9 +1,9 @@
 /**
  * Hook for global keyboard shortcuts.
- * Handles Tab (mode toggle), double-Escape (abort), and Ctrl+K (debug).
+ * Handles Tab (mode toggle), double-Escape (abort), Ctrl+K (debug), and Ctrl+E (expand tools).
  */
 
-import { useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { toggleMode } from "../../agent/modes";
 import { updateSession } from "../../session";
@@ -26,6 +26,11 @@ export type UseKeyboardShortcutsProps = {
   currentSession: Session | null;
 };
 
+export type UseKeyboardShortcutsReturn = {
+  /** Whether tool outputs are expanded */
+  toolsExpanded: boolean;
+};
+
 export function useKeyboardShortcuts({
   status,
   mode,
@@ -34,9 +39,10 @@ export function useKeyboardShortcuts({
   showCommandMenu,
   showSessionPicker,
   currentSession,
-}: UseKeyboardShortcutsProps): void {
+}: UseKeyboardShortcutsProps): UseKeyboardShortcutsReturn {
   const renderer = useRenderer();
   const lastEscapeRef = useRef<number>(0);
+  const [toolsExpanded, setToolsExpanded] = useState(false);
 
   // Use refs for values accessed in keyboard handler to avoid stale closures
   const statusRef = useRef(status);
@@ -75,9 +81,17 @@ export function useKeyboardShortcuts({
           } else {
             lastEscapeRef.current = now;
           }
+          return;
+        }
+
+        // Ctrl+E: Toggle tool output expansion (only when idle)
+        if (key.ctrl && key.name === "e" && statusRef.current === "idle") {
+          setToolsExpanded((prev) => !prev);
         }
       },
       [renderer, showCommandMenu, showSessionPicker, setMode, abort]
     )
   );
+
+  return { toolsExpanded };
 }

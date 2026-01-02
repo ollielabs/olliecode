@@ -100,6 +100,9 @@ export function useAgentSubmit({
 
       abortControllerRef.current = new AbortController();
 
+      // Track tool call args to attach to results for expanded view
+      const pendingToolArgs = new Map<string, Record<string, unknown>>();
+
       const result = await runAgent({
         model,
         host,
@@ -110,15 +113,19 @@ export function useAgentSubmit({
         signal: abortControllerRef.current.signal,
         onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
         onToolCall: (call: ToolCall) => {
+          // Store args for when result arrives
+          pendingToolArgs.set(call.function.name, call.function.arguments);
           setDisplayMessages((prev) => [
             ...prev,
             { type: "tool_call", name: call.function.name, args: call.function.arguments },
           ]);
         },
         onToolResult: (result: ToolResult) => {
+          // Attach original args to result for expanded view
+          const args = pendingToolArgs.get(result.tool);
           setDisplayMessages((prev) => [
             ...prev,
-            { type: "tool_result", name: result.tool, output: result.output, error: result.error },
+            { type: "tool_result", name: result.tool, output: result.output, error: result.error, args },
           ]);
         },
         onStepComplete: (_step: AgentStep) => setStreamingContent(""),

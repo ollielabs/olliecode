@@ -7,6 +7,7 @@ export { AssistantMessage, type AssistantMessageProps } from "./assistant-messag
 export { UserMessage, type UserMessageProps } from "./user-message";
 export { ToolCallMessage, type ToolCallMessageProps } from "./tool-call-message";
 export { ToolResultMessage, type ToolResultMessageProps } from "./tool-result-message";
+export { ToolMessage, type ToolMessageProps } from "./tool-message";
 export { ContextInfoNotification, type ContextInfoNotificationProps } from "./context-info-notification";
 
 // Dialog and modal components
