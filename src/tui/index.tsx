@@ -268,6 +268,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             textareaRef={textareaRef}
             statusRef={statusRef}
             onSubmit={agent.handleSubmit}
+            disabled={!!confirmation.pendingConfirmation}
           />
         </box>
       </box>
