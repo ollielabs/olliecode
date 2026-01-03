@@ -10,7 +10,6 @@ import { ThemeProvider, useTheme } from "../design";
 import { listSessions } from "../session";
 import {
   useAgentSubmit,
-  useAgentConfirmation,
   useAgentContext,
   useSession,
   useCommandMenu,
@@ -23,7 +22,6 @@ import {
   ContextInfoNotification,
   CommandMenu,
   InputBox,
-  ConfirmationDialog,
   SidePanel,
   UserMessage,
   AssistantMessage,
@@ -54,9 +52,6 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
     textareaRef,
   });
 
-  // Confirmation hook for risky operations
-  const confirmation = useAgentConfirmation();
-
   // Context hook for stats, compaction, and related operations
   const context = useAgentContext({
     history: session.history,
@@ -66,7 +61,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
     setDisplayMessages: session.setDisplayMessages,
   });
 
-  // Agent submission hook
+  // Agent submission hook (includes confirmation handling)
   const agent = useAgentSubmit({
     model,
     host,
@@ -76,7 +71,6 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
     setDisplayMessages: session.setDisplayMessages,
     setHistory: session.setHistory,
     setSidebarTodos: session.setSidebarTodos,
-    requestConfirmation: confirmation.requestConfirmation,
   });
 
   // Keep statusRef in sync
@@ -221,11 +215,19 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
               <box key={`msg-${idx}`} marginBottom={1}>
                 {msg.type === "user" && <UserMessage content={msg.content} />}
                 {msg.type === "assistant" && <AssistantMessage content={msg.content} />}
-                {msg.type === "tool_call" && (
-                  <ToolMessage type="call" name={msg.name} args={msg.args} expanded={toolsExpanded} />
-                )}
-                {msg.type === "tool_result" && (
-                  <ToolMessage type="result" name={msg.name} output={msg.output} error={msg.error} args={msg.args} expanded={toolsExpanded} />
+                {msg.type === "tool" && (
+                  <ToolMessage
+                    message={msg}
+                    isActiveConfirmation={agent.confirmingToolId === msg.id}
+                    onConfirmationResponse={(response) => {
+                      agent.handleToolConfirmation(response);
+                      // Abort the agent run if user denies
+                      if (response.action === "deny") {
+                        agent.abort();
+                      }
+                    }}
+                    expanded={toolsExpanded}
+                  />
                 )}
               </box>
             ))}
@@ -234,19 +236,6 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
               <box key="streaming">
                 <text>{agent.streamingContent}</text>
               </box>
-            )}
-
-            {confirmation.pendingConfirmation && (
-              <ConfirmationDialog
-                request={confirmation.pendingConfirmation}
-                onResponse={(response) => {
-                  confirmation.handleConfirmationResponse(response);
-                  // Abort the agent run if user denies
-                  if (response.action === "deny") {
-                    agent.abort();
-                  }
-                }}
-              />
             )}
           </box>
         </scrollbox>
@@ -275,7 +264,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             textareaRef={textareaRef}
             statusRef={statusRef}
             onSubmit={agent.handleSubmit}
-            disabled={!!confirmation.pendingConfirmation}
+            disabled={!!agent.confirmingToolId}
           />
         </box>
       </box>

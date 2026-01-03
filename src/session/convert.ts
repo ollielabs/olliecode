@@ -4,17 +4,11 @@
  */
 
 import type { Message, ToolCall } from "ollama";
-import type { StoredMessage, MessagePart } from "./types";
+import type { StoredMessage, MessagePart, ToolPart } from "./types";
+import type { DisplayMessage } from "../tui/types";
 
-/**
- * Display message type for TUI rendering.
- * Matches the DisplayMessage type in src/tui/index.tsx.
- */
-export type DisplayMessage =
-  | { type: "user"; content: string }
-  | { type: "assistant"; content: string }
-  | { type: "tool_call"; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; name: string; output: string; error?: string };
+// Re-export DisplayMessage for backward compatibility
+export type { DisplayMessage };
 
 /**
  * Convert stored messages to Ollama format for the agent.
@@ -30,13 +24,14 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
       const content = textParts.map((p) => p.content).join("\n");
       result.push({ role: "user", content });
     } else if (msg.role === "assistant") {
-      // Assistant messages: extract text and tool calls
+      // Assistant messages: extract text and tool parts
       const textParts = msg.parts.filter((p): p is MessagePart & { type: "text" } => p.type === "text");
-      const toolCallParts = msg.parts.filter((p): p is MessagePart & { type: "tool_call" } => p.type === "tool_call");
-      const toolResultParts = msg.parts.filter((p): p is MessagePart & { type: "tool_result" } => p.type === "tool_result");
+      const toolParts = msg.parts.filter((p): p is ToolPart => p.type === "tool");
 
       const content = textParts.map((p) => p.content).join("\n");
-      const toolCalls: ToolCall[] = toolCallParts.map((p) => ({
+      
+      // Convert tool parts to Ollama tool_calls format
+      const toolCalls: ToolCall[] = toolParts.map((p) => ({
         function: { name: p.name, arguments: p.args },
       }));
 
@@ -48,10 +43,26 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
       });
 
       // Add tool results as separate tool role messages
-      for (const tr of toolResultParts) {
+      for (const tp of toolParts) {
+        const state = tp.state;
+        let toolContent: string;
+        
+        if (state.status === "completed") {
+          toolContent = state.output;
+        } else if (state.status === "error") {
+          toolContent = `Error: ${state.error}`;
+        } else if (state.status === "denied") {
+          toolContent = `Error: User denied execution${state.reason ? `: ${state.reason}` : ""}`;
+        } else if (state.status === "blocked") {
+          toolContent = `Error: Blocked - ${state.reason}`;
+        } else {
+          // pending, confirming, executing - shouldn't be stored, but handle gracefully
+          toolContent = "Tool execution incomplete";
+        }
+        
         result.push({
           role: "tool",
-          content: tr.error ? `Error: ${tr.error}` : tr.output,
+          content: toolContent,
         });
       }
     } else if (msg.role === "system") {
@@ -81,18 +92,14 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
           result.push({ type: "assistant", content: part.content });
         }
         // System messages are not displayed in the UI
-      } else if (part.type === "tool_call") {
+      } else if (part.type === "tool") {
+        // Unified tool message - pass through directly
         result.push({
-          type: "tool_call",
+          type: "tool",
+          id: part.id,
           name: part.name,
           args: part.args,
-        });
-      } else if (part.type === "tool_result") {
-        result.push({
-          type: "tool_result",
-          name: part.name,
-          output: part.output,
-          error: part.error,
+          state: part.state,
         });
       }
     }
@@ -110,12 +117,11 @@ export function fromUserInput(content: string): MessagePart[] {
 
 /**
  * Create a message parts array from assistant response.
- * Combines text content, tool calls, and tool results into a single parts array.
+ * Combines text content and tool parts into a single parts array.
  */
 export function fromAssistantResponse(
   content: string,
-  toolCalls?: { name: string; args: Record<string, unknown> }[],
-  toolResults?: { name: string; output: string; error?: string }[]
+  toolParts?: ToolPart[]
 ): MessagePart[] {
   const parts: MessagePart[] = [];
 
@@ -124,22 +130,10 @@ export function fromAssistantResponse(
     parts.push({ type: "text", content });
   }
 
-  // Add tool calls
-  if (toolCalls) {
-    for (const tc of toolCalls) {
-      parts.push({ type: "tool_call", name: tc.name, args: tc.args });
-    }
-  }
-
-  // Add tool results
-  if (toolResults) {
-    for (const tr of toolResults) {
-      parts.push({
-        type: "tool_result",
-        name: tr.name,
-        output: tr.output,
-        error: tr.error,
-      });
+  // Add tool parts
+  if (toolParts) {
+    for (const tp of toolParts) {
+      parts.push(tp);
     }
   }
 

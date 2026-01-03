@@ -3,6 +3,23 @@
  */
 
 import type { AgentMode } from "../agent/modes";
+import type { ToolState } from "../tui/types";
+
+/**
+ * Unified tool part for storage.
+ * Represents a complete tool operation with its final state.
+ */
+export type ToolPart = {
+  type: "tool";
+  /** Unique identifier for this tool operation */
+  id: string;
+  /** Tool name (e.g., "edit_file", "run_command") */
+  name: string;
+  /** Tool arguments */
+  args: Record<string, unknown>;
+  /** Final state of the tool operation */
+  state: ToolState;
+};
 
 /**
  * Message part types (stored as JSON in `parts` column).
@@ -10,8 +27,7 @@ import type { AgentMode } from "../agent/modes";
  */
 export type MessagePart =
   | { type: "text"; content: string }
-  | { type: "tool_call"; name: string; args: Record<string, unknown> }
-  | { type: "tool_result"; name: string; output: string; error?: string };
+  | ToolPart;
 
 /**
  * Stored message (maps to DB row).

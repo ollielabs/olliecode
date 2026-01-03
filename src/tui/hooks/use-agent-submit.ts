@@ -1,6 +1,9 @@
 /**
  * Hook for handling agent submission and response.
  * Manages the prompt submission flow, streaming, and result handling.
+ * 
+ * Uses unified tool messages that evolve through states:
+ * pending → confirming → executing → completed/error/denied/blocked
  */
 
 import { useState, useRef, useCallback } from "react";
@@ -8,11 +11,16 @@ import type { ToolCall } from "ollama";
 import { runAgent } from "../../agent";
 import type { ToolResult, AgentStep } from "../../agent/types";
 import { addMessage, fromUserInput, fromAssistantResponse } from "../../session";
+import type { ToolPart } from "../../session/types";
 import { getTodos } from "../../session/todo";
+import { generateDiff } from "../../utils/diff";
+import type { ToolMetadata } from "../types";
 import type {
   Status,
   Message,
   DisplayMessage,
+  ToolDisplayMessage,
+  ToolState,
   AgentMode,
   Session,
   ConfirmationRequest,
@@ -37,8 +45,6 @@ export type UseAgentSubmitProps = {
   setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
   /** Setter for sidebar todos */
   setSidebarTodos: React.Dispatch<React.SetStateAction<Todo[]>>;
-  /** Function to request confirmation for risky operations */
-  requestConfirmation: (request: ConfirmationRequest) => Promise<ConfirmationResponse>;
 };
 
 export type UseAgentSubmitReturn = {
@@ -58,7 +64,16 @@ export type UseAgentSubmitReturn = {
   handleSubmit: (prompt: string) => Promise<void>;
   /** Abort the current request */
   abort: () => void;
+  /** ID of tool currently awaiting confirmation, or null */
+  confirmingToolId: string | null;
+  /** Handle confirmation response for the active tool */
+  handleToolConfirmation: (response: ConfirmationResponse) => void;
 };
+
+/** Generate a unique ID for a tool operation */
+function generateToolId(): string {
+  return `tool_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export function useAgentSubmit({
   model,
@@ -69,13 +84,14 @@ export function useAgentSubmit({
   setDisplayMessages,
   setHistory,
   setSidebarTodos,
-  requestConfirmation,
 }: UseAgentSubmitProps): UseAgentSubmitReturn {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
+  const [confirmingToolId, setConfirmingToolId] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const confirmationResolverRef = useRef<((response: ConfirmationResponse) => void) | null>(null);
 
   // Keep refs for values accessed in callbacks
   const historyRef = useRef(history);
@@ -86,6 +102,36 @@ export function useAgentSubmit({
   const abort = useCallback(() => {
     abortControllerRef.current?.abort();
   }, []);
+
+  /**
+   * Update a tool message's state by ID.
+   */
+  const updateToolState = useCallback(
+    (toolId: string, newState: ToolState) => {
+      setDisplayMessages((prev) =>
+        prev.map((msg) =>
+          msg.type === "tool" && msg.id === toolId
+            ? { ...msg, state: newState }
+            : msg
+        )
+      );
+    },
+    [setDisplayMessages]
+  );
+
+  /**
+   * Handle confirmation response from the ToolMessage component.
+   */
+  const handleToolConfirmation = useCallback(
+    (response: ConfirmationResponse) => {
+      if (confirmationResolverRef.current) {
+        confirmationResolverRef.current(response);
+        confirmationResolverRef.current = null;
+      }
+      setConfirmingToolId(null);
+    },
+    []
+  );
 
   const handleSubmit = useCallback(
     async (prompt: string) => {
@@ -100,8 +146,14 @@ export function useAgentSubmit({
 
       abortControllerRef.current = new AbortController();
 
-      // Track tool call args to attach to results for expanded view
-      const pendingToolArgs = new Map<string, Record<string, unknown>>();
+      // Primary: index → toolId (for parallel-safe result correlation)
+      const toolIdsByIndex = new Map<number, string>();
+      // Secondary: name → toolId (for confirmation/blocked - safe because sequential)
+      const toolIdsByName = new Map<string, string>();
+      // Preview: toolId → preview (keyed by actual ID to prevent collision)
+      const previewsByToolId = new Map<string, ConfirmationRequest["preview"]>();
+      // Track completed tool parts for session storage
+      const completedToolParts: ToolPart[] = [];
 
       const result = await runAgent({
         model,
@@ -112,29 +164,122 @@ export function useAgentSubmit({
         sessionId: session.id,
         signal: abortControllerRef.current.signal,
         onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
-        onToolCall: (call: ToolCall) => {
-          // Store args for when result arrives
-          pendingToolArgs.set(call.function.name, call.function.arguments);
-          setDisplayMessages((prev) => [
-            ...prev,
-            { type: "tool_call", name: call.function.name, args: call.function.arguments },
-          ]);
+        onToolCall: (call: ToolCall, index: number) => {
+          const toolId = generateToolId();
+          const toolName = call.function.name;
+          const toolArgs = call.function.arguments as Record<string, unknown>;
+          
+          // Store by index (primary - for parallel-safe result correlation)
+          toolIdsByIndex.set(index, toolId);
+          // Store by name (secondary - for confirmation/blocked which only have name)
+          toolIdsByName.set(toolName, toolId);
+
+          const toolMessage: ToolDisplayMessage = {
+            type: "tool",
+            id: toolId,
+            name: toolName,
+            args: toolArgs,
+            state: { status: "pending" },
+          };
+
+          setDisplayMessages((prev) => [...prev, toolMessage]);
         },
-        onToolResult: (result: ToolResult) => {
-          // Attach original args to result for expanded view
-          const args = pendingToolArgs.get(result.tool);
-          setDisplayMessages((prev) => [
-            ...prev,
-            { type: "tool_result", name: result.tool, output: result.output, error: result.error, args },
-          ]);
+        onToolResult: (result: ToolResult, index: number) => {
+          // Use index for lookup (handles parallel calls to same tool)
+          const toolId = toolIdsByIndex.get(index);
+          if (!toolId) return;
+
+          // Get any preview data from confirmation (keyed by toolId)
+          const preview = previewsByToolId.get(toolId);
+
+          // Determine the final state based on result
+          let finalState: ToolState;
+          if (result.error) {
+            if (result.error.includes("User denied")) {
+              finalState = { status: "denied", reason: result.error };
+            } else if (result.error.includes("BLOCKED")) {
+              finalState = { status: "blocked", reason: result.error };
+            } else {
+              finalState = { status: "error", error: result.error };
+            }
+          } else {
+            // Build metadata, preserving diff from confirmation preview
+            const metadata: ToolMetadata = {
+              lineCount: result.output.split("\n").length,
+            };
+
+            // Preserve diff data from edit_file confirmation
+            if (preview?.type === "diff") {
+              metadata.filePath = preview.filePath;
+              metadata.diff = generateDiff(preview.filePath, preview.before, preview.after);
+            }
+
+            finalState = {
+              status: "completed",
+              output: result.output,
+              metadata,
+            };
+          }
+
+          updateToolState(toolId, finalState);
+
+          // Get the current tool message to build the ToolPart for storage
+          setDisplayMessages((prev) => {
+            const toolMsg = prev.find(
+              (m): m is ToolDisplayMessage => m.type === "tool" && m.id === toolId
+            );
+            if (toolMsg) {
+              completedToolParts.push({
+                type: "tool",
+                id: toolId,
+                name: toolMsg.name,
+                args: toolMsg.args,
+                state: finalState,
+              });
+            }
+            return prev;
+          });
         },
         onStepComplete: (_step: AgentStep) => setStreamingContent(""),
-        onConfirmationNeeded: requestConfirmation,
+        onConfirmationNeeded: async (request: ConfirmationRequest) => {
+          // Use name-based lookup (safe because unsafe tools run sequentially)
+          const toolId = toolIdsByName.get(request.tool);
+          
+          // Store preview data by toolId (not name) to prevent collision
+          if (toolId && request.preview) {
+            previewsByToolId.set(toolId, request.preview);
+          }
+          
+          if (toolId) {
+            // Update tool state to confirming with preview
+            updateToolState(toolId, {
+              status: "confirming",
+              preview: request.preview,
+            });
+            setConfirmingToolId(toolId);
+          }
+
+          // Wait for user response via handleToolConfirmation
+          return new Promise<ConfirmationResponse>((resolve) => {
+            confirmationResolverRef.current = (response) => {
+              // Update tool state based on response
+              if (toolId) {
+                if (response.action === "deny") {
+                  updateToolState(toolId, { status: "denied" });
+                } else {
+                  updateToolState(toolId, { status: "executing" });
+                }
+              }
+              resolve(response);
+            };
+          });
+        },
         onToolBlocked: (tool: string, reason: string) => {
-          setDisplayMessages((prev) => [
-            ...prev,
-            { type: "tool_result", name: tool, output: "", error: `Blocked: ${reason}` },
-          ]);
+          // Use name-based lookup (safe because unsafe tools run sequentially)
+          const toolId = toolIdsByName.get(tool);
+          if (toolId) {
+            updateToolState(toolId, { status: "blocked", reason });
+          }
         },
       });
 
@@ -173,22 +318,13 @@ export function useAgentSubmit({
 
         setSidebarTodos(getTodos(session.id));
 
-        const lastStep = result.steps[result.steps.length - 1];
-        const toolCalls = lastStep?.actions.map((tc) => ({
-          name: tc.function.name,
-          args: tc.function.arguments as Record<string, unknown>,
-        }));
-        const toolResults = lastStep?.observations.map((obs) => ({
-          name: obs.tool,
-          output: obs.output,
-          error: obs.error,
-        }));
-        addMessage(session.id, "assistant", fromAssistantResponse(result.finalAnswer, toolCalls, toolResults));
+        // Store the assistant message with all tool parts
+        addMessage(session.id, "assistant", fromAssistantResponse(result.finalAnswer, completedToolParts));
       }
 
       setStreamingContent("");
     },
-    [model, host, ensureSession, setDisplayMessages, setHistory, setSidebarTodos, requestConfirmation]
+    [model, host, ensureSession, setDisplayMessages, setHistory, setSidebarTodos, updateToolState]
   );
 
   return {
@@ -200,5 +336,7 @@ export function useAgentSubmit({
     setStreamingContent,
     handleSubmit,
     abort,
+    confirmingToolId,
+    handleToolConfirmation,
   };
 }
