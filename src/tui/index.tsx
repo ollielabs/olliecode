@@ -239,7 +239,13 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             {confirmation.pendingConfirmation && (
               <ConfirmationDialog
                 request={confirmation.pendingConfirmation}
-                onResponse={confirmation.handleConfirmationResponse}
+                onResponse={(response) => {
+                  confirmation.handleConfirmationResponse(response);
+                  // Abort the agent run if user denies
+                  if (response.action === "deny") {
+                    agent.abort();
+                  }
+                }}
               />
             )}
           </box>

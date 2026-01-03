@@ -24,3 +24,6 @@ export { StatusBar, type Status } from "./status-bar";
 
 // Layout components
 export { SidePanel } from "./side-panel";
+
+// Diff components
+export { DiffView, type DiffViewProps } from "./diff-view";

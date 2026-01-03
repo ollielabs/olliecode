@@ -40,6 +40,11 @@ export const monokaiTheme: Theme = {
       syntaxComment: "#75715e",
       syntaxOperator: "#f92672",
       syntaxVariable: "#f8f8f2",
+      // Diff colors
+      diffAdd: "#a6e22e",
+      diffAddBg: "#2d4a2b",
+      diffDelete: "#f92672",
+      diffDeleteBg: "#4a2b2b",
     },
   },
   light: {

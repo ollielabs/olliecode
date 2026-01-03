@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run --watch src/index.tsx",
+    "dev": "bun run src/index.tsx",
     "build": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --outfile=ollama-tui --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'"
   },
   "devDependencies": {
@@ -12,6 +12,7 @@
     "@babel/preset-typescript": "^7.28.5",
     "@types/babel__core": "^7.20.5",
     "@types/bun": "latest",
+    "@types/diff": "^8.0.0",
     "@types/marked-terminal": "^6.1.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "promptfoo": "^0.120.8"
@@ -24,6 +25,7 @@
     "@opentui/react": "^0.1.61",
     "ansi-escapes": "^7.2.0",
     "commander": "^14.0.2",
+    "diff": "^8.0.2",
     "marked": "11.0.1",
     "marked-terminal": "7.2.0",
     "ollama": "^0.6.3",

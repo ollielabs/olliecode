@@ -32,7 +32,7 @@ export type ConfirmationRequest = {
 
 // Preview content for confirmation UI
 export type ConfirmationPreview = 
-  | { type: "diff"; before: string; after: string }      // For edit_file
+  | { type: "diff"; before: string; after: string; filePath: string }  // For edit_file
   | { type: "content"; content: string; truncated: boolean }  // For write_file
   | { type: "command"; command: string; cwd: string };   // For run_command
 
@@ -40,8 +40,7 @@ export type ConfirmationPreview =
 export type ConfirmationResponse = 
   | { action: "allow" }
   | { action: "allow_always"; forTool?: string }  // Don't ask again for this tool
-  | { action: "deny" }
-  | { action: "deny_always"; forTool?: string };  // Always deny this tool
+  | { action: "deny" };  // Deny and abort the agent run
 
 // Audit log entry
 export type AuditEntry = {

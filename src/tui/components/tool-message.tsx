@@ -4,6 +4,7 @@
  */
 
 import { useTheme } from "../../design";
+import { DiffView } from "./diff-view";
 
 export type ToolMessageProps = {
   type: "call" | "result";
@@ -13,6 +14,9 @@ export type ToolMessageProps = {
   error?: string;
   expanded?: boolean;
 };
+
+/** Tools that always show their output (not collapsible) */
+const ALWAYS_VISIBLE_TOOLS = ["edit_file", "write_file"];
 
 const MAX_COLLAPSED_LINES = 10;
 
@@ -143,24 +147,12 @@ function formatToolOutput(
       }
 
     case "write_file":
-      if (!expanded) {
-        return output; // "Wrote X bytes to path"
-      }
-      // When expanded, show the content that was written
-      if (args?.content) {
-        return `${output}\n\n${String(args.content)}`;
-      }
-      return output;
+      // Handled separately in render with syntax highlighting
+      return "";
 
     case "edit_file":
-      if (!expanded) {
-        return output; // "Replaced X occurrences"
-      }
-      // When expanded, show the before/after
-      if (args?.oldString && args?.newString) {
-        return `${output}\n\n--- Before:\n${String(args.oldString)}\n\n+++ After:\n${String(args.newString)}`;
-      }
-      return output;
+      // Handled separately in render with DiffView component
+      return "";
 
     case "todo_write":
     case "todo_read":
@@ -188,9 +180,16 @@ export function ToolMessage({ type, name, args, output, error, expanded }: ToolM
   const header = formatToolHeader(name, args);
   const formattedOutput = type === "result" ? formatToolOutput(name, output, error, expanded, args) : "";
 
-  // Show expand hint when there's collapsible output
-  const isCollapsible = type === "result" && output && !error;
+  // Determine if this tool's output is collapsible
+  const isAlwaysVisible = ALWAYS_VISIBLE_TOOLS.includes(name);
+  const isCollapsible = type === "result" && output && !error && !isAlwaysVisible;
   const showExpandHint = isCollapsible && !expanded;
+
+  // Check if we should render special content for file operations
+  const isEditResult = type === "result" && name === "edit_file" && !error && 
+    typeof args?.oldString === "string" && typeof args?.newString === "string";
+  const isWriteResult = type === "result" && name === "write_file" && !error && 
+    typeof args?.content === "string";
 
   return (
     <box
@@ -210,8 +209,30 @@ export function ToolMessage({ type, name, args, output, error, expanded }: ToolM
         {showExpandHint && <text style={{ fg: tokens.textMuted }}> [ctrl+e to expand]</text>}
       </box>
 
-      {/* Output (only for results) */}
-      {type === "result" && formattedOutput && (
+      {/* Edit file result: show diff */}
+      {isEditResult && (
+        <box style={{ marginTop: 1 }}>
+          <DiffView
+            filePath={String(args.path ?? "")}
+            before={String(args.oldString)}
+            after={String(args.newString)}
+            maxHeight={20}
+          />
+        </box>
+      )}
+
+      {/* Write file result: show content */}
+      {isWriteResult && args && (
+        <box style={{ marginTop: 1 }}>
+          <text style={{ fg: tokens.textMuted }}>{output}</text>
+          <box style={{ marginTop: 1, backgroundColor: tokens.bgBase, padding: 1 }}>
+            <text style={{ fg: tokens.textBase }}>{String(args.content)}</text>
+          </box>
+        </box>
+      )}
+
+      {/* Standard output (for other tools) */}
+      {type === "result" && formattedOutput && !isEditResult && !isWriteResult && (
         <box style={{ marginTop: 1 }}>
           <text style={{ fg: error ? tokens.error : tokens.textMuted }}>{formattedOutput}</text>
         </box>

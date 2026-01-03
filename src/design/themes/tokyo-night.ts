@@ -39,6 +39,11 @@ export const tokyoNightTheme: Theme = {
       syntaxComment: "#565f89",
       syntaxOperator: "#89ddff",
       syntaxVariable: "#c0caf5",
+      // Diff colors
+      diffAdd: "#9ece6a",
+      diffAddBg: "#1a3d1a",
+      diffDelete: "#f7768e",
+      diffDeleteBg: "#3d1a1a",
     },
   },
   light: {

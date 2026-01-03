@@ -40,6 +40,11 @@ export const nordTheme: Theme = {
       syntaxComment: "#616e88",
       syntaxOperator: "#81a1c1",
       syntaxVariable: "#d8dee9",
+      // Diff colors
+      diffAdd: "#a3be8c",
+      diffAddBg: "#2e3d2e",
+      diffDelete: "#bf616a",
+      diffDeleteBg: "#3d2e2e",
     },
   },
   light: {

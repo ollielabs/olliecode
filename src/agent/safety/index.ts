@@ -54,7 +54,6 @@ export class SafetyLayer {
   private rateLimiter: RateLimiter;
   private auditLog: AuditLog;
   private alwaysAllow: Set<string> = new Set();
-  private alwaysDeny: Set<string> = new Set();
   
   constructor(config: Partial<SafetyConfig> = {}) {
     this.config = { ...DEFAULT_SAFETY_CONFIG, ...config };
@@ -86,11 +85,6 @@ export class SafetyLayer {
     const override = this.config.toolOverrides[tool];
     if (override?.autonomy === "always_deny") {
       return { status: "denied", reason: `Tool "${tool}" is configured to always deny.` };
-    }
-    
-    // Check always allow/deny from user responses
-    if (this.alwaysDeny.has(tool)) {
-      return { status: "denied", reason: `Tool "${tool}" was denied for this session.` };
     }
     
     // Path validation for file tools
@@ -268,8 +262,6 @@ export class SafetyLayer {
   handleConfirmationResponse(response: ConfirmationResponse): void {
     if (response.action === "allow_always" && response.forTool) {
       this.alwaysAllow.add(response.forTool);
-    } else if (response.action === "deny_always" && response.forTool) {
-      this.alwaysDeny.add(response.forTool);
     }
   }
   
@@ -374,7 +366,7 @@ export class SafetyLayer {
               const content = await file.text();
               const before = extractContext(content, oldString, 3);
               const after = before.replace(oldString, newString);
-              return { type: "diff", before, after };
+              return { type: "diff", before, after, filePath: path };
             }
           } catch {
             // Fall through to simple diff
@@ -384,6 +376,7 @@ export class SafetyLayer {
             type: "diff",
             before: oldString,
             after: newString,
+            filePath: path,
           };
         }
         

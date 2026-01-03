@@ -9,6 +9,7 @@
         "@opentui/react": "^0.1.61",
         "ansi-escapes": "^7.2.0",
         "commander": "^14.0.2",
+        "diff": "^8.0.2",
         "marked": "11.0.1",
         "marked-terminal": "7.2.0",
         "ollama": "^0.6.3",
@@ -21,6 +22,7 @@
         "@babel/preset-typescript": "^7.28.5",
         "@types/babel__core": "^7.20.5",
         "@types/bun": "latest",
+        "@types/diff": "^8.0.0",
         "@types/marked-terminal": "^6.1.1",
         "babel-plugin-react-compiler": "^1.0.0",
         "promptfoo": "^0.120.8",
@@ -750,6 +752,8 @@
     "@types/cors": ["@types/cors@2.8.19", "", { "dependencies": { "@types/node": "*" } }, "sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg=="],
 
     "@types/debug": ["@types/debug@4.1.12", "", { "dependencies": { "@types/ms": "*" } }, "sha512-vIChWdVG3LG1SMxEvI/AK+FWJthlrqlTu7fbrlywTkkaONwk/UAGaULXRlf8vkzFBLVm0zkMdCquhL5aOjhXPQ=="],
+
+    "@types/diff": ["@types/diff@8.0.0", "", { "dependencies": { "diff": "*" } }, "sha512-o7jqJM04gfaYrdCecCVMbZhNdG6T1MHg/oQoRFdERLV+4d+V7FijhiEAbFu0Usww84Yijk9yH58U4Jk4HbtzZw=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 

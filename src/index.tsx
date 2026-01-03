@@ -1,3 +1,4 @@
+// this is not a test
 import { Command } from "commander";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";

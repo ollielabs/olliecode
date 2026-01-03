@@ -312,7 +312,7 @@ async function processSingleToolCall(
     const response = await callbacks.onConfirmationNeeded(safetyCheck.request);
     safetyLayer.handleConfirmationResponse(response);
 
-    if (response.action === "deny" || response.action === "deny_always") {
+    if (response.action === "deny") {
       return handleUserDenied(
         toolName,
         toolArgs,
