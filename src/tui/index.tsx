@@ -14,6 +14,7 @@ import {
   useSession,
   useCommandMenu,
   useKeyboardShortcuts,
+  useFilePicker,
 } from "./hooks";
 import {
   ContextStatsModal,
@@ -21,6 +22,7 @@ import {
   ThemePicker,
   ContextInfoNotification,
   CommandMenu,
+  FilePicker,
   InputBox,
   SidePanel,
   UserMessage,
@@ -92,6 +94,13 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
     },
   });
 
+  // File picker hook for @ mentions
+  const filePicker = useFilePicker({
+    textareaRef,
+    status: agent.status,
+    isModalOpen: session.showSessionPicker || commands.showCommandMenu,
+  });
+
   // Global keyboard shortcuts
   const { toolsExpanded } = useKeyboardShortcuts({
     status: agent.status,
@@ -159,6 +168,19 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             />
           )}
 
+          {filePicker.showFilePicker && (
+            <FilePicker
+              files={filePicker.files}
+              filter={filePicker.fileFilter}
+              selectedIndex={filePicker.fileSelectedIndex}
+              onSelect={filePicker.handleFileSelect}
+              onCancel={filePicker.handleFilePickerCancel}
+              onIndexChange={filePicker.handleFileIndexChange}
+              bottom={5}
+              width={80}
+            />
+          )}
+
           <InputBox
             id="greeting-textarea"
             model={model}
@@ -168,6 +190,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             textareaRef={textareaRef}
             statusRef={statusRef}
             onSubmit={agent.handleSubmit}
+            suppressSubmit={filePicker.showFilePicker}
           />
         </box>
       </box>
@@ -213,7 +236,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
           <box flexDirection="column" flexGrow={1} paddingRight={2}>
             {session.displayMessages.map((msg, idx) => (
               <box key={`msg-${idx}`} marginBottom={1}>
-                {msg.type === "user" && <UserMessage content={msg.content} />}
+                {msg.type === "user" && <UserMessage content={msg.content} attachedFiles={msg.attachedFiles} />}
                 {msg.type === "assistant" && <AssistantMessage content={msg.content} />}
                 {msg.type === "tool" && (
                   <ToolMessage
@@ -255,6 +278,18 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             />
           )}
 
+          {filePicker.showFilePicker && (
+            <FilePicker
+              files={filePicker.files}
+              filter={filePicker.fileFilter}
+              selectedIndex={filePicker.fileSelectedIndex}
+              onSelect={filePicker.handleFileSelect}
+              onCancel={filePicker.handleFilePickerCancel}
+              onIndexChange={filePicker.handleFileIndexChange}
+              bottom={5}
+            />
+          )}
+
           <InputBox
             id="chat-textarea"
             model={model}
@@ -265,6 +300,7 @@ function AppContent({ model, host, projectPath, initialSessionId }: Omit<AppProp
             statusRef={statusRef}
             onSubmit={agent.handleSubmit}
             disabled={!!agent.confirmingToolId}
+            suppressSubmit={filePicker.showFilePicker}
           />
         </box>
       </box>

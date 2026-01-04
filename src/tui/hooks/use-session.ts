@@ -3,7 +3,7 @@
  * Handles session CRUD, mode, history, display messages, and todos.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DEFAULT_MODE } from "../../agent/modes";
 import {
   getSession,
@@ -123,64 +123,58 @@ export function useSession({
     }
   }, [currentSession]);
 
-  const listAvailableSessions = useCallback(() => {
+  const listAvailableSessions = () => {
     return listSessions({ limit: 50 });
-  }, []);
+  };
 
-  const handleNewSession = useCallback(() => {
+  const handleNewSession = () => {
     setCurrentSession(null);
     setHistory([]);
     setDisplayMessages([]);
     setMode(DEFAULT_MODE);
-  }, []);
+  };
 
-  const handleSessionSelect = useCallback(
-    (session: Session) => {
-      setShowSessionPicker(false);
-      setCurrentSession(session);
-      setMode(session.mode);
-      const storedMessages = getMessages(session.id);
-      setHistory(toOllamaMessages(storedMessages));
-      setDisplayMessages(toDisplayMessages(storedMessages));
-      setTimeout(() => textareaRef.current?.focus(), 10);
-    },
-    [textareaRef]
-  );
+  const handleSessionSelect = (session: Session) => {
+    setShowSessionPicker(false);
+    setCurrentSession(session);
+    setMode(session.mode);
+    const storedMessages = getMessages(session.id);
+    setHistory(toOllamaMessages(storedMessages));
+    setDisplayMessages(toDisplayMessages(storedMessages));
+    setTimeout(() => textareaRef.current?.focus(), 10);
+  };
 
-  const handleSessionPickerCancel = useCallback(() => {
+  const handleSessionPickerCancel = () => {
     setShowSessionPicker(false);
     setTimeout(() => textareaRef.current?.focus(), 10);
-  }, [textareaRef]);
+  };
 
-  const handleSessionsChanged = useCallback(() => {
+  const handleSessionsChanged = () => {
     setSessionRefreshKey((prev) => prev + 1);
-  }, []);
+  };
 
-  const handleThemeSelect = useCallback(
-    (themeId: string) => {
-      setShowThemePicker(false);
-      // Persist theme selection to config
-      void import("../../config").then(({ setConfigValue }) => {
-        setConfigValue("theme", themeId);
-      });
-      setTimeout(() => textareaRef.current?.focus(), 10);
-    },
-    [textareaRef]
-  );
+  const handleThemeSelect = (themeId: string) => {
+    setShowThemePicker(false);
+    // Persist theme selection to config
+    void import("../../config").then(({ setConfigValue }) => {
+      setConfigValue("theme", themeId);
+    });
+    setTimeout(() => textareaRef.current?.focus(), 10);
+  };
 
-  const handleThemePickerCancel = useCallback(() => {
+  const handleThemePickerCancel = () => {
     setShowThemePicker(false);
     setTimeout(() => textareaRef.current?.focus(), 10);
-  }, [textareaRef]);
+  };
 
-  const ensureSession = useCallback(async (): Promise<Session> => {
+  const ensureSession = async (): Promise<Session> => {
     if (sessionRef.current) {
       return sessionRef.current;
     }
     const session = await createSession({ projectPath, model, host, mode });
     setCurrentSession(session);
     return session;
-  }, [projectPath, model, host, mode]);
+  };
 
   return {
     currentSession,

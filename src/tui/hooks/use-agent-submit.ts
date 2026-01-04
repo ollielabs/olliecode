@@ -6,11 +6,12 @@
  * pending → confirming → executing → completed/error/denied/blocked
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import type { ToolCall } from "ollama";
 import { runAgent } from "../../agent";
 import type { ToolResult, AgentStep } from "../../agent/types";
 import { addMessage, fromUserInput, fromAssistantResponse } from "../../session";
+import { augmentMessageWithFiles } from "../../utils/file-list";
 import type { ToolPart } from "../../session/types";
 import { getTodos } from "../../session/todo";
 import { generateDiff } from "../../utils/diff";
@@ -99,50 +100,49 @@ export function useAgentSubmit({
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
-  const abort = useCallback(() => {
+  const abort = () => {
     abortControllerRef.current?.abort();
-  }, []);
+  };
 
   /**
    * Update a tool message's state by ID.
    */
-  const updateToolState = useCallback(
-    (toolId: string, newState: ToolState) => {
-      setDisplayMessages((prev) =>
-        prev.map((msg) =>
-          msg.type === "tool" && msg.id === toolId
-            ? { ...msg, state: newState }
-            : msg
-        )
-      );
-    },
-    [setDisplayMessages]
-  );
+  const updateToolState = (toolId: string, newState: ToolState) => {
+    setDisplayMessages((prev) =>
+      prev.map((msg) =>
+        msg.type === "tool" && msg.id === toolId
+          ? { ...msg, state: newState }
+          : msg
+      )
+    );
+  };
 
   /**
    * Handle confirmation response from the ToolMessage component.
    */
-  const handleToolConfirmation = useCallback(
-    (response: ConfirmationResponse) => {
-      if (confirmationResolverRef.current) {
-        confirmationResolverRef.current(response);
-        confirmationResolverRef.current = null;
-      }
-      setConfirmingToolId(null);
-    },
-    []
-  );
+  const handleToolConfirmation = (response: ConfirmationResponse) => {
+    if (confirmationResolverRef.current) {
+      confirmationResolverRef.current(response);
+      confirmationResolverRef.current = null;
+    }
+    setConfirmingToolId(null);
+  };
 
-  const handleSubmit = useCallback(
-    async (prompt: string) => {
+  const handleSubmit = async (prompt: string) => {
       setStatus("thinking");
       setError("");
       setStreamingContent("");
 
       const session = await ensureSession();
 
+      // Augment message with @ mentioned file contents
+      const { content: augmentedPrompt, attachedFiles } = await augmentMessageWithFiles(prompt);
+
       addMessage(session.id, "user", fromUserInput(prompt));
-      setDisplayMessages((prev) => [...prev, { type: "user", content: prompt }]);
+      setDisplayMessages((prev) => [
+        ...prev,
+        { type: "user", content: prompt, attachedFiles: attachedFiles.length > 0 ? attachedFiles : undefined },
+      ]);
 
       abortControllerRef.current = new AbortController();
 
@@ -158,7 +158,7 @@ export function useAgentSubmit({
       const result = await runAgent({
         model,
         host,
-        userMessage: prompt,
+        userMessage: augmentedPrompt,
         history: historyRef.current,
         mode: modeRef.current,
         sessionId: session.id,
@@ -323,9 +323,7 @@ export function useAgentSubmit({
       }
 
       setStreamingContent("");
-    },
-    [model, host, ensureSession, setDisplayMessages, setHistory, setSidebarTodos, updateToolState]
-  );
+  };
 
   return {
     status,

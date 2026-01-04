@@ -3,7 +3,7 @@
  * Handles sidebar stats, context info notifications, and context manipulation.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { compactMessages, getCompactionLevel } from "../../agent/compaction";
 import { fetchModelInfo, getContextStats } from "../../lib/tokenizer";
 import type { Message, ContextStats, DisplayMessage } from "../types";
@@ -73,14 +73,14 @@ export function useAgentContext({
     })();
   }, [history, model, host]);
 
-  const handleClearContext = useCallback(() => {
+  const handleClearContext = () => {
     setHistory([]);
     setDisplayMessages([]);
     setContextInfo("Context cleared. Starting fresh conversation.");
     setTimeout(() => setContextInfo(null), 3000);
-  }, [setHistory, setDisplayMessages]);
+  };
 
-  const handleCompact = useCallback(async () => {
+  const handleCompact = async () => {
     if (history.length === 0) {
       setContextInfo("Nothing to compact - context is empty.");
       setTimeout(() => setContextInfo(null), 3000);
@@ -110,9 +110,9 @@ export function useAgentContext({
       setContextInfo(`Compaction failed: ${e instanceof Error ? e.message : String(e)}`);
       setTimeout(() => setContextInfo(null), 5000);
     }
-  }, [history, model, host, setHistory]);
+  };
 
-  const handleShowContext = useCallback(async () => {
+  const handleShowContext = async () => {
     if (history.length === 0) {
       setContextInfo("Context is empty.");
       setTimeout(() => setContextInfo(null), 3000);
@@ -128,31 +128,28 @@ export function useAgentContext({
       setContextInfo(`Could not get context stats: ${e instanceof Error ? e.message : String(e)}`);
       setTimeout(() => setContextInfo(null), 5000);
     }
-  }, [history, model, host]);
+  };
 
-  const handleForget = useCallback(
-    (n: number) => {
-      if (history.length === 0) {
-        setContextInfo("Nothing to forget - context is empty.");
-        setTimeout(() => setContextInfo(null), 3000);
-        return;
-      }
-
-      const toRemove = Math.min(n, history.length);
-      setHistory((prev) => prev.slice(0, -toRemove));
-      // Approximate: each history message may correspond to ~2 display messages
-      const displayToRemove = Math.min(toRemove * 2, 100);
-      setDisplayMessages((prev) => prev.slice(0, -displayToRemove));
-      setContextInfo(`Forgot last ${toRemove} message${toRemove === 1 ? "" : "s"}.`);
+  const handleForget = (n: number) => {
+    if (history.length === 0) {
+      setContextInfo("Nothing to forget - context is empty.");
       setTimeout(() => setContextInfo(null), 3000);
-    },
-    [history.length, setHistory, setDisplayMessages]
-  );
+      return;
+    }
 
-  const handleContextStatsClose = useCallback(() => {
+    const toRemove = Math.min(n, history.length);
+    setHistory((prev) => prev.slice(0, -toRemove));
+    // Approximate: each history message may correspond to ~2 display messages
+    const displayToRemove = Math.min(toRemove * 2, 100);
+    setDisplayMessages((prev) => prev.slice(0, -displayToRemove));
+    setContextInfo(`Forgot last ${toRemove} message${toRemove === 1 ? "" : "s"}.`);
+    setTimeout(() => setContextInfo(null), 3000);
+  };
+
+  const handleContextStatsClose = () => {
     setShowContextStats(false);
     setContextStats(null);
-  }, []);
+  };
 
   return {
     contextInfo,

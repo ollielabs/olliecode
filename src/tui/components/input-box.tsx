@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { TextareaRenderable } from "@opentui/core";
 import type { AgentMode } from "../../agent/modes";
 import { useTheme } from "../../design";
@@ -21,10 +21,16 @@ export type InputBoxProps = {
   centered?: boolean;
   /** When true, blurs textarea to prevent key capture (e.g., during confirmation dialogs) */
   disabled?: boolean;
+  /** When true, prevents submit on Enter (e.g., when file picker is open) */
+  suppressSubmit?: boolean;
 };
 
-export function InputBox({ id, model, status, error, mode, textareaRef, statusRef, onSubmit, centered, disabled }: InputBoxProps) {
+export function InputBox({ id, model, status, error, mode, textareaRef, statusRef, onSubmit, centered, disabled, suppressSubmit }: InputBoxProps) {
   const { tokens } = useTheme();
+
+  // Use ref for suppressSubmit to get current value at call time
+  const suppressSubmitRef = useRef(suppressSubmit);
+  suppressSubmitRef.current = suppressSubmit;
 
   // Blur/focus textarea based on disabled state
   useEffect(() => {
@@ -36,6 +42,7 @@ export function InputBox({ id, model, status, error, mode, textareaRef, statusRe
   }, [disabled, textareaRef]);
 
   const handleSubmit = () => {
+    if (suppressSubmitRef.current) return;
     if (statusRef.current === "thinking") return;
     const text = textareaRef.current?.plainText?.trim();
     if (!text) return;

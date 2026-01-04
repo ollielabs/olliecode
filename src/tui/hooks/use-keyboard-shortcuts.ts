@@ -3,7 +3,7 @@
  * Handles Tab (mode toggle), double-Escape (abort), Ctrl+K (debug), and Ctrl+E (expand tools).
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { toggleMode } from "../../agent/modes";
 import { updateSession } from "../../session";
@@ -52,46 +52,41 @@ export function useKeyboardShortcuts({
   const sessionRef = useRef(currentSession);
   sessionRef.current = currentSession;
 
-  useKeyboard(
-    useCallback(
-      (key: { ctrl?: boolean; name?: string }) => {
-        // Ctrl+K: Toggle debug overlay
-        if (key.ctrl && key.name === "k") {
-          renderer.toggleDebugOverlay();
-          renderer.console.toggle();
-          return;
-        }
+  useKeyboard((key: { ctrl?: boolean; name?: string }) => {
+    // Ctrl+K: Toggle debug overlay
+    if (key.ctrl && key.name === "k") {
+      renderer.toggleDebugOverlay();
+      renderer.console.toggle();
+      return;
+    }
 
-        // Tab: Toggle mode (only when idle and no modals open)
-        if (key.name === "tab" && statusRef.current === "idle" && !showCommandMenu && !showSessionPicker) {
-          const newMode = toggleMode(modeRef.current);
-          setMode(newMode);
-          if (sessionRef.current) {
-            updateSession(sessionRef.current.id, { mode: newMode });
-          }
-          return;
-        }
+    // Tab: Toggle mode (only when idle and no modals open)
+    if (key.name === "tab" && statusRef.current === "idle" && !showCommandMenu && !showSessionPicker) {
+      const newMode = toggleMode(modeRef.current);
+      setMode(newMode);
+      if (sessionRef.current) {
+        updateSession(sessionRef.current.id, { mode: newMode });
+      }
+      return;
+    }
 
-        // Double-Escape: Abort agent (only when thinking)
-        if (key.name === "escape" && statusRef.current === "thinking") {
-          const now = Date.now();
-          if (now - lastEscapeRef.current < 500) {
-            abort();
-            lastEscapeRef.current = 0;
-          } else {
-            lastEscapeRef.current = now;
-          }
-          return;
-        }
+    // Double-Escape: Abort agent (only when thinking)
+    if (key.name === "escape" && statusRef.current === "thinking") {
+      const now = Date.now();
+      if (now - lastEscapeRef.current < 500) {
+        abort();
+        lastEscapeRef.current = 0;
+      } else {
+        lastEscapeRef.current = now;
+      }
+      return;
+    }
 
-        // Ctrl+E: Toggle tool output expansion (only when idle)
-        if (key.ctrl && key.name === "e" && statusRef.current === "idle") {
-          setToolsExpanded((prev) => !prev);
-        }
-      },
-      [renderer, showCommandMenu, showSessionPicker, setMode, abort]
-    )
-  );
+    // Ctrl+E: Toggle tool output expansion (only when idle)
+    if (key.ctrl && key.name === "e" && statusRef.current === "idle") {
+      setToolsExpanded((prev) => !prev);
+    }
+  });
 
   return { toolsExpanded };
 }

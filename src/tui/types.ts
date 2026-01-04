@@ -68,7 +68,7 @@ export type ToolDisplayMessage = {
  * Each message type has a different visual representation.
  */
 export type DisplayMessage =
-  | { type: "user"; content: string }
+  | { type: "user"; content: string; attachedFiles?: string[] }
   | { type: "assistant"; content: string }
   | ToolDisplayMessage;
 

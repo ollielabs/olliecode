@@ -1,4 +1,3 @@
-// are you writing shitty code
 import { Command } from "commander";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
