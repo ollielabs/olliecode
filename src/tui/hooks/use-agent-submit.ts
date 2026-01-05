@@ -164,6 +164,8 @@ export function useAgentSubmit({
 
     // Primary: index → toolId (for parallel-safe result correlation)
     const toolIdsByIndex = new Map<number, string>();
+    // Reverse: toolId → index (for sorting completed parts back to call order)
+    const indexByToolId = new Map<string, number>();
     // Secondary: name → toolId (for confirmation/blocked - safe because sequential)
     const toolIdsByName = new Map<string, string>();
     // Preview: toolId → preview (keyed by actual ID to prevent collision)
@@ -187,6 +189,8 @@ export function useAgentSubmit({
 
         // Store by index (primary - for parallel-safe result correlation)
         toolIdsByIndex.set(index, toolId);
+        // Reverse mapping for sorting completed parts back to call order
+        indexByToolId.set(toolId, index);
         // Store by name (secondary - for confirmation/blocked which only have name)
         toolIdsByName.set(toolName, toolId);
 
@@ -348,6 +352,13 @@ export function useAgentSubmit({
       setStatus('idle');
 
       setSidebarTodos(getTodos(session.id));
+
+      // Sort tool parts by original call order (parallel tools may complete out of order)
+      completedToolParts.sort((a, b) => {
+        const indexA = indexByToolId.get(a.id) ?? 0;
+        const indexB = indexByToolId.get(b.id) ?? 0;
+        return indexA - indexB;
+      });
 
       // Store the assistant message with all tool parts
       addMessage(
