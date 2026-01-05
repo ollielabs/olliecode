@@ -1,7 +1,7 @@
-import type { AgentMode } from "../../agent/modes";
-import { useTheme } from "../../design";
+import type { AgentMode } from '../../agent/modes';
+import { useTheme } from '../../design';
 
-export type Status = "idle" | "thinking" | "error";
+export type Status = 'idle' | 'thinking' | 'error';
 
 export type StatusBarProps = {
   model: string;
@@ -10,7 +10,12 @@ export type StatusBarProps = {
   mode?: AgentMode;
 };
 
-export function StatusBar({ model, status, error, mode = "build" }: StatusBarProps) {
+export function StatusBar({
+  model,
+  status,
+  error,
+  mode = 'build',
+}: StatusBarProps) {
   const { tokens } = useTheme();
 
   const modeColors: Record<AgentMode, string> = {
@@ -19,12 +24,12 @@ export function StatusBar({ model, status, error, mode = "build" }: StatusBarPro
   };
 
   return (
-    <box style={{ flexDirection: "row", marginTop: 1 }}>
+    <box style={{ flexDirection: 'row', marginTop: 1 }}>
       <text style={{ fg: modeColors[mode] }}>[{mode.toUpperCase()}]</text>
       <text style={{ fg: tokens.textMuted }}> • {model} • </text>
-      {status === "thinking" ? (
+      {status === 'thinking' ? (
         <text style={{ fg: tokens.primaryBase }}>Thinking…</text>
-      ) : status === "error" ? (
+      ) : status === 'error' ? (
         <text style={{ fg: tokens.error }}>Error: {error}</text>
       ) : (
         <text style={{ fg: tokens.textMuted }}>Tab to switch mode</text>

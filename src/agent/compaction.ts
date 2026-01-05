@@ -5,10 +5,10 @@
  * See docs/context-compaction.md for the full strategy.
  */
 
-import { Ollama } from "ollama";
-import type { Message } from "ollama";
-import { estimateMessagesTokens, estimateTokens } from "../lib/tokenizer";
-import { log } from "./logger";
+import { Ollama } from 'ollama';
+import type { Message } from 'ollama';
+import { estimateMessagesTokens } from '../lib/tokenizer';
+import { log } from './logger';
 
 /**
  * Compaction configuration options.
@@ -37,7 +37,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
 /**
  * Compaction levels based on context usage.
  */
-export type CompactionLevel = "light" | "medium" | "aggressive";
+export type CompactionLevel = 'light' | 'medium' | 'aggressive';
 
 /**
  * Result of a compaction operation.
@@ -61,17 +61,22 @@ export type CompactionResult = {
  * Determine compaction level based on context usage percentage.
  */
 export function getCompactionLevel(usagePercent: number): CompactionLevel {
-  if (usagePercent >= 90) return "aggressive";
-  if (usagePercent >= 85) return "medium";
-  return "light";
+  if (usagePercent >= 90) return 'aggressive';
+  if (usagePercent >= 85) return 'medium';
+  return 'light';
 }
 
 /**
  * Check if a message should be preserved (never compacted).
  */
-function shouldPreserve(message: Message, index: number, totalMessages: number, minPreserved: number): boolean {
+function shouldPreserve(
+  message: Message,
+  index: number,
+  totalMessages: number,
+  minPreserved: number,
+): boolean {
   // Always preserve system prompt (index 0)
-  if (index === 0 && message.role === "system") {
+  if (index === 0 && message.role === 'system') {
     return true;
   }
 
@@ -89,16 +94,16 @@ function shouldPreserve(message: Message, index: number, totalMessages: number, 
   }
 
   // Preserve user messages that look like task definitions
-  if (message.role === "user" && message.content) {
+  if (message.role === 'user' && message.content) {
     const content = message.content.toLowerCase();
     // Task definition patterns
     if (
-      content.includes("please") ||
-      content.includes("help me") ||
-      content.includes("i want") ||
-      content.includes("create") ||
-      content.includes("implement") ||
-      content.includes("fix")
+      content.includes('please') ||
+      content.includes('help me') ||
+      content.includes('i want') ||
+      content.includes('create') ||
+      content.includes('implement') ||
+      content.includes('fix')
     ) {
       return true;
     }
@@ -111,24 +116,27 @@ function shouldPreserve(message: Message, index: number, totalMessages: number, 
  * Truncate tool output to a maximum length.
  */
 function truncateToolOutput(content: string, maxLines: number = 50): string {
-  const lines = content.split("\n");
+  const lines = content.split('\n');
   if (lines.length <= maxLines) {
     return content;
   }
 
-  const truncated = lines.slice(0, maxLines).join("\n");
+  const truncated = lines.slice(0, maxLines).join('\n');
   return `${truncated}\n... (truncated ${lines.length - maxLines} more lines)`;
 }
 
 /**
  * Summarize a tool message (truncate output).
  */
-function summarizeToolMessage(message: Message, level: CompactionLevel): Message {
-  if (message.role !== "tool" || !message.content) {
+function summarizeToolMessage(
+  message: Message,
+  level: CompactionLevel,
+): Message {
+  if (message.role !== 'tool' || !message.content) {
     return message;
   }
 
-  const maxLines = level === "aggressive" ? 10 : level === "medium" ? 30 : 50;
+  const maxLines = level === 'aggressive' ? 10 : level === 'medium' ? 30 : 50;
   return {
     ...message,
     content: truncateToolOutput(message.content, maxLines),
@@ -142,16 +150,16 @@ async function createSummary(
   messages: Message[],
   model: string,
   host: string,
-  maxTokens: number
+  maxTokens: number,
 ): Promise<string> {
   // Build a prompt for summarization
   const conversationText = messages
     .map((m) => {
       const role = m.role.charAt(0).toUpperCase() + m.role.slice(1);
-      const content = m.content?.slice(0, 500) ?? "[no content]";
+      const content = m.content?.slice(0, 500) ?? '[no content]';
       return `${role}: ${content}`;
     })
-    .join("\n\n");
+    .join('\n\n');
 
   const summaryPrompt = `Summarize this conversation segment in 2-3 concise sentences.
 Focus on: what was accomplished, what files were modified, key decisions made.
@@ -166,16 +174,16 @@ Summary:`;
     const client = new Ollama({ host });
     const response = await client.chat({
       model,
-      messages: [{ role: "user", content: summaryPrompt }],
+      messages: [{ role: 'user', content: summaryPrompt }],
       options: {
         temperature: 0.3,
         num_predict: maxTokens,
       },
     });
 
-    return response.message.content || "[Summary unavailable]";
+    return response.message.content || '[Summary unavailable]';
   } catch (error) {
-    log("Error creating summary:", error);
+    log('Error creating summary:', error);
     // Fallback to simple truncation
     return `[Compacted ${messages.length} messages - summary unavailable]`;
   }
@@ -187,7 +195,7 @@ Summary:`;
 function compactSimple(
   messages: Message[],
   level: CompactionLevel,
-  config: CompactionConfig
+  config: CompactionConfig,
 ): Message[] {
   const result: Message[] = [];
 
@@ -195,23 +203,23 @@ function compactSimple(
     const message = messages[i];
     if (!message) continue;
 
-    if (shouldPreserve(message, i, messages.length, config.minPreservedMessages)) {
+    if (
+      shouldPreserve(message, i, messages.length, config.minPreservedMessages)
+    ) {
       // Preserve but still truncate tool outputs
-      if (message.role === "tool") {
+      if (message.role === 'tool') {
         result.push(summarizeToolMessage(message, level));
       } else {
         result.push(message);
       }
-    } else if (message.role === "tool") {
+    } else if (message.role === 'tool') {
       // Aggressively summarize non-preserved tool outputs
-      const maxLines = level === "aggressive" ? 5 : 20;
+      const maxLines = level === 'aggressive' ? 5 : 20;
       result.push({
         ...message,
-        content: truncateToolOutput(message.content ?? "", maxLines),
+        content: truncateToolOutput(message.content ?? '', maxLines),
       });
-    } else if (level === "aggressive") {
-      // In aggressive mode, skip non-essential messages entirely
-      continue;
+    } else if (level === 'aggressive') {
     } else {
       // Keep the message but truncate if needed
       result.push(message);
@@ -229,7 +237,7 @@ async function compactWithSummary(
   level: CompactionLevel,
   config: CompactionConfig,
   model: string,
-  host: string
+  host: string,
 ): Promise<Message[]> {
   const result: Message[] = [];
   const toSummarize: Message[] = [];
@@ -239,19 +247,26 @@ async function compactWithSummary(
     const message = messages[i];
     if (!message) continue;
 
-    if (shouldPreserve(message, i, messages.length, config.minPreservedMessages)) {
+    if (
+      shouldPreserve(message, i, messages.length, config.minPreservedMessages)
+    ) {
       // Flush any pending messages to summarize
       if (toSummarize.length > 0) {
-        const summary = await createSummary(toSummarize, model, host, config.maxSummaryTokens);
+        const summary = await createSummary(
+          toSummarize,
+          model,
+          host,
+          config.maxSummaryTokens,
+        );
         result.push({
-          role: "system",
+          role: 'system',
           content: `[Previous conversation summary: ${summary}]`,
         });
         toSummarize.length = 0;
       }
 
       // Add preserved message (with tool output truncation)
-      if (message.role === "tool") {
+      if (message.role === 'tool') {
         result.push(summarizeToolMessage(message, level));
       } else {
         result.push(message);
@@ -264,9 +279,14 @@ async function compactWithSummary(
 
   // Handle any remaining messages to summarize
   if (toSummarize.length > 0) {
-    const summary = await createSummary(toSummarize, model, host, config.maxSummaryTokens);
+    const summary = await createSummary(
+      toSummarize,
+      model,
+      host,
+      config.maxSummaryTokens,
+    );
     result.push({
-      role: "system",
+      role: 'system',
       content: `[Previous conversation summary: ${summary}]`,
     });
   }
@@ -289,24 +309,34 @@ export async function compactMessages(
   level: CompactionLevel,
   config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
   model?: string,
-  host?: string
+  host?: string,
 ): Promise<CompactionResult> {
   const tokensBefore = estimateMessagesTokens(messages);
   const originalCount = messages.length;
 
-  log(`Compacting messages: level=${level}, count=${originalCount}, tokens=${tokensBefore}`);
+  log(
+    `Compacting messages: level=${level}, count=${originalCount}, tokens=${tokensBefore}`,
+  );
 
   let compactedMessages: Message[];
 
   if (config.useLLMSummary && model && host) {
-    compactedMessages = await compactWithSummary(messages, level, config, model, host);
+    compactedMessages = await compactWithSummary(
+      messages,
+      level,
+      config,
+      model,
+      host,
+    );
   } else {
     compactedMessages = compactSimple(messages, level, config);
   }
 
   const tokensAfter = estimateMessagesTokens(compactedMessages);
 
-  log(`Compaction complete: count=${compactedMessages.length}, tokens=${tokensAfter}`);
+  log(
+    `Compaction complete: count=${compactedMessages.length}, tokens=${tokensAfter}`,
+  );
 
   return {
     messages: compactedMessages,
@@ -321,6 +351,9 @@ export async function compactMessages(
 /**
  * Check if compaction is needed based on current usage.
  */
-export function needsCompaction(usagePercent: number, threshold: number = 80): boolean {
+export function needsCompaction(
+  usagePercent: number,
+  threshold: number = 80,
+): boolean {
   return usagePercent >= threshold;
 }

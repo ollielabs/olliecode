@@ -2,7 +2,7 @@
  * ThemeProvider component - wraps app and provides theme context
  */
 
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from 'react';
 
 import {
   ThemeContext,
@@ -10,16 +10,16 @@ import {
   createSyntaxStyle,
   detectColorScheme,
   type ThemeContextValue,
-} from "./theme";
-import { getTheme, DEFAULT_THEME_ID } from "./themes";
-import type { Theme, SemanticTokens } from "./tokens";
+} from './theme';
+import { getTheme, DEFAULT_THEME_ID } from './themes';
+
 
 export type ThemeProviderProps = {
   children: ReactNode;
   /** Initial theme ID (defaults to "olly") */
   initialTheme?: string;
   /** Force dark or light mode (defaults to auto-detect) */
-  colorScheme?: "dark" | "light";
+  colorScheme?: 'dark' | 'light';
 };
 
 export function ThemeProvider({
@@ -30,7 +30,9 @@ export function ThemeProvider({
   const [themeId, setThemeId] = useState(initialTheme);
 
   // Detect color scheme or use override
-  const isDark = colorScheme ? colorScheme === "dark" : detectColorScheme() === "dark";
+  const isDark = colorScheme
+    ? colorScheme === 'dark'
+    : detectColorScheme() === 'dark';
 
   // Resolve the current theme
   const contextValue = useMemo<ThemeContextValue>(() => {

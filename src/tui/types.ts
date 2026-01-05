@@ -2,31 +2,35 @@
  * Shared types for TUI components and hooks.
  */
 
-import type { TextareaRenderable } from "@opentui/core";
-import type { Message } from "ollama";
-import type { AgentMode } from "../agent/modes";
-import type { ConfirmationRequest, ConfirmationResponse, ConfirmationPreview } from "../agent/safety/types";
-import type { ContextStats } from "../lib/tokenizer";
-import type { Session } from "../session";
-import type { Todo } from "../session/todo";
+import type { TextareaRenderable } from '@opentui/core';
+import type { Message } from 'ollama';
+import type { AgentMode } from '../agent/modes';
+import type {
+  ConfirmationRequest,
+  ConfirmationResponse,
+  ConfirmationPreview,
+} from '../agent/safety/types';
+import type { ContextStats } from '../lib/tokenizer';
+import type { Session } from '../session';
+import type { Todo } from '../session/todo';
 
 /**
  * Status of the agent/UI.
  */
-export type Status = "idle" | "thinking" | "error";
+export type Status = 'idle' | 'thinking' | 'error';
 
 /**
  * State machine for tool execution.
  * A tool progresses through these states during its lifecycle.
  */
 export type ToolState =
-  | { status: "pending" }
-  | { status: "confirming"; preview?: ConfirmationPreview }
-  | { status: "executing" }
-  | { status: "completed"; output: string; metadata?: ToolMetadata }
-  | { status: "error"; error: string }
-  | { status: "denied"; reason?: string }
-  | { status: "blocked"; reason: string };
+  | { status: 'pending' }
+  | { status: 'confirming'; preview?: ConfirmationPreview }
+  | { status: 'executing' }
+  | { status: 'completed'; output: string; metadata?: ToolMetadata }
+  | { status: 'error'; error: string }
+  | { status: 'denied'; reason?: string }
+  | { status: 'blocked'; reason: string };
 
 /**
  * Metadata for completed tool executions.
@@ -52,7 +56,7 @@ export type ToolMetadata = {
  * Represents a single tool operation that evolves through states.
  */
 export type ToolDisplayMessage = {
-  type: "tool";
+  type: 'tool';
   /** Unique identifier for this tool operation */
   id: string;
   /** Tool name (e.g., "edit_file", "run_command") */
@@ -68,8 +72,8 @@ export type ToolDisplayMessage = {
  * Each message type has a different visual representation.
  */
 export type DisplayMessage =
-  | { type: "user"; content: string; attachedFiles?: string[] }
-  | { type: "assistant"; content: string }
+  | { type: 'user'; content: string; attachedFiles?: string[] }
+  | { type: 'assistant'; content: string }
   | ToolDisplayMessage;
 
 /**

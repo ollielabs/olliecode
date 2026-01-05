@@ -3,22 +3,42 @@
  * Handles the main agent loop: streaming, tool handling, safety, and loop detection.
  */
 
-import { Ollama } from "ollama";
-import type { Message, ToolCall } from "ollama";
+import { Ollama } from 'ollama';
+import type { Message, ToolCall } from 'ollama';
 
-import { getToolsForMode } from "./tools";
-import { getSystemPromptForMode } from "./prompts";
-import type { AgentMode } from "./modes";
-import { DEFAULT_MODE } from "./modes";
-import type { AgentStep, AgentResult, AgentError, AgentConfig, ToolResult, ContextUsage } from "./types";
-import { DEFAULT_AGENT_CONFIG } from "./types";
-import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse, type SafetyConfig } from "./safety";
-import { log } from "./logger";
-import { processStream, isAbortError } from "./stream-handler";
-import { processToolCalls } from "./tool-processor";
-import { detectConsecutiveLoop, detectDoomLoop, detectNotFoundPattern } from "./loop-detector";
-import { fetchModelInfo, getContextStats } from "../lib/tokenizer";
-import { compactMessages, getCompactionLevel, needsCompaction as checkNeedsCompaction } from "./compaction";
+import { getToolsForMode } from './tools';
+import { getSystemPromptForMode } from './prompts';
+import type { AgentMode } from './modes';
+import { DEFAULT_MODE } from './modes';
+import type {
+  AgentStep,
+  AgentResult,
+  AgentError,
+  AgentConfig,
+  ToolResult,
+  ContextUsage,
+} from './types';
+import { DEFAULT_AGENT_CONFIG } from './types';
+import {
+  SafetyLayer,
+  type ConfirmationRequest,
+  type ConfirmationResponse,
+  type SafetyConfig,
+} from './safety';
+import { log } from './logger';
+import { processStream, isAbortError } from './stream-handler';
+import { processToolCalls } from './tool-processor';
+import {
+  detectConsecutiveLoop,
+  detectDoomLoop,
+  detectNotFoundPattern,
+} from './loop-detector';
+import { fetchModelInfo, getContextStats } from '../lib/tokenizer';
+import {
+  compactMessages,
+  getCompactionLevel,
+  needsCompaction as checkNeedsCompaction,
+} from './compaction';
 
 /**
  * Arguments for running the agent.
@@ -42,7 +62,9 @@ export type RunAgentArgs = {
   onStepComplete: (step: AgentStep) => void;
 
   /** Safety callbacks */
-  onConfirmationNeeded?: (request: ConfirmationRequest) => Promise<ConfirmationResponse>;
+  onConfirmationNeeded?: (
+    request: ConfirmationRequest,
+  ) => Promise<ConfirmationResponse>;
   onToolBlocked?: (tool: string, reason: string) => void;
 
   /** Abort signal for cancellation */
@@ -62,12 +84,12 @@ export type RunAgentArgs = {
 function buildInitialMessages(
   systemPrompt: string,
   history: Message[],
-  userMessage: string
+  userMessage: string,
 ): Message[] {
   return [
-    { role: "system", content: systemPrompt },
+    { role: 'system', content: systemPrompt },
     ...history,
-    { role: "user", content: userMessage },
+    { role: 'user', content: userMessage },
   ];
 }
 
@@ -81,7 +103,7 @@ function buildFinalResult(
   iteration: number,
   totalToolCalls: number,
   startTime: number,
-  contextUsage?: ContextUsage
+  contextUsage?: ContextUsage,
 ): AgentResult {
   // Return messages WITHOUT the system prompt (index 0)
   // The system prompt is added fresh each turn by the agent
@@ -105,8 +127,9 @@ function buildFinalResult(
  */
 function createNudgeMessage(): Message {
   return {
-    role: "user",
-    content: "[System: Please provide an answer or use a tool to gather more information.]",
+    role: 'user',
+    content:
+      '[System: Please provide an answer or use a tool to gather more information.]',
   };
 }
 
@@ -123,34 +146,51 @@ function createNudgeMessage(): Message {
  * @param args - Agent configuration and callbacks
  * @returns Final result or error
  */
-export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentError> {
+export async function runAgent(
+  args: RunAgentArgs,
+): Promise<AgentResult | AgentError> {
   const config: AgentConfig = { ...DEFAULT_AGENT_CONFIG, ...args.config };
   const safetyLayer = new SafetyLayer(args.safetyConfig);
   const mode = args.mode ?? DEFAULT_MODE;
 
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
-  const systemPrompt = args.systemPromptOverride ?? getSystemPromptForMode(mode);
+  const systemPrompt =
+    args.systemPromptOverride ?? getSystemPromptForMode(mode);
 
-  log("Starting agent with model:", args.model, "host:", args.host, "mode:", mode);
-  log("Tools available:", modeTools.map((t) => t.function.name));
+  log(
+    'Starting agent with model:',
+    args.model,
+    'host:',
+    args.host,
+    'mode:',
+    mode,
+  );
+  log(
+    'Tools available:',
+    modeTools.map((t) => t.function.name),
+  );
 
   // Fetch model info for context tracking (non-blocking, best effort)
   let maxContextTokens: number | undefined;
   try {
     const modelInfo = await fetchModelInfo(args.model, args.host);
     maxContextTokens = modelInfo.contextLength;
-    log("Model context window:", maxContextTokens, "tokens");
+    log('Model context window:', maxContextTokens, 'tokens');
   } catch (e) {
-    log("Could not fetch model info for context tracking:", e);
+    log('Could not fetch model info for context tracking:', e);
     // Continue without context tracking
   }
 
   const client = new Ollama({ host: args.host });
-  const messages = buildInitialMessages(systemPrompt, args.history, args.userMessage);
+  const messages = buildInitialMessages(
+    systemPrompt,
+    args.history,
+    args.userMessage,
+  );
 
-  log("Initial messages count:", messages.length);
-  log("System prompt length:", systemPrompt.length, "chars");
+  log('Initial messages count:', messages.length);
+  log('System prompt length:', systemPrompt.length, 'chars');
 
   const steps: AgentStep[] = [];
   const startTime = Date.now();
@@ -158,7 +198,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
 
   // Wire up abort signal
   const abortHandler = () => client.abort();
-  args.signal.addEventListener("abort", abortHandler, { once: true });
+  args.signal.addEventListener('abort', abortHandler, { once: true });
 
   try {
     for (let iteration = 0; iteration < config.maxIterations; iteration++) {
@@ -169,8 +209,8 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
 
       // Check for abort before iteration
       if (args.signal.aborted) {
-        log("Aborted before iteration");
-        return { type: "aborted" };
+        log('Aborted before iteration');
+        return { type: 'aborted' };
       }
 
       const stepStartTime = Date.now();
@@ -180,7 +220,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
       let toolCalls: ToolCall[];
 
       try {
-        log("Calling Ollama chat...");
+        log('Calling Ollama chat...');
         const response = await client.chat({
           model: args.model,
           messages,
@@ -190,7 +230,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
             temperature: 0.2,
           },
         });
-        log("Got response iterator, starting to stream...");
+        log('Got response iterator, starting to stream...');
 
         const accumulated = await processStream(
           response,
@@ -198,35 +238,35 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
             onReasoningToken: args.onReasoningToken,
             onToolCall: args.onToolCall,
           },
-          args.signal
+          args.signal,
         );
 
         content = accumulated.content;
         toolCalls = accumulated.toolCalls;
       } catch (e) {
-        log("Error during chat:", e);
+        log('Error during chat:', e);
 
         if (args.signal.aborted || isAbortError(e)) {
-          return { type: "aborted" };
+          return { type: 'aborted' };
         }
 
         const message = e instanceof Error ? e.message : String(e);
-        return { type: "model_error", message };
+        return { type: 'model_error', message };
       }
 
       // Handle empty response
       if (!content.trim() && toolCalls.length === 0) {
-        log("Empty response, nudging model");
+        log('Empty response, nudging model');
         messages.push(createNudgeMessage());
         continue;
       }
 
       // No tool calls = final answer
       if (toolCalls.length === 0) {
-        log("No tool calls, returning final answer");
+        log('No tool calls, returning final answer');
 
         messages.push({
-          role: "assistant",
+          role: 'assistant',
           content,
         });
 
@@ -240,7 +280,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
             usagePercent: stats.usagePercent,
             exceededThreshold: stats.isNearLimit,
           };
-          log("Final context usage:", contextUsage.usagePercent + "%");
+          log('Final context usage:', `${contextUsage.usagePercent}%`);
         }
 
         return buildFinalResult(
@@ -250,13 +290,13 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
           iteration,
           totalToolCalls,
           startTime,
-          contextUsage
+          contextUsage,
         );
       }
 
       // Add assistant message with tool calls to history
       messages.push({
-        role: "assistant",
+        role: 'assistant',
         content,
         tool_calls: toolCalls,
       });
@@ -279,7 +319,7 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
             model: args.model,
             host: args.host,
           },
-        }
+        },
       );
 
       // Add tool result messages to history
@@ -305,23 +345,26 @@ export async function runAgent(args: RunAgentArgs): Promise<AgentResult | AgentE
         // This allows read→edit→read patterns but catches read→read→read
         const loopCheck = detectConsecutiveLoop(steps, config.loopThreshold);
         if (loopCheck.detected) {
-          log("Consecutive loop detected:", loopCheck.signature);
+          log('Consecutive loop detected:', loopCheck.signature);
           return {
-            type: "loop_detected",
-            action: loopCheck.action ?? "unknown",
+            type: 'loop_detected',
+            action: loopCheck.action ?? 'unknown',
             attempts: config.loopThreshold,
           };
         }
 
         // Check for not-found patterns BEFORE doom loops
         // This prevents treating "searching for nonexistent item" as a doom loop
-        const notFoundCheck = detectNotFoundPattern(steps, config.loopThreshold);
+        const notFoundCheck = detectNotFoundPattern(
+          steps,
+          config.loopThreshold,
+        );
         if (notFoundCheck.detected) {
-          log("Not-found pattern detected:", notFoundCheck.searchTerm);
+          log('Not-found pattern detected:', notFoundCheck.searchTerm);
           // Inject a system reminder to help the agent give up gracefully
           // Don't return an error - give the agent a chance to report "not found"
           messages.push({
-            role: "system",
+            role: 'system',
             content: `<system-reminder>
 Your searches for "${notFoundCheck.searchTerm}" have returned empty multiple times.
 This likely means it doesn't exist in this codebase.
@@ -336,10 +379,10 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
           // Only check if NOT already handling a not-found pattern
           const doomCheck = detectDoomLoop(steps, config.loopThreshold + 1);
           if (doomCheck.detected) {
-            log("Doom loop detected:", doomCheck.type, doomCheck.suggestion);
+            log('Doom loop detected:', doomCheck.type, doomCheck.suggestion);
             return {
-              type: "loop_detected",
-              action: doomCheck.tool ?? "unknown",
+              type: 'loop_detected',
+              action: doomCheck.tool ?? 'unknown',
               attempts: config.loopThreshold,
             };
           }
@@ -349,33 +392,44 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
       // Check for context compaction
       if (config.autoCompaction && maxContextTokens) {
         const stats = getContextStats(messages, maxContextTokens);
-        if (checkNeedsCompaction(stats.usagePercent, config.compactionThreshold)) {
-          log("Context usage at", stats.usagePercent + "%, triggering compaction");
+        if (
+          checkNeedsCompaction(stats.usagePercent, config.compactionThreshold)
+        ) {
+          log(
+            'Context usage at',
+            `${stats.usagePercent}%, triggering compaction`,
+          );
           const level = getCompactionLevel(stats.usagePercent);
           const result = await compactMessages(
             messages,
             level,
             undefined, // use default config
             args.model,
-            args.host
+            args.host,
           );
           // Replace messages array with compacted version
           messages.length = 0;
           messages.push(...result.messages);
-          log("Compacted:", result.originalCount, "→", result.compactedCount, "messages");
+          log(
+            'Compacted:',
+            result.originalCount,
+            '→',
+            result.compactedCount,
+            'messages',
+          );
         }
       }
     }
 
     // Max iterations reached
-    log("Max iterations reached:", config.maxIterations);
+    log('Max iterations reached:', config.maxIterations);
     return {
-      type: "max_iterations",
+      type: 'max_iterations',
       iterations: config.maxIterations,
-      lastThought: steps[steps.length - 1]?.thought ?? "",
+      lastThought: steps[steps.length - 1]?.thought ?? '',
     };
   } finally {
-    args.signal.removeEventListener("abort", abortHandler);
+    args.signal.removeEventListener('abort', abortHandler);
     await safetyLayer.flush();
   }
 }

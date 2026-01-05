@@ -1,6 +1,6 @@
 /**
  * Explore subagent system prompt.
- * 
+ *
  * Focus: Fast, systematic codebase exploration.
  * Tools: Read-only only (read_file, list_dir, glob, grep)
  * Constraints: No modifications, limited iterations, returns summary.
@@ -12,19 +12,19 @@ import {
   READ_ONLY_TOOLS_DOC,
   TOOL_RESULT_NOTE,
   PARALLEL_TOOL_CALLS,
-} from "./shared";
+} from './shared';
 
-export type ThoroughnessLevel = "quick" | "medium" | "thorough";
+export type ThoroughnessLevel = 'quick' | 'medium' | 'thorough';
 
 /**
  * Build the explore subagent prompt.
- * 
+ *
  * @param ctx - Environment context
  * @param thoroughness - How deep to explore
  */
 export function buildExplorePrompt(
   ctx: SystemPromptContext,
-  thoroughness: ThoroughnessLevel = "medium"
+  thoroughness: ThoroughnessLevel = 'medium',
 ): string {
   const thoroughnessGuidance = getThoroughnessGuidance(thoroughness);
 
@@ -97,7 +97,7 @@ ${TOOL_RESULT_NOTE}
  */
 function getThoroughnessGuidance(level: ThoroughnessLevel): string {
   switch (level) {
-    case "quick":
+    case 'quick':
       return `# Thoroughness: QUICK
 
 You have very few iterations. Focus on:
@@ -105,7 +105,7 @@ You have very few iterations. Focus on:
 - 2-3 key files maximum
 - Surface-level overview`;
 
-    case "medium":
+    case 'medium':
       return `# Thoroughness: MEDIUM
 
 Balance speed with depth:
@@ -114,7 +114,7 @@ Balance speed with depth:
 - Main types and interfaces
 - ~5-10 files maximum`;
 
-    case "thorough":
+    case 'thorough':
       return `# Thoroughness: THOROUGH
 
 Comprehensive exploration:

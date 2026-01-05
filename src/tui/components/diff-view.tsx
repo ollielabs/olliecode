@@ -3,8 +3,8 @@
  * Used in confirmation dialogs and tool result messages for file operations.
  */
 
-import { useTheme } from "../../design";
-import { generateDiff, getFiletype } from "../../utils/diff";
+import { useTheme } from '../../design';
+import { generateDiff, getFiletype } from '../../utils/diff';
 
 export type DiffViewProps = {
   /** File path for display and syntax detection */
@@ -18,7 +18,7 @@ export type DiffViewProps = {
   /** Max height in lines */
   maxHeight?: number;
   /** View mode: "unified" for single column, "split" for side-by-side */
-  view?: "unified" | "split";
+  view?: 'unified' | 'split';
 };
 
 export function DiffView({
@@ -27,7 +27,7 @@ export function DiffView({
   after,
   diff,
   maxHeight = 15,
-  view = "split",
+  view = 'split',
 }: DiffViewProps) {
   const { tokens, syntaxStyle } = useTheme();
 
@@ -36,10 +36,8 @@ export function DiffView({
   const filetype = getFiletype(filePath);
 
   return (
-    <box style={{ flexDirection: "column" }}>
-      <text style={{ fg: tokens.textMuted, marginBottom: 1 }}>
-        {filePath}
-      </text>
+    <box style={{ flexDirection: 'column' }}>
+      <text style={{ fg: tokens.textMuted, marginBottom: 1 }}>{filePath}</text>
       <diff
         diff={diffString}
         view={view}

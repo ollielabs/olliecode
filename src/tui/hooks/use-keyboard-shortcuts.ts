@@ -3,11 +3,12 @@
  * Handles Tab (mode toggle), double-Escape (abort), Ctrl+K (debug), and Ctrl+E (expand tools).
  */
 
-import { useState, useRef } from "react";
-import { useKeyboard, useRenderer } from "@opentui/react";
-import { toggleMode } from "../../agent/modes";
-import { updateSession } from "../../session";
-import type { Status, AgentMode, Session } from "../types";
+import { useState, useRef } from 'react';
+import { useKeyboard, useRenderer } from '@opentui/react';
+import { toggleMode } from '../../agent/modes';
+import { updateSession } from '../../session';
+import { DOUBLE_ESCAPE_THRESHOLD_MS } from '../constants';
+import type { Status, AgentMode, Session } from '../types';
 
 export type UseKeyboardShortcutsProps = {
   /** Current status */
@@ -54,14 +55,19 @@ export function useKeyboardShortcuts({
 
   useKeyboard((key: { ctrl?: boolean; name?: string }) => {
     // Ctrl+K: Toggle debug overlay
-    if (key.ctrl && key.name === "k") {
+    if (key.ctrl && key.name === 'k') {
       renderer.toggleDebugOverlay();
       renderer.console.toggle();
       return;
     }
 
     // Tab: Toggle mode (only when idle and no modals open)
-    if (key.name === "tab" && statusRef.current === "idle" && !showCommandMenu && !showSessionPicker) {
+    if (
+      key.name === 'tab' &&
+      statusRef.current === 'idle' &&
+      !showCommandMenu &&
+      !showSessionPicker
+    ) {
       const newMode = toggleMode(modeRef.current);
       setMode(newMode);
       if (sessionRef.current) {
@@ -71,9 +77,9 @@ export function useKeyboardShortcuts({
     }
 
     // Double-Escape: Abort agent (only when thinking)
-    if (key.name === "escape" && statusRef.current === "thinking") {
+    if (key.name === 'escape' && statusRef.current === 'thinking') {
       const now = Date.now();
-      if (now - lastEscapeRef.current < 500) {
+      if (now - lastEscapeRef.current < DOUBLE_ESCAPE_THRESHOLD_MS) {
         abort();
         lastEscapeRef.current = 0;
       } else {
@@ -83,7 +89,7 @@ export function useKeyboardShortcuts({
     }
 
     // Ctrl+E: Toggle tool output expansion (only when idle)
-    if (key.ctrl && key.name === "e" && statusRef.current === "idle") {
+    if (key.ctrl && key.name === 'e' && statusRef.current === 'idle') {
       setToolsExpanded((prev) => !prev);
     }
   });

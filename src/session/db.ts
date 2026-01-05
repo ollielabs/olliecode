@@ -3,25 +3,25 @@
  * Uses bun:sqlite for zero-dependency SQLite support.
  */
 
-import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
-import { homedir } from "os";
-import { runMigrations } from "./migrations";
+import { Database } from 'bun:sqlite';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { runMigrations } from './migrations';
 
 /**
  * Get the path to the Olly data directory.
  * Follows XDG convention: ~/.local/share/olly/
  */
 export function getDataDirectory(): string {
-  return join(homedir(), ".local", "share", "olly");
+  return join(homedir(), '.local', 'share', 'olly');
 }
 
 /**
  * Get the path to the SQLite database file.
  */
 export function getDatabasePath(): string {
-  return join(getDataDirectory(), "olly.db");
+  return join(getDataDirectory(), 'olly.db');
 }
 
 // Singleton database instance
@@ -33,7 +33,7 @@ let db: Database | null = null;
  */
 export function getDatabase(): Database {
   if (!db) {
-    throw new Error("Database not initialized. Call initDatabase() first.");
+    throw new Error('Database not initialized. Call initDatabase() first.');
   }
   return db;
 }
@@ -65,8 +65,8 @@ export function initDatabase(): void {
 
   // Open database with WAL mode for better concurrent performance
   db = new Database(dbPath);
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA foreign_keys = ON;');
 
   // Run any pending migrations
   runMigrations(db);

@@ -3,28 +3,28 @@
  * Based on OpenCode's TodoWrite/TodoRead pattern.
  */
 
-import { z } from "zod";
-import type { ToolDefinition, ToolContext } from "../types";
+import { z } from 'zod';
+import type { ToolDefinition, ToolContext } from '../types';
 import {
   getTodos,
   updateTodos,
   formatTodos,
   type TodoInput,
-} from "../../session/todo";
+} from '../../session/todo';
 
 /**
  * Schema for a single todo item
  */
 const TodoItemSchema = z.object({
-  id: z.string().describe("Unique identifier for the todo"),
-  content: z.string().describe("Description of the task"),
+  id: z.string().describe('Unique identifier for the todo'),
+  content: z.string().describe('Description of the task'),
   status: z
-    .enum(["pending", "in_progress", "completed", "cancelled"])
-    .describe("Current status of the task"),
+    .enum(['pending', 'in_progress', 'completed', 'cancelled'])
+    .describe('Current status of the task'),
   priority: z
-    .enum(["high", "medium", "low"])
+    .enum(['high', 'medium', 'low'])
     .optional()
-    .describe("Priority level (defaults to medium)"),
+    .describe('Priority level (defaults to medium)'),
 });
 
 // ============================================================================
@@ -32,7 +32,7 @@ const TodoItemSchema = z.object({
 // ============================================================================
 
 const todoWriteInput = z.object({
-  todos: z.array(TodoItemSchema).describe("The complete updated todo list"),
+  todos: z.array(TodoItemSchema).describe('The complete updated todo list'),
 });
 
 const todoWriteOutput = z.object({
@@ -40,8 +40,11 @@ const todoWriteOutput = z.object({
   todos: z.array(TodoItemSchema),
 });
 
-export const todoWriteTool: ToolDefinition<typeof todoWriteInput, typeof todoWriteOutput> = {
-  name: "todo_write",
+export const todoWriteTool: ToolDefinition<
+  typeof todoWriteInput,
+  typeof todoWriteOutput
+> = {
+  name: 'todo_write',
   description: `Create and manage a structured task list for tracking progress on complex tasks.
 
 ## When to Use
@@ -69,11 +72,11 @@ Use this tool proactively for:
 - Break complex tasks into smaller, actionable steps`,
   parameters: todoWriteInput,
   outputSchema: todoWriteOutput,
-  risk: "safe",
+  risk: 'safe',
   execute: async ({ todos }, _signal?: AbortSignal, context?: ToolContext) => {
     // Session ID is injected from context, not provided by the LLM
-    const sessionId = context?.sessionId ?? "default";
-    
+    const sessionId = context?.sessionId ?? 'default';
+
     const todoInputs: TodoInput[] = todos.map((t) => ({
       id: t.id,
       content: t.content,
@@ -82,7 +85,9 @@ Use this tool proactively for:
     }));
 
     const updated = updateTodos(sessionId, todoInputs);
-    const active = updated.filter((t) => t.status !== "completed" && t.status !== "cancelled");
+    const active = updated.filter(
+      (t) => t.status !== 'completed' && t.status !== 'cancelled',
+    );
 
     return {
       summary: `${active.length} active todos (${updated.length} total)`,
@@ -108,8 +113,11 @@ const todoReadOutput = z.object({
   formatted: z.string(),
 });
 
-export const todoReadTool: ToolDefinition<typeof todoReadInput, typeof todoReadOutput> = {
-  name: "todo_read",
+export const todoReadTool: ToolDefinition<
+  typeof todoReadInput,
+  typeof todoReadOutput
+> = {
+  name: 'todo_read',
   description: `Read your current todo list to check progress and pending tasks.
 
 Use this when:
@@ -118,12 +126,14 @@ Use this when:
 - Verifying all tasks are complete`,
   parameters: todoReadInput,
   outputSchema: todoReadOutput,
-  risk: "safe",
+  risk: 'safe',
   execute: async (_params, _signal?: AbortSignal, context?: ToolContext) => {
     // Session ID is injected from context, not provided by the LLM
-    const sessionId = context?.sessionId ?? "default";
+    const sessionId = context?.sessionId ?? 'default';
     const todos = getTodos(sessionId);
-    const active = todos.filter((t) => t.status !== "completed" && t.status !== "cancelled");
+    const active = todos.filter(
+      (t) => t.status !== 'completed' && t.status !== 'cancelled',
+    );
 
     return {
       summary: `${active.length} active todos (${todos.length} total)`,

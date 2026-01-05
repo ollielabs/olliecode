@@ -5,14 +5,17 @@
  * functions in `path-validation.ts` and `command-filter.ts`.
  */
 
-import type { SafetyConfig } from "./types";
-import type { AgentMode } from "../modes";
-import { validatePath as validatePathFn, getDisplayPath as getDisplayPathFn } from "./path-validation";
+import type { SafetyConfig } from './types';
+import type { AgentMode } from '../modes';
+import {
+  validatePath as validatePathFn,
+  getDisplayPath as getDisplayPathFn,
+} from './path-validation';
 import {
   validateCommand as validateCommandFn,
   validateCommandForMode as validateCommandForModeFn,
   sanitizeEnvironment as sanitizeEnvironmentFn,
-} from "./command-filter";
+} from './command-filter';
 
 /**
  * Wrapper class for safety validation utilities.
@@ -25,7 +28,10 @@ export class SafetyValidator {
   }
 
   /** Validate a file system path for the given operation. */
-  validatePath(path: string, operation: "read" | "write" | "list"): ReturnType<typeof validatePathFn> {
+  validatePath(
+    path: string,
+    operation: 'read' | 'write' | 'list',
+  ): ReturnType<typeof validatePathFn> {
     return validatePathFn(path, this.config, operation);
   }
 
@@ -42,7 +48,7 @@ export class SafetyValidator {
   /** Validate a command taking the agent mode into account (plan vs build). */
   validateCommandForMode(
     command: string,
-    mode: AgentMode
+    mode: AgentMode,
   ): ReturnType<typeof validateCommandForModeFn> {
     return validateCommandForModeFn(command, mode, this.config);
   }

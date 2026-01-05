@@ -3,18 +3,18 @@
  * Enables agents to maintain persistent task lists across session resumption.
  */
 
-import { randomUUID } from "crypto";
-import { getDatabase } from "./db";
+import { randomUUID } from 'node:crypto';
+import { getDatabase } from './db';
 
 /**
  * Todo status - matches OpenCode's pattern
  */
-export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
 /**
  * Todo priority levels
  */
-export type TodoPriority = "high" | "medium" | "low";
+export type TodoPriority = 'high' | 'medium' | 'low';
 
 /**
  * A single todo item
@@ -82,7 +82,7 @@ function rowToTodo(row: TodoRow): Todo {
 export function getTodos(sessionId: string): Todo[] {
   const db = getDatabase();
   const rows = db
-    .query("SELECT * FROM todos WHERE session_id = ? ORDER BY created_at ASC")
+    .query('SELECT * FROM todos WHERE session_id = ? ORDER BY created_at ASC')
     .all(sessionId) as TodoRow[];
   return rows.map(rowToTodo);
 }
@@ -92,7 +92,9 @@ export function getTodos(sessionId: string): Todo[] {
  */
 export function getTodo(id: string): Todo | null {
   const db = getDatabase();
-  const row = db.query("SELECT * FROM todos WHERE id = ?").get(id) as TodoRow | null;
+  const row = db
+    .query('SELECT * FROM todos WHERE id = ?')
+    .get(id) as TodoRow | null;
   return row ? rowToTodo(row) : null;
 }
 
@@ -100,7 +102,7 @@ export function getTodo(id: string): Todo | null {
  * Update all todos for a session (replace strategy).
  * This matches OpenCode's TodoWrite behavior - the agent sends the complete
  * updated list each time, and we replace all todos for the session.
- * 
+ *
  * Preserves created_at timestamps for existing todos.
  */
 export function updateTodos(sessionId: string, todos: TodoInput[]): Todo[] {
@@ -111,21 +113,29 @@ export function updateTodos(sessionId: string, todos: TodoInput[]): Todo[] {
   const existing = new Map(getTodos(sessionId).map((t) => [t.id, t]));
 
   // Delete all existing todos for this session
-  db.run("DELETE FROM todos WHERE session_id = ?", [sessionId]);
+  db.run('DELETE FROM todos WHERE session_id = ?', [sessionId]);
 
   // Insert the new todos
   const result: Todo[] = [];
   const stmt = db.prepare(
     `INSERT INTO todos (id, session_id, content, status, priority, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
 
   for (const todo of todos) {
     const existingTodo = existing.get(todo.id);
     const createdAt = existingTodo?.createdAt ?? now;
-    const priority = todo.priority ?? "medium";
+    const priority = todo.priority ?? 'medium';
 
-    stmt.run(todo.id, sessionId, todo.content, todo.status, priority, createdAt, now);
+    stmt.run(
+      todo.id,
+      sessionId,
+      todo.content,
+      todo.status,
+      priority,
+      createdAt,
+      now,
+    );
 
     result.push({
       id: todo.id,
@@ -147,7 +157,7 @@ export function updateTodos(sessionId: string, todos: TodoInput[]): Todo[] {
 export function addTodo(
   sessionId: string,
   content: string,
-  priority: TodoPriority = "medium"
+  priority: TodoPriority = 'medium',
 ): Todo {
   const db = getDatabase();
   const now = Date.now();
@@ -156,14 +166,14 @@ export function addTodo(
   db.run(
     `INSERT INTO todos (id, session_id, content, status, priority, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, sessionId, content, "pending", priority, now, now]
+    [id, sessionId, content, 'pending', priority, now, now],
   );
 
   return {
     id,
     sessionId,
     content,
-    status: "pending",
+    status: 'pending',
     priority,
     createdAt: now,
     updatedAt: now,
@@ -176,7 +186,11 @@ export function addTodo(
 export function updateTodoStatus(id: string, status: TodoStatus): void {
   const db = getDatabase();
   const now = Date.now();
-  db.run("UPDATE todos SET status = ?, updated_at = ? WHERE id = ?", [status, now, id]);
+  db.run('UPDATE todos SET status = ?, updated_at = ? WHERE id = ?', [
+    status,
+    now,
+    id,
+  ]);
 }
 
 /**
@@ -184,7 +198,7 @@ export function updateTodoStatus(id: string, status: TodoStatus): void {
  */
 export function deleteTodo(id: string): void {
   const db = getDatabase();
-  db.run("DELETE FROM todos WHERE id = ?", [id]);
+  db.run('DELETE FROM todos WHERE id = ?', [id]);
 }
 
 /**
@@ -192,7 +206,7 @@ export function deleteTodo(id: string): void {
  */
 export function clearTodos(sessionId: string): void {
   const db = getDatabase();
-  db.run("DELETE FROM todos WHERE session_id = ?", [sessionId]);
+  db.run('DELETE FROM todos WHERE session_id = ?', [sessionId]);
 }
 
 /**
@@ -202,10 +216,10 @@ export function getTodoSummary(sessionId: string): TodoSummary {
   const todos = getTodos(sessionId);
   return {
     total: todos.length,
-    pending: todos.filter((t) => t.status === "pending").length,
-    inProgress: todos.filter((t) => t.status === "in_progress").length,
-    completed: todos.filter((t) => t.status === "completed").length,
-    cancelled: todos.filter((t) => t.status === "cancelled").length,
+    pending: todos.filter((t) => t.status === 'pending').length,
+    inProgress: todos.filter((t) => t.status === 'in_progress').length,
+    completed: todos.filter((t) => t.status === 'completed').length,
+    cancelled: todos.filter((t) => t.status === 'cancelled').length,
   };
 }
 
@@ -214,17 +228,15 @@ export function getTodoSummary(sessionId: string): TodoSummary {
  */
 export function formatTodos(todos: Todo[]): string {
   if (todos.length === 0) {
-    return "No todos.";
+    return 'No todos.';
   }
 
   const statusIcons: Record<TodoStatus, string> = {
-    pending: "[ ]",
-    in_progress: "[>]",
-    completed: "[x]",
-    cancelled: "[-]",
+    pending: '[ ]',
+    in_progress: '[>]',
+    completed: '[x]',
+    cancelled: '[-]',
   };
 
-  return todos
-    .map((t) => `${statusIcons[t.status]} ${t.content}`)
-    .join("\n");
+  return todos.map((t) => `${statusIcons[t.status]} ${t.content}`).join('\n');
 }

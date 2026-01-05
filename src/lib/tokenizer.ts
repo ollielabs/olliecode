@@ -13,7 +13,7 @@
  * - JSON: ~3.5 characters per token
  */
 
-import type { Message } from "ollama";
+import type { Message } from 'ollama';
 
 /**
  * Average characters per token for different content types.
@@ -75,7 +75,7 @@ const modelInfoCache = new Map<string, ModelInfo>();
  */
 export function estimateTokens(
   text: string,
-  contentType: ContentType = "mixed"
+  contentType: ContentType = 'mixed',
 ): number {
   if (!text) return 0;
 
@@ -102,12 +102,12 @@ export function estimateMessageTokens(message: Message): number {
   if (message.content) {
     // Detect if content looks like code
     const isCode =
-      message.content.includes("```") ||
-      message.content.includes("function ") ||
-      message.content.includes("const ") ||
-      message.content.includes("import ");
+      message.content.includes('```') ||
+      message.content.includes('function ') ||
+      message.content.includes('const ') ||
+      message.content.includes('import ');
 
-    tokens += estimateTokens(message.content, isCode ? "code" : "mixed");
+    tokens += estimateTokens(message.content, isCode ? 'code' : 'mixed');
   }
 
   // Tool calls add significant overhead
@@ -117,10 +117,10 @@ export function estimateMessageTokens(message: Message): number {
       tokens += 10;
       // Arguments (usually JSON)
       const argsStr =
-        typeof call.function.arguments === "string"
+        typeof call.function.arguments === 'string'
           ? call.function.arguments
           : JSON.stringify(call.function.arguments);
-      tokens += estimateTokens(argsStr, "json");
+      tokens += estimateTokens(argsStr, 'json');
     }
   }
 
@@ -146,7 +146,7 @@ export function estimateMessagesTokens(messages: Message[]): number {
  */
 export async function fetchModelInfo(
   model: string,
-  host: string
+  host: string,
 ): Promise<ModelInfo> {
   // Check cache first
   const cacheKey = `${host}:${model}`;
@@ -157,10 +157,10 @@ export async function fetchModelInfo(
 
   try {
     const response = await fetch(`${host}/api/show`, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY ?? ""}`,
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.OLLAMA_API_KEY ?? ''}`,
       },
       body: JSON.stringify({ model }),
     });
@@ -174,29 +174,31 @@ export async function fetchModelInfo(
       details?: { family?: string; parameter_size?: string };
       capabilities?: string[];
     };
-    
+
     // Extract context length from model_info
     // The key is {family}.context_length (e.g., "glm4.context_length")
     const modelInfo = data.model_info ?? {};
-    const family = data.details?.family ?? "";
-    
+    const family = data.details?.family ?? '';
+
     // Find context_length key - could be "{family}.context_length" or just "context_length"
     let contextLength = 0;
     for (const [key, value] of Object.entries(modelInfo)) {
-      if (key.endsWith(".context_length") || key === "context_length") {
+      if (key.endsWith('.context_length') || key === 'context_length') {
         contextLength = value as number;
         break;
       }
     }
 
     if (contextLength === 0) {
-      throw new Error(`Could not find context_length in model info for ${model}`);
+      throw new Error(
+        `Could not find context_length in model info for ${model}`,
+      );
     }
 
     const info: ModelInfo = {
       contextLength,
       family,
-      parameterSize: data.details?.parameter_size ?? "unknown",
+      parameterSize: data.details?.parameter_size ?? 'unknown',
       capabilities: data.capabilities ?? [],
     };
 
@@ -218,7 +220,10 @@ export async function fetchModelInfo(
  * @param host - Ollama host URL
  * @returns Context window size in tokens, or undefined if not cached
  */
-export function getModelContextSize(model: string, host: string): number | undefined {
+export function getModelContextSize(
+  model: string,
+  host: string,
+): number | undefined {
   const cacheKey = `${host}:${model}`;
   const cached = modelInfoCache.get(cacheKey);
   return cached?.contextLength;
@@ -238,7 +243,10 @@ export function clearModelInfoCache(): void {
  * @param maxTokens - Maximum context window size (from fetchModelInfo)
  * @returns Context usage statistics
  */
-export function getContextStats(messages: Message[], maxTokens: number): ContextStats {
+export function getContextStats(
+  messages: Message[],
+  maxTokens: number,
+): ContextStats {
   // Calculate tokens by role
   const byRole = {
     system: 0,
@@ -280,10 +288,10 @@ export function getContextStats(messages: Message[], maxTokens: number): Context
 export function formatContextStats(stats: ContextStats): string {
   const bar = createUsageBar(stats.usagePercent);
   const status = stats.isCritical
-    ? "⚠️  CRITICAL"
+    ? '⚠️  CRITICAL'
     : stats.isNearLimit
-      ? "⚡ Near Limit"
-      : "✓ OK";
+      ? '⚡ Near Limit'
+      : '✓ OK';
 
   return `Context: ${stats.totalTokens.toLocaleString()}/${stats.maxTokens.toLocaleString()} tokens (${stats.usagePercent}%) ${bar} ${status}`;
 }
@@ -298,7 +306,7 @@ export function formatContextStats(stats: ContextStats): string {
 function createUsageBar(percent: number, width: number = 10): string {
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
-  return `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}]`;
 }
 
 /**
@@ -312,7 +320,7 @@ function createUsageBar(percent: number, width: number = 10): string {
 export function needsCompaction(
   messages: Message[],
   maxTokens: number,
-  threshold: number = 80
+  threshold: number = 80,
 ): boolean {
   const stats = getContextStats(messages, maxTokens);
   return stats.usagePercent >= threshold;
@@ -331,7 +339,7 @@ export function estimateRemainingCapacity(
   messages: Message[],
   maxTokens: number,
   threshold: number = 80,
-  avgMessageTokens: number = 500
+  avgMessageTokens: number = 500,
 ): number {
   const stats = getContextStats(messages, maxTokens);
   const thresholdTokens = Math.floor(stats.maxTokens * (threshold / 100));

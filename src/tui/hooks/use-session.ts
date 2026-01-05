@@ -3,8 +3,8 @@
  * Handles session CRUD, mode, history, display messages, and todos.
  */
 
-import { useState, useEffect, useRef } from "react";
-import { DEFAULT_MODE } from "../../agent/modes";
+import { useState, useEffect, useRef } from 'react';
+import { DEFAULT_MODE } from '../../agent/modes';
 import {
   getSession,
   getMessages,
@@ -12,9 +12,17 @@ import {
   createSession,
   toOllamaMessages,
   toDisplayMessages,
-} from "../../session";
-import { getTodos } from "../../session/todo";
-import type { Session, Message, DisplayMessage, AgentMode, Todo, TextareaRef } from "../types";
+} from '../../session';
+import { getTodos } from '../../session/todo';
+import { FOCUS_DELAY_MS, SESSION_LIST_LIMIT } from '../constants';
+import type {
+  Session,
+  Message,
+  DisplayMessage,
+  AgentMode,
+  Todo,
+  TextareaRef,
+} from '../types';
 
 export type UseSessionProps = {
   /** Project path for session creation */
@@ -124,7 +132,7 @@ export function useSession({
   }, [currentSession]);
 
   const listAvailableSessions = () => {
-    return listSessions({ limit: 50 });
+    return listSessions({ limit: SESSION_LIST_LIMIT });
   };
 
   const handleNewSession = () => {
@@ -141,12 +149,12 @@ export function useSession({
     const storedMessages = getMessages(session.id);
     setHistory(toOllamaMessages(storedMessages));
     setDisplayMessages(toDisplayMessages(storedMessages));
-    setTimeout(() => textareaRef.current?.focus(), 10);
+    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleSessionPickerCancel = () => {
     setShowSessionPicker(false);
-    setTimeout(() => textareaRef.current?.focus(), 10);
+    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleSessionsChanged = () => {
@@ -156,15 +164,15 @@ export function useSession({
   const handleThemeSelect = (themeId: string) => {
     setShowThemePicker(false);
     // Persist theme selection to config
-    void import("../../config").then(({ setConfigValue }) => {
-      setConfigValue("theme", themeId);
+    void import('../../config').then(({ setConfigValue }) => {
+      setConfigValue('theme', themeId);
     });
-    setTimeout(() => textareaRef.current?.focus(), 10);
+    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleThemePickerCancel = () => {
     setShowThemePicker(false);
-    setTimeout(() => textareaRef.current?.focus(), 10);
+    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
   };
 
   const ensureSession = async (): Promise<Session> => {

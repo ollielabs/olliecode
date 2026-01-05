@@ -1,12 +1,16 @@
-import { useEffect, useRef } from "react";
-import type { TextareaRenderable } from "@opentui/core";
-import type { AgentMode } from "../../agent/modes";
-import { useTheme } from "../../design";
-import { StatusBar, type Status } from "./status-bar";
+import { useEffect, useRef } from 'react';
+import type { TextareaRenderable } from '@opentui/core';
+import type { AgentMode } from '../../agent/modes';
+import { useTheme } from '../../design';
+import { StatusBar, type Status } from './status-bar';
 
-const TEXTAREA_KEY_BINDINGS: { name: string; action: "submit" | "newline"; ctrl?: boolean }[] = [
-  { name: "return", action: "submit" },
-  { name: "j", ctrl: true, action: "newline" },
+const TEXTAREA_KEY_BINDINGS: {
+  name: string;
+  action: 'submit' | 'newline';
+  ctrl?: boolean;
+}[] = [
+  { name: 'return', action: 'submit' },
+  { name: 'j', ctrl: true, action: 'newline' },
 ];
 
 export type InputBoxProps = {
@@ -25,7 +29,19 @@ export type InputBoxProps = {
   suppressSubmit?: boolean;
 };
 
-export function InputBox({ id, model, status, error, mode, textareaRef, statusRef, onSubmit, centered, disabled, suppressSubmit }: InputBoxProps) {
+export function InputBox({
+  id,
+  model,
+  status,
+  error,
+  mode,
+  textareaRef,
+  statusRef,
+  onSubmit,
+  centered,
+  disabled,
+  suppressSubmit,
+}: InputBoxProps) {
   const { tokens } = useTheme();
 
   // Use ref for suppressSubmit to get current value at call time
@@ -43,18 +59,18 @@ export function InputBox({ id, model, status, error, mode, textareaRef, statusRe
 
   const handleSubmit = () => {
     if (suppressSubmitRef.current) return;
-    if (statusRef.current === "thinking") return;
+    if (statusRef.current === 'thinking') return;
     const text = textareaRef.current?.plainText?.trim();
     if (!text) return;
     onSubmit(text);
-    textareaRef.current?.setText("");
+    textareaRef.current?.setText('');
   };
 
   return (
     <box
       style={{
-        border: ["left"],
-        borderStyle: "heavy",
+        border: ['left'],
+        borderStyle: 'heavy',
         borderColor: tokens.borderAccent,
         backgroundColor: tokens.bgInput,
         padding: 1,

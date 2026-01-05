@@ -3,8 +3,8 @@
  * Renders markdown content with syntax highlighting.
  */
 
-import { useTheme } from "../../design";
-import { createMarkdownSyntaxStyle } from "../utils";
+import { useTheme } from '../../design';
+import { createMarkdownSyntaxStyle } from '../utils';
 
 export type AssistantMessageProps = {
   content: string;

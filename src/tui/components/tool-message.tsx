@@ -6,13 +6,13 @@
  * This replaces the old separate tool_call + tool_result + ConfirmationDialog pattern.
  */
 
-import { useRef, useEffect } from "react";
-import { useKeyboard } from "@opentui/react";
-import { useTheme } from "../../design";
-import type { SemanticTokens } from "../../design/tokens";
-import { DiffView } from "./diff-view";
-import type { ToolDisplayMessage, ToolState, ToolMetadata } from "../types";
-import type { ConfirmationResponse } from "../../agent/safety/types";
+import { useRef, useEffect } from 'react';
+import { useKeyboard } from '@opentui/react';
+import { useTheme } from '../../design';
+import type { SemanticTokens } from '../../design/tokens';
+import { DiffView } from './diff-view';
+import type { ToolDisplayMessage, ToolState, ToolMetadata } from '../types';
+import type { ConfirmationResponse } from '../../agent/safety/types';
 
 export type ToolMessageProps = {
   message: ToolDisplayMessage;
@@ -25,40 +25,41 @@ export type ToolMessageProps = {
 };
 
 /** Read-only tools that support expand/collapse */
-const EXPANDABLE_TOOLS = ["read_file", "glob", "grep", "list_dir"];
+const EXPANDABLE_TOOLS = ['read_file', 'glob', 'grep', 'list_dir'];
 
 /**
  * Format the tool header based on tool type and arguments.
  */
 function formatToolHeader(name: string, args: Record<string, unknown>): string {
   switch (name) {
-    case "read_file":
-      return String(args.path ?? "");
-    case "write_file":
-      return String(args.path ?? "");
-    case "edit_file":
-      return String(args.path ?? "");
-    case "run_command": {
-      const cmd = String(args.command ?? "");
-      return `$ ${cmd.length > 50 ? cmd.slice(0, 50) + "..." : cmd}`;
+    case 'read_file':
+      return String(args.path ?? '');
+    case 'write_file':
+      return String(args.path ?? '');
+    case 'edit_file':
+      return String(args.path ?? '');
+    case 'run_command': {
+      const cmd = String(args.command ?? '');
+      return `$ ${cmd.length > 50 ? `${cmd.slice(0, 50)}...` : cmd}`;
     }
-    case "glob":
+    case 'glob':
       return `"${args.pattern}"`;
-    case "grep":
-      return `"${args.pattern}" in ${args.include || "*"}`;
-    case "list_dir":
-      return String(args.path ?? ".");
-    case "task":
-      return String(args.description ?? "");
-    case "todo_write": {
+    case 'grep':
+      return `"${args.pattern}" in ${args.include || '*'}`;
+    case 'list_dir':
+      return String(args.path ?? '.');
+    case 'task':
+      return String(args.description ?? '');
+    case 'todo_write': {
       const todos = args.todos as Array<{ status: string }> | undefined;
-      const pending = todos?.filter((t) => t.status !== "completed").length ?? 0;
+      const pending =
+        todos?.filter((t) => t.status !== 'completed').length ?? 0;
       return `${pending} active`;
     }
-    case "todo_read":
-      return "";
+    case 'todo_read':
+      return '';
     default:
-      return "";
+      return '';
   }
 }
 
@@ -67,40 +68,43 @@ function formatToolHeader(name: string, args: Record<string, unknown>): string {
  */
 function getStatusIcon(state: ToolState): string {
   switch (state.status) {
-    case "pending":
-    case "executing":
-      return "◐"; // Half circle - in progress
-    case "confirming":
-      return "△"; // Triangle - needs attention
-    case "completed":
-      return "✓"; // Checkmark - success
-    case "error":
-    case "blocked":
-      return "✗"; // X - failure
-    case "denied":
-      return "⊘"; // Circled slash - denied
+    case 'pending':
+    case 'executing':
+      return '◐'; // Half circle - in progress
+    case 'confirming':
+      return '△'; // Triangle - needs attention
+    case 'completed':
+      return '✓'; // Checkmark - success
+    case 'error':
+    case 'blocked':
+      return '✗'; // X - failure
+    case 'denied':
+      return '⊘'; // Circled slash - denied
   }
 }
 
 /**
  * Get the icon color for a tool state.
  */
-function getStatusColor(state: ToolState, tokens: Record<string, string>): string {
+function getStatusColor(
+  state: ToolState,
+  tokens: Record<string, string>,
+): string {
   switch (state.status) {
-    case "pending":
-    case "executing":
-      return tokens.warning ?? "#f59e0b";
-    case "confirming":
-      return tokens.warning ?? "#f59e0b";
-    case "completed":
-      return tokens.success ?? "#22c55e";
-    case "error":
-    case "blocked":
-      return tokens.error ?? "#ef4444";
-    case "denied":
-      return tokens.textMuted ?? "#6b7280";
+    case 'pending':
+    case 'executing':
+      return tokens.warning ?? '#f59e0b';
+    case 'confirming':
+      return tokens.warning ?? '#f59e0b';
+    case 'completed':
+      return tokens.success ?? '#22c55e';
+    case 'error':
+    case 'blocked':
+      return tokens.error ?? '#ef4444';
+    case 'denied':
+      return tokens.textMuted ?? '#6b7280';
     default:
-      return tokens.textMuted ?? "#6b7280";
+      return tokens.textMuted ?? '#6b7280';
   }
 }
 
@@ -110,14 +114,14 @@ function getStatusColor(state: ToolState, tokens: Record<string, string>): strin
 function formatCompletedOutput(
   name: string,
   output: string,
-  metadata?: ToolMetadata
+  metadata?: ToolMetadata,
 ): string {
   switch (name) {
-    case "read_file": {
-      const lineCount = metadata?.lineCount ?? output.split("\n").length;
+    case 'read_file': {
+      const lineCount = metadata?.lineCount ?? output.split('\n').length;
       return `${lineCount} lines`;
     }
-    case "glob": {
+    case 'glob': {
       const matchCount = metadata?.matchCount;
       if (matchCount !== undefined) return `${matchCount} files found`;
       try {
@@ -127,7 +131,7 @@ function formatCompletedOutput(
         return output;
       }
     }
-    case "grep": {
+    case 'grep': {
       const matchCount = metadata?.matchCount;
       if (matchCount !== undefined) return `${matchCount} matches`;
       try {
@@ -137,17 +141,20 @@ function formatCompletedOutput(
         return output;
       }
     }
-    case "run_command": {
+    case 'run_command': {
       try {
-        const result = JSON.parse(output) as { exitCode: number; stdout: string };
+        const result = JSON.parse(output) as {
+          exitCode: number;
+          stdout: string;
+        };
         const exitCode = metadata?.exitCode ?? result.exitCode;
-        const stdoutLines = result.stdout.split("\n").length;
-        return `Exit ${exitCode}${stdoutLines > 1 ? ` (${stdoutLines} lines)` : ""}`;
+        const stdoutLines = result.stdout.split('\n').length;
+        return `Exit ${exitCode}${stdoutLines > 1 ? ` (${stdoutLines} lines)` : ''}`;
       } catch {
         return output;
       }
     }
-    case "list_dir": {
+    case 'list_dir': {
       try {
         const result = JSON.parse(output) as { entries?: unknown[] };
         return `${result.entries?.length ?? 0} entries`;
@@ -155,29 +162,35 @@ function formatCompletedOutput(
         return output;
       }
     }
-    case "task": {
+    case 'task': {
       try {
-        const result = JSON.parse(output) as { success?: boolean; iterations?: number };
-        const status = result.success ? "Completed" : "Failed";
-        const iterations = result.iterations ? ` in ${result.iterations} iterations` : "";
+        const result = JSON.parse(output) as {
+          success?: boolean;
+          iterations?: number;
+        };
+        const status = result.success ? 'Completed' : 'Failed';
+        const iterations = result.iterations
+          ? ` in ${result.iterations} iterations`
+          : '';
         return `${status}${iterations}`;
       } catch {
         return output;
       }
     }
-    case "write_file":
-    case "edit_file":
-    case "todo_write":
-    case "todo_read":
+    case 'write_file':
+    case 'edit_file':
+    case 'todo_write':
+    case 'todo_read':
       // These have special rendering, don't show raw output summary
-      return "";
-    default:
+      return '';
+    default: {
       // Truncate long output
-      const lines = output.split("\n");
+      const lines = output.split('\n');
       if (lines.length > 3) {
         return `${lines.length} lines of output`;
       }
       return output.slice(0, 100);
+    }
   }
 }
 
@@ -211,12 +224,12 @@ function InlineTool({
       style={{
         backgroundColor: tokens.bgSurface,
         padding: 1,
-        border: ["left"],
-        borderStyle: "heavy",
+        border: ['left'],
+        borderStyle: 'heavy',
         borderColor: iconColor,
       }}
     >
-      <box style={{ flexDirection: "row" }}>
+      <box style={{ flexDirection: 'row' }}>
         <text style={{ fg: iconColor }}>{icon} </text>
         <text style={{ fg: textColor }}>{name}</text>
         {header && <text style={{ fg: headerColor }}> {header}</text>}
@@ -249,12 +262,12 @@ function BlockTool({
       style={{
         backgroundColor: tokens.bgSurface,
         padding: 1,
-        border: ["left"],
-        borderStyle: "heavy",
+        border: ['left'],
+        borderStyle: 'heavy',
         borderColor: iconColor,
       }}
     >
-      <box style={{ flexDirection: "row" }}>
+      <box style={{ flexDirection: 'row' }}>
         <text style={{ fg: iconColor }}>{icon} </text>
         <text style={{ fg: tokens.primaryBase }}>{name}</text>
         {header && <text style={{ fg: tokens.textMuted }}> {header}</text>}
@@ -279,9 +292,6 @@ function ConfirmingView({
   tokens: SemanticTokens;
 }) {
   const { state, name, args } = message;
-  if (state.status !== "confirming") return null;
-
-  const preview = state.preview;
   const respondedRef = useRef(false);
   const onResponseRef = useRef(onResponse);
 
@@ -291,26 +301,30 @@ function ConfirmingView({
   }, [onResponse]);
 
   useKeyboard((key: { name?: string }) => {
+    if (state.status !== 'confirming') return;
     if (!isActive || respondedRef.current || !onResponseRef.current) return;
 
     switch (key.name?.toLowerCase()) {
-      case "y":
+      case 'y':
         respondedRef.current = true;
-        onResponseRef.current({ action: "allow" });
+        onResponseRef.current({ action: 'allow' });
         break;
-      case "n":
-      case "escape":
-      case "q":
+      case 'n':
+      case 'escape':
+      case 'q':
         respondedRef.current = true;
-        onResponseRef.current({ action: "deny" });
+        onResponseRef.current({ action: 'deny' });
         break;
-      case "a":
+      case 'a':
         respondedRef.current = true;
-        onResponseRef.current({ action: "allow_always", forTool: name });
+        onResponseRef.current({ action: 'allow_always', forTool: name });
         break;
     }
   });
 
+  if (state.status !== 'confirming') return null;
+
+  const preview = state.preview;
   const header = formatToolHeader(name, args);
 
   return (
@@ -318,13 +332,13 @@ function ConfirmingView({
       style={{
         backgroundColor: tokens.bgSurface,
         padding: 1,
-        border: ["left"],
-        borderStyle: "heavy",
+        border: ['left'],
+        borderStyle: 'heavy',
         borderColor: tokens.warning,
       }}
     >
       {/* Header */}
-      <box style={{ flexDirection: "row" }}>
+      <box style={{ flexDirection: 'row' }}>
         <text style={{ fg: tokens.warning }}>△ </text>
         <text style={{ fg: tokens.primaryBase }}>{name}</text>
         {header && <text style={{ fg: tokens.textMuted }}> {header}</text>}
@@ -333,13 +347,13 @@ function ConfirmingView({
       {/* Preview content */}
       {preview && (
         <box style={{ marginTop: 1 }}>
-          {preview.type === "command" && (
+          {preview.type === 'command' && (
             <box
               style={{
                 backgroundColor: tokens.bgBase,
                 padding: 1,
-                border: ["left"],
-                borderStyle: "single",
+                border: ['left'],
+                borderStyle: 'single',
                 borderColor: tokens.borderMuted,
               }}
             >
@@ -350,24 +364,24 @@ function ConfirmingView({
             </box>
           )}
 
-          {preview.type === "content" && (
+          {preview.type === 'content' && (
             <box
               style={{
                 backgroundColor: tokens.bgBase,
                 padding: 1,
-                border: ["left"],
-                borderStyle: "single",
+                border: ['left'],
+                borderStyle: 'single',
                 borderColor: tokens.borderMuted,
               }}
             >
               <text style={{ fg: tokens.textBase }}>
                 {preview.content}
-                {preview.truncated && "\n[truncated...]"}
+                {preview.truncated && '\n[truncated...]'}
               </text>
             </box>
           )}
 
-          {preview.type === "diff" && (
+          {preview.type === 'diff' && (
             <DiffView
               filePath={preview.filePath}
               before={preview.before}
@@ -380,13 +394,13 @@ function ConfirmingView({
       )}
 
       {/* Action buttons */}
-      <box style={{ flexDirection: "row", marginTop: 1 }}>
+      <box style={{ flexDirection: 'row', marginTop: 1 }}>
         <text>
           <span style={{ fg: tokens.textMuted }}>[</span>
           <u style={{ fg: tokens.success }}>Y</u>
-          <span style={{ fg: tokens.textMuted }}>]es  [</span>
+          <span style={{ fg: tokens.textMuted }}>]es [</span>
           <u style={{ fg: tokens.error }}>N</u>
-          <span style={{ fg: tokens.textMuted }}>/Esc]o  [</span>
+          <span style={{ fg: tokens.textMuted }}>/Esc]o [</span>
           <u style={{ fg: tokens.primaryBase }}>A</u>
           <span style={{ fg: tokens.textMuted }}>]lways</span>
         </text>
@@ -406,9 +420,9 @@ function EditCompleted({
   tokens: SemanticTokens;
 }) {
   const { state, name, args } = message;
-  if (state.status !== "completed") return null;
+  if (state.status !== 'completed') return null;
 
-  const filePath = state.metadata?.filePath ?? String(args.path ?? "");
+  const filePath = state.metadata?.filePath ?? String(args.path ?? '');
   const diff = state.metadata?.diff;
 
   // If we have a stored diff from confirmation, use it
@@ -426,8 +440,8 @@ function EditCompleted({
       {hasDiff ? (
         <DiffView
           filePath={filePath}
-          before={diff ? "" : String(args.oldString ?? "")}
-          after={diff ? "" : String(args.newString ?? "")}
+          before={diff ? '' : String(args.oldString ?? '')}
+          after={diff ? '' : String(args.newString ?? '')}
           diff={diff}
           maxHeight={25}
           view="split"
@@ -450,11 +464,11 @@ function WriteCompleted({
   tokens: SemanticTokens;
 }) {
   const { state, name, args } = message;
-  if (state.status !== "completed") return null;
+  if (state.status !== 'completed') return null;
 
-  const filePath = state.metadata?.filePath ?? String(args.path ?? "");
+  const filePath = state.metadata?.filePath ?? String(args.path ?? '');
   const isNewFile = state.metadata?.isNewFile ?? true;
-  const content = String(args.content ?? "");
+  const content = String(args.content ?? '');
 
   return (
     <BlockTool
@@ -492,14 +506,14 @@ function CommandCompleted({
   message: ToolDisplayMessage;
   tokens: SemanticTokens;
 }) {
-  const { state, name, args } = message;
-  if (state.status !== "completed") return null;
+  const { state, args } = message;
+  if (state.status !== 'completed') return null;
 
-  const description = String(args.description ?? "Shell");
-  const command = String(args.command ?? "");
+  const description = String(args.description ?? 'Shell');
+  const command = String(args.command ?? '');
 
-  let stdout = "";
-  let stderr = "";
+  let stdout = '';
+  let stderr = '';
   let exitCode = state.metadata?.exitCode ?? 0;
 
   try {
@@ -516,7 +530,7 @@ function CommandCompleted({
   }
 
   const output = stdout || stderr;
-  const icon = exitCode === 0 ? "✓" : "✗";
+  const icon = exitCode === 0 ? '✓' : '✗';
   const iconColor = exitCode === 0 ? tokens.success : tokens.error;
 
   return (
@@ -555,20 +569,20 @@ export function ToolMessage({
 
   // State-based rendering
   switch (state.status) {
-    case "pending":
-    case "executing":
+    case 'pending':
+    case 'executing':
       return (
         <InlineTool
           icon={icon}
           iconColor={iconColor}
           name={name}
           header={header}
-          suffix={state.status === "executing" ? "(running...)" : ""}
+          suffix={state.status === 'executing' ? '(running...)' : ''}
           tokens={tokens}
         />
       );
 
-    case "confirming":
+    case 'confirming':
       return (
         <ConfirmingView
           message={message}
@@ -578,15 +592,15 @@ export function ToolMessage({
         />
       );
 
-    case "completed":
+    case 'completed': {
       // Tool-specific completed views (write tools - always show full output)
-      if (name === "edit_file") {
+      if (name === 'edit_file') {
         return <EditCompleted message={message} tokens={tokens} />;
       }
-      if (name === "write_file") {
+      if (name === 'write_file') {
         return <WriteCompleted message={message} tokens={tokens} />;
       }
-      if (name === "run_command") {
+      if (name === 'run_command') {
         return <CommandCompleted message={message} tokens={tokens} />;
       }
 
@@ -594,9 +608,9 @@ export function ToolMessage({
       const outputSummary = formatCompletedOutput(
         name,
         state.output,
-        state.metadata
+        state.metadata,
       );
-      
+
       // Show expanded view for expandable tools when expanded is true
       if (expanded && EXPANDABLE_TOOLS.includes(name) && state.output) {
         return (
@@ -615,10 +629,12 @@ export function ToolMessage({
       // Default: inline with summary
       // Show expand hint for expandable tools when collapsed
       const isExpandable = EXPANDABLE_TOOLS.includes(name);
-      const expandHint = isExpandable ? " [ctrl+e to expand]" : "";
-      const suffix = outputSummary 
+      const expandHint = isExpandable ? ' [ctrl+e to expand]' : '';
+      const suffix = outputSummary
         ? `(${outputSummary})${expandHint}`
-        : isExpandable ? "[ctrl+e to expand]" : undefined;
+        : isExpandable
+          ? '[ctrl+e to expand]'
+          : undefined;
 
       return (
         <InlineTool
@@ -630,8 +646,9 @@ export function ToolMessage({
           tokens={tokens}
         />
       );
+    }
 
-    case "error":
+    case 'error':
       return (
         <BlockTool
           icon={icon}
@@ -644,20 +661,20 @@ export function ToolMessage({
         </BlockTool>
       );
 
-    case "denied":
+    case 'denied':
       return (
         <InlineTool
           icon={icon}
           iconColor={iconColor}
           name={name}
           header={header}
-          suffix={state.reason ? `(denied: ${state.reason})` : "(denied)"}
+          suffix={state.reason ? `(denied: ${state.reason})` : '(denied)'}
           dimmed
           tokens={tokens}
         />
       );
 
-    case "blocked":
+    case 'blocked':
       return (
         <InlineTool
           icon={icon}

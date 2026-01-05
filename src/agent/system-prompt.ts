@@ -1,6 +1,6 @@
 /**
  * System prompt for Olly - the local agentic coding assistant.
- * 
+ *
  * Based on research from Claude Code, Cursor, Aider, and Windsurf.
  * See docs/system-prompt-research.md for detailed analysis.
  */
@@ -11,7 +11,7 @@ export type SystemPromptContext = {
   date: string;
 };
 
-export type SystemPromptMode = "full" | "minimal";
+export type SystemPromptMode = 'full' | 'minimal';
 
 /**
  * Minimal system prompt optimized for tool calling consistency.
@@ -312,16 +312,16 @@ export function getDefaultContext(): SystemPromptContext {
   return {
     workingDirectory: process.cwd(),
     platform: process.platform,
-    date: new Date().toISOString().split("T")[0] ?? "unknown",
+    date: new Date().toISOString().split('T')[0] ?? 'unknown',
   };
 }
 
 /**
  * Build the system prompt with default context
  */
-export function getSystemPrompt(mode: SystemPromptMode = "full"): string {
+export function getSystemPrompt(mode: SystemPromptMode = 'full'): string {
   const ctx = getDefaultContext();
-  return mode === "minimal" 
-    ? buildMinimalSystemPrompt(ctx) 
+  return mode === 'minimal'
+    ? buildMinimalSystemPrompt(ctx)
     : buildSystemPrompt(ctx);
 }

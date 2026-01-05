@@ -3,9 +3,9 @@
  * Stores user settings in ~/.config/olly/config.json
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 /**
  * Configuration schema
@@ -22,14 +22,14 @@ const DEFAULT_CONFIG: Config = {};
  * Follows XDG convention: ~/.config/olly/
  */
 export function getConfigDirectory(): string {
-  return join(homedir(), ".config", "olly");
+  return join(homedir(), '.config', 'olly');
 }
 
 /**
  * Get the path to the config file.
  */
 export function getConfigPath(): string {
-  return join(getConfigDirectory(), "config.json");
+  return join(getConfigDirectory(), 'config.json');
 }
 
 /**
@@ -54,7 +54,7 @@ export function loadConfig(): Config {
   }
 
   try {
-    const content = readFileSync(configPath, "utf-8");
+    const content = readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(content) as Partial<Config>;
     return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
@@ -69,7 +69,7 @@ export function loadConfig(): Config {
 export function saveConfig(config: Config): void {
   ensureConfigDirectory();
   const configPath = getConfigPath();
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
 /**
@@ -90,6 +90,9 @@ export function getConfigValue<K extends keyof Config>(key: K): Config[K] {
 /**
  * Set a specific config value.
  */
-export function setConfigValue<K extends keyof Config>(key: K, value: Config[K]): void {
+export function setConfigValue<K extends keyof Config>(
+  key: K,
+  value: Config[K],
+): void {
   updateConfig({ [key]: value });
 }

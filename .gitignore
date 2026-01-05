@@ -29,6 +29,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # IntelliJ based IDEs
 .idea
+.vscode
+.crush
 
 # Finder (MacOS) folder config
 .DS_Store
@@ -37,7 +39,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .olly/
 
 # Compiled binary
-ollama-tui
+olly
 
 # Documentation (local reference only)
 docs/

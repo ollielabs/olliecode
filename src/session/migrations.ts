@@ -3,7 +3,7 @@
  * Uses a simple version-based migration system.
  */
 
-import type { Database } from "bun:sqlite";
+import type { Database } from 'bun:sqlite';
 
 type Migration = {
   version: number;
@@ -18,7 +18,7 @@ type Migration = {
 const MIGRATIONS: Migration[] = [
   {
     version: 1,
-    name: "initial_schema",
+    name: 'initial_schema',
     sql: `
       -- Version tracking
       CREATE TABLE IF NOT EXISTS schema_version (
@@ -59,7 +59,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 2,
-    name: "add_todos_table",
+    name: 'add_todos_table',
     sql: `
       -- Todos for session task tracking
       -- Enables agents to maintain persistent task lists across session resumption
@@ -86,7 +86,9 @@ const MIGRATIONS: Migration[] = [
  */
 function getCurrentVersion(db: Database): number {
   try {
-    const result = db.query("SELECT MAX(version) as version FROM schema_version").get() as {
+    const result = db
+      .query('SELECT MAX(version) as version FROM schema_version')
+      .get() as {
       version: number | null;
     } | null;
     return result?.version ?? 0;
@@ -100,7 +102,7 @@ function getCurrentVersion(db: Database): number {
  * Record a migration version as applied.
  */
 function setVersion(db: Database, version: number): void {
-  db.run("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)", [
+  db.run('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)', [
     version,
     Date.now(),
   ]);
@@ -114,7 +116,9 @@ export function runMigrations(db: Database): void {
 
   for (const migration of MIGRATIONS) {
     if (migration.version > currentVersion) {
-      console.error(`[session] Running migration ${migration.version}: ${migration.name}`);
+      console.error(
+        `[session] Running migration ${migration.version}: ${migration.name}`,
+      );
       db.exec(migration.sql);
       setVersion(db, migration.version);
     }

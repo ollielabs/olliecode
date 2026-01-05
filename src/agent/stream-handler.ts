@@ -3,8 +3,8 @@
  * Accumulates content and tool calls from streaming chunks.
  */
 
-import type { ToolCall } from "ollama";
-import { log } from "./logger";
+import type { ToolCall } from 'ollama';
+import { log } from './logger';
 
 /**
  * Accumulated response from streaming Ollama chat.
@@ -35,7 +35,7 @@ export type OllamaChunk = {
 
 /**
  * Processes a stream of Ollama chat chunks, accumulating content and tool calls.
- * 
+ *
  * @param stream - AsyncIterable of Ollama chunks
  * @param callbacks - Callbacks for streaming events
  * @param signal - AbortSignal to cancel streaming
@@ -45,17 +45,17 @@ export type OllamaChunk = {
 export async function processStream(
   stream: AsyncIterable<OllamaChunk>,
   callbacks: StreamCallbacks,
-  signal: AbortSignal
+  signal: AbortSignal,
 ): Promise<AccumulatedResponse> {
   const accumulated: AccumulatedResponse = {
-    content: "",
+    content: '',
     toolCalls: [],
   };
 
   for await (const chunk of stream) {
     // Check for abort during streaming
     if (signal.aborted) {
-      log("Aborted during streaming");
+      log('Aborted during streaming');
       throw new AbortError();
     }
 
@@ -67,7 +67,7 @@ export async function processStream(
 
     // Collect tool calls
     if (chunk.message?.tool_calls) {
-      log("Received tool_calls:", chunk.message.tool_calls.length);
+      log('Received tool_calls:', chunk.message.tool_calls.length);
       for (const tc of chunk.message.tool_calls) {
         accumulated.toolCalls.push(tc);
         callbacks.onToolCall(tc, accumulated.toolCalls.length - 1);
@@ -75,16 +75,16 @@ export async function processStream(
     }
 
     if (chunk.done) {
-      log("Chunk done=true");
+      log('Chunk done=true');
       break;
     }
   }
 
   log(
-    "Streaming complete. Content length:",
+    'Streaming complete. Content length:',
     accumulated.content.length,
-    "Tool calls:",
-    accumulated.toolCalls.length
+    'Tool calls:',
+    accumulated.toolCalls.length,
   );
 
   return accumulated;
@@ -95,8 +95,8 @@ export async function processStream(
  */
 export class AbortError extends Error {
   constructor() {
-    super("Operation aborted");
-    this.name = "AbortError";
+    super('Operation aborted');
+    this.name = 'AbortError';
   }
 }
 

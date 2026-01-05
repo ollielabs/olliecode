@@ -1,15 +1,15 @@
 /**
  * Task Tool - Delegates complex exploration tasks to a specialized subagent.
- * 
+ *
  * This enables the primary agent to offload complex, multi-step exploration
  * to a focused subagent with its own context window and iteration budget.
  */
 
-import { z } from "zod";
-import type { ToolDefinition } from "../types";
-import { runAgent } from "../index";
-import { buildExplorePrompt, type ThoroughnessLevel } from "../prompts/explore";
-import { getDefaultContext } from "../prompts/shared";
+import { z } from 'zod';
+import type { ToolDefinition } from '../types';
+import { runAgent } from '../index';
+import { buildExplorePrompt, type ThoroughnessLevel } from '../prompts/explore';
+import { getDefaultContext } from '../prompts/shared';
 
 // ============================================================================
 // Schema Definitions
@@ -19,16 +19,16 @@ const taskInput = z.object({
   description: z
     .string()
     .min(1)
-    .describe("Short 3-5 word description of the task"),
+    .describe('Short 3-5 word description of the task'),
   prompt: z
     .string()
     .min(1)
-    .describe("Detailed task description for the subagent"),
+    .describe('Detailed task description for the subagent'),
   thoroughness: z
-    .enum(["quick", "medium", "thorough"])
+    .enum(['quick', 'medium', 'thorough'])
     .optional()
-    .default("medium")
-    .describe("How thorough the exploration should be"),
+    .default('medium')
+    .describe('How thorough the exploration should be'),
 });
 
 const taskOutput = z.object({
@@ -53,7 +53,7 @@ const ITERATION_LIMITS: Record<ThoroughnessLevel, number> = {
 // ============================================================================
 
 export const taskTool: ToolDefinition<typeof taskInput, typeof taskOutput> = {
-  name: "task",
+  name: 'task',
   description: `Delegate complex exploration or research tasks to a specialized subagent.
 
 The explore subagent is a fast file/code search specialist. Use it for:
@@ -87,10 +87,10 @@ The tasks will run concurrently and you'll receive all results together.`,
 
   parameters: taskInput,
   outputSchema: taskOutput,
-  risk: "safe",
+  risk: 'safe',
 
   execute: async (params, signal, context) => {
-    const { prompt, thoroughness = "medium" } = params;
+    const { prompt, thoroughness = 'medium' } = params;
 
     // Get model and host from context (passed from parent agent)
     const model = context?.model;
@@ -99,7 +99,7 @@ The tasks will run concurrently and you'll receive all results together.`,
     if (!model || !host) {
       return {
         success: false,
-        output: "Task tool requires model and host in context",
+        output: 'Task tool requires model and host in context',
         filesExplored: [],
         iterations: 0,
       };
@@ -118,13 +118,13 @@ The tasks will run concurrently and you'll receive all results together.`,
         host,
         userMessage: prompt,
         history: [],
-        mode: "plan", // Always read-only for explore subagent
-        
+        mode: 'plan', // Always read-only for explore subagent
+
         // Callbacks to track progress
         onReasoningToken: () => {}, // Silent - don't stream to parent
         onToolCall: (call) => {
           // Track file reads
-          if (call.function.name === "read_file") {
+          if (call.function.name === 'read_file') {
             const args = call.function.arguments as { path?: string };
             if (args.path) {
               filesExplored.push(args.path);
@@ -146,11 +146,11 @@ The tasks will run concurrently and you'll receive all results together.`,
       });
 
       // Check for error result
-      if ("type" in result) {
+      if ('type' in result) {
         return {
           success: false,
           output: `Subagent error: ${result.type}${
-            "message" in result ? ` - ${result.message}` : ""
+            'message' in result ? ` - ${result.message}` : ''
           }`,
           filesExplored,
           iterations: 0,
@@ -166,7 +166,7 @@ The tasks will run concurrently and you'll receive all results together.`,
     } catch (error) {
       return {
         success: false,
-        output: `Task execution failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        output: `Task execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         filesExplored,
         iterations: 0,
       };

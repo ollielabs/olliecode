@@ -3,8 +3,8 @@
  * This allows promptfoo to test the full agent loop, not just raw model calls.
  */
 
-import { runAgent } from "../src/agent";
-import type { Message } from "ollama";
+import { runAgent } from '../src/agent';
+import type { Message } from 'ollama';
 
 type ProviderOptions = {
   config?: {
@@ -29,15 +29,19 @@ let conversationHistory: Message[] = [];
 export async function callApi(
   prompt: string,
   _context: { vars?: Record<string, string> },
-  options: ProviderOptions
+  options: ProviderOptions,
 ): Promise<ProviderResponse> {
-  const model = options.config?.model || process.env.OLLAMA_MODEL || "granite4:latest";
-  const host = options.config?.host || process.env.OLLAMA_HOST || "http://192.168.1.221:11434";
+  const model =
+    options.config?.model || process.env.OLLAMA_MODEL || 'granite4:latest';
+  const host =
+    options.config?.host ||
+    process.env.OLLAMA_HOST ||
+    'http://192.168.1.221:11434';
 
   // Check for special reset command
-  if (prompt === "__RESET_CONVERSATION__") {
+  if (prompt === '__RESET_CONVERSATION__') {
     conversationHistory = [];
-    return { output: "[Conversation reset]" };
+    return { output: '[Conversation reset]' };
   }
 
   const toolsCalled: string[] = [];
@@ -63,7 +67,7 @@ export async function callApi(
       },
     });
 
-    if ("type" in result) {
+    if ('type' in result) {
       // Error result
       return {
         output: `[Agent Error: ${result.type}]`,
@@ -106,6 +110,6 @@ export function resetConversation() {
 }
 
 export default {
-  id: () => "olly-agent",
+  id: () => 'olly-agent',
   callApi,
 };

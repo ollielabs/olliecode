@@ -2,15 +2,15 @@
  * Session persistence types.
  */
 
-import type { AgentMode } from "../agent/modes";
-import type { ToolState } from "../tui/types";
+import type { AgentMode } from '../agent/modes';
+import type { ToolState } from '../tui/types';
 
 /**
  * Unified tool part for storage.
  * Represents a complete tool operation with its final state.
  */
 export type ToolPart = {
-  type: "tool";
+  type: 'tool';
   /** Unique identifier for this tool operation */
   id: string;
   /** Tool name (e.g., "edit_file", "run_command") */
@@ -25,9 +25,7 @@ export type ToolPart = {
  * Message part types (stored as JSON in `parts` column).
  * This is the source of truth for both Ollama messages and display UI.
  */
-export type MessagePart =
-  | { type: "text"; content: string }
-  | ToolPart;
+export type MessagePart = { type: 'text'; content: string } | ToolPart;
 
 /**
  * Stored message (maps to DB row).
@@ -35,7 +33,7 @@ export type MessagePart =
 export type StoredMessage = {
   id: string;
   sessionId: string;
-  role: "user" | "assistant" | "system";
+  role: 'user' | 'assistant' | 'system';
   parts: MessagePart[];
   createdAt: number;
 };

@@ -5,7 +5,7 @@
  * Returns match indices for UI highlighting.
  */
 
-import Fuse, { type IFuseOptions, type RangeTuple } from "fuse.js";
+import Fuse, { type IFuseOptions, type RangeTuple } from 'fuse.js';
 
 /**
  * A fuzzy search match result with scoring information.
@@ -46,7 +46,7 @@ const FUSE_OPTIONS: IFuseOptions<string> = {
 export function fuzzySearch(
   query: string,
   items: string[],
-  maxResults = 50
+  maxResults = 50,
 ): FuzzyMatch[] {
   if (!query) {
     return items.slice(0, maxResults).map((item) => ({

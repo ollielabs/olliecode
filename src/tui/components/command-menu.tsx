@@ -3,9 +3,9 @@
  * Overlays above the textarea when user types '/'.
  */
 
-import { useKeyboard } from "@opentui/react";
-import { useEffect } from "react";
-import { useTheme } from "../../design";
+import { useKeyboard } from '@opentui/react';
+import { useEffect } from 'react';
+import { useTheme } from '../../design';
 
 export type SlashCommand = {
   name: string;
@@ -24,8 +24,13 @@ export type CommandMenuProps = {
   width?: number;
 };
 
-export function getFilteredCommands(commands: SlashCommand[], filter: string): SlashCommand[] {
-  return commands.filter((cmd) => cmd.name.toLowerCase().startsWith(filter.toLowerCase()));
+export function getFilteredCommands(
+  commands: SlashCommand[],
+  filter: string,
+): SlashCommand[] {
+  return commands.filter((cmd) =>
+    cmd.name.toLowerCase().startsWith(filter.toLowerCase()),
+  );
 }
 
 export function CommandMenu({
@@ -42,27 +47,30 @@ export function CommandMenu({
   const filteredCommands = getFilteredCommands(commands, filter);
 
   useEffect(() => {
-    if (selectedIndex >= filteredCommands.length && filteredCommands.length > 0) {
+    if (
+      selectedIndex >= filteredCommands.length &&
+      filteredCommands.length > 0
+    ) {
       onIndexChange(filteredCommands.length - 1);
     }
   }, [filteredCommands.length, selectedIndex, onIndexChange]);
 
   useKeyboard((key: { name?: string }) => {
     switch (key.name) {
-      case "up":
-      case "k":
+      case 'up':
+      case 'k':
         onIndexChange(Math.max(0, selectedIndex - 1));
         break;
-      case "down":
-      case "j":
+      case 'down':
+      case 'j':
         onIndexChange(Math.min(filteredCommands.length - 1, selectedIndex + 1));
         break;
-      case "return": {
+      case 'return': {
         const selected = filteredCommands[selectedIndex];
         if (selected) onSelect(selected);
         break;
       }
-      case "escape":
+      case 'escape':
         onCancel();
         break;
     }
@@ -72,13 +80,13 @@ export function CommandMenu({
     return (
       <box
         style={{
-          position: "absolute",
+          position: 'absolute',
           left: 0,
           bottom,
           width,
           zIndex: 100,
           backgroundColor: tokens.bgSurface,
-          flexDirection: "column",
+          flexDirection: 'column',
           paddingLeft: 1,
           paddingRight: 1,
         }}
@@ -91,13 +99,13 @@ export function CommandMenu({
   return (
     <box
       style={{
-        position: "absolute",
+        position: 'absolute',
         left: 0,
         bottom,
         width,
         zIndex: 100,
         backgroundColor: tokens.bgSurface,
-        flexDirection: "column",
+        flexDirection: 'column',
         maxHeight: 8,
       }}
     >
@@ -109,16 +117,24 @@ export function CommandMenu({
               <box
                 key={cmd.name}
                 style={{
-                  flexDirection: "row",
+                  flexDirection: 'row',
                   paddingLeft: 1,
                   paddingRight: 1,
                   ...(isSelected && { backgroundColor: tokens.selected }),
                 }}
               >
-                <text style={{ fg: isSelected ? tokens.primaryBase : tokens.textBase }}>
+                <text
+                  style={{
+                    width: 10,
+                    fg: isSelected ? tokens.primaryBase : tokens.textBase,
+                  }}
+                >
                   <b>/{cmd.name}</b>
                 </text>
-                <text style={{ fg: tokens.textSubtle }}> {cmd.description}</text>
+                <text style={{ fg: tokens.textSubtle }}>
+                  {' '}
+                  {cmd.description}
+                </text>
               </box>
             );
           })}

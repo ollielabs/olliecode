@@ -3,10 +3,14 @@
  * Handles sidebar stats, context info notifications, and context manipulation.
  */
 
-import { useState, useEffect } from "react";
-import { compactMessages, getCompactionLevel } from "../../agent/compaction";
-import { fetchModelInfo, getContextStats } from "../../lib/tokenizer";
-import type { Message, ContextStats, DisplayMessage } from "../types";
+import { useState, useEffect } from 'react';
+import { compactMessages, getCompactionLevel } from '../../agent/compaction';
+import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
+import {
+  NOTIFICATION_DURATION_SHORT,
+  NOTIFICATION_DURATION_LONG,
+} from '../constants';
+import type { Message, ContextStats, DisplayMessage } from '../types';
 
 export type UseAgentContextProps = {
   /** Current message history */
@@ -76,46 +80,48 @@ export function useAgentContext({
   const handleClearContext = () => {
     setHistory([]);
     setDisplayMessages([]);
-    setContextInfo("Context cleared. Starting fresh conversation.");
-    setTimeout(() => setContextInfo(null), 3000);
+    setContextInfo('Context cleared. Starting fresh conversation.');
+    setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
   };
 
   const handleCompact = async () => {
     if (history.length === 0) {
-      setContextInfo("Nothing to compact - context is empty.");
-      setTimeout(() => setContextInfo(null), 3000);
+      setContextInfo('Nothing to compact - context is empty.');
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
       return;
     }
 
     try {
-      setContextInfo("Compacting context...");
+      setContextInfo('Compacting context...');
       const modelInfo = await fetchModelInfo(model, host);
       const stats = getContextStats(history, modelInfo.contextLength);
       const level = getCompactionLevel(stats.usagePercent);
       const result = await compactMessages(
-        [{ role: "system", content: "" }, ...history],
+        [{ role: 'system', content: '' }, ...history],
         level,
         undefined,
         model,
-        host
+        host,
       );
       const compactedHistory = result.messages.slice(1);
       setHistory(compactedHistory);
       setContextInfo(
         `Compacted: ${result.originalCount} -> ${result.compactedCount} messages, ` +
-          `${result.tokensBefore} -> ${result.tokensAfter} tokens (${Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)}% reduction)`
+          `${result.tokensBefore} -> ${result.tokensAfter} tokens (${Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)}% reduction)`,
       );
-      setTimeout(() => setContextInfo(null), 5000);
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
     } catch (e) {
-      setContextInfo(`Compaction failed: ${e instanceof Error ? e.message : String(e)}`);
-      setTimeout(() => setContextInfo(null), 5000);
+      setContextInfo(
+        `Compaction failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
     }
   };
 
   const handleShowContext = async () => {
     if (history.length === 0) {
-      setContextInfo("Context is empty.");
-      setTimeout(() => setContextInfo(null), 3000);
+      setContextInfo('Context is empty.');
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
       return;
     }
 
@@ -125,15 +131,17 @@ export function useAgentContext({
       setContextStats(stats);
       setShowContextStats(true);
     } catch (e) {
-      setContextInfo(`Could not get context stats: ${e instanceof Error ? e.message : String(e)}`);
-      setTimeout(() => setContextInfo(null), 5000);
+      setContextInfo(
+        `Could not get context stats: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
     }
   };
 
   const handleForget = (n: number) => {
     if (history.length === 0) {
-      setContextInfo("Nothing to forget - context is empty.");
-      setTimeout(() => setContextInfo(null), 3000);
+      setContextInfo('Nothing to forget - context is empty.');
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
       return;
     }
 
@@ -142,8 +150,10 @@ export function useAgentContext({
     // Approximate: each history message may correspond to ~2 display messages
     const displayToRemove = Math.min(toRemove * 2, 100);
     setDisplayMessages((prev) => prev.slice(0, -displayToRemove));
-    setContextInfo(`Forgot last ${toRemove} message${toRemove === 1 ? "" : "s"}.`);
-    setTimeout(() => setContextInfo(null), 3000);
+    setContextInfo(
+      `Forgot last ${toRemove} message${toRemove === 1 ? '' : 's'}.`,
+    );
+    setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
   };
 
   const handleContextStatsClose = () => {

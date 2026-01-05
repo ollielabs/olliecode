@@ -16,7 +16,7 @@ export function getDefaultContext(): SystemPromptContext {
   return {
     workingDirectory: process.cwd(),
     platform: process.platform,
-    date: new Date().toISOString().split("T")[0] ?? "unknown",
+    date: new Date().toISOString().split('T')[0] ?? 'unknown',
   };
 }
 

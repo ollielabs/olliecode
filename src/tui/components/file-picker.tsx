@@ -4,10 +4,10 @@
  * Matches the UI pattern of CommandMenu.
  */
 
-import { useKeyboard } from "@opentui/react";
-import { useEffect } from "react";
-import { useTheme } from "../../design";
-import { fuzzySearch, type FuzzyMatch } from "../../lib/fuzzy";
+import { useKeyboard } from '@opentui/react';
+import { useEffect } from 'react';
+import { useTheme } from '../../design';
+import { fuzzySearch, type FuzzyMatch } from '../../lib/fuzzy';
 
 export type FilePickerProps = {
   /** List of available files (from getFilesAndDirectories) */
@@ -36,7 +36,7 @@ const MAX_RESULTS = 50;
  */
 export function getFilteredFiles(
   files: string[],
-  filter: string
+  filter: string,
 ): FuzzyMatch[] {
   return fuzzySearch(filter, files, MAX_RESULTS);
 }
@@ -67,18 +67,18 @@ export function FilePicker({
 
   useKeyboard((key: { name?: string }) => {
     switch (key.name) {
-      case "up":
+      case 'up':
         onIndexChange(Math.max(0, selectedIndex - 1));
         break;
-      case "down":
+      case 'down':
         onIndexChange(Math.min(results.length - 1, selectedIndex + 1));
         break;
-      case "return": {
+      case 'return': {
         const selected = results[selectedIndex];
         if (selected) onSelect(selected.item);
         break;
       }
-      case "escape":
+      case 'escape':
         onCancel();
         break;
     }
@@ -88,13 +88,13 @@ export function FilePicker({
     return (
       <box
         style={{
-          position: "absolute",
+          position: 'absolute',
           left: 0,
           bottom,
           width,
           zIndex: 100,
           backgroundColor: tokens.bgSurface,
-          flexDirection: "column",
+          flexDirection: 'column',
           paddingLeft: 1,
           paddingRight: 1,
         }}
@@ -107,13 +107,13 @@ export function FilePicker({
   return (
     <box
       style={{
-        position: "absolute",
+        position: 'absolute',
         left: 0,
         bottom,
         width,
         zIndex: 100,
         backgroundColor: tokens.bgSurface,
-        flexDirection: "column",
+        flexDirection: 'column',
         maxHeight: VISIBLE_ITEMS + 2,
       }}
     >
@@ -121,13 +121,13 @@ export function FilePicker({
         <box flexDirection="column">
           {results.map((match, idx) => {
             const isSelected = idx === selectedIndex;
-            const isDirectory = match.item.endsWith("/");
+            const isDirectory = match.item.endsWith('/');
 
             return (
               <box
                 key={match.item}
                 style={{
-                  flexDirection: "row",
+                  flexDirection: 'row',
                   paddingLeft: 1,
                   paddingRight: 1,
                   ...(isSelected && { backgroundColor: tokens.selected }),
@@ -191,15 +191,18 @@ function HighlightedPath({
 
   // Build segments with alternating highlight
   const segments: React.ReactNode[] = [];
-  let currentText = "";
+  let currentText = '';
   let currentHighlighted = highlightedSet.has(0);
 
   // Add @ prefix for files
   if (!isDirectory) {
     segments.push(
-      <text key="prefix" style={{ fg: isSelected ? tokens.primaryBase : tokens.textBase }}>
+      <text
+        key="prefix"
+        style={{ fg: isSelected ? tokens.primaryBase : tokens.textBase }}
+      >
         @
-      </text>
+      </text>,
     );
   }
 
@@ -221,10 +224,10 @@ function HighlightedPath({
             <text key={segments.length} style={{ fg }}>
               {currentText}
             </text>
-          )
+          ),
         );
       }
-      currentText = path[i]!;
+      currentText = path[i] ?? '';
       currentHighlighted = isHighlighted;
     } else {
       currentText += path[i];
@@ -247,7 +250,7 @@ function HighlightedPath({
         <text key={segments.length} style={{ fg }}>
           {currentText}
         </text>
-      )
+      ),
     );
   }
 

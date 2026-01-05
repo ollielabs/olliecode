@@ -3,28 +3,33 @@
  * Overlays content with horizontally centered dialog.
  */
 
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { RGBA } from "@opentui/core";
-import { useTheme } from "../../design";
+import { useKeyboard, useTerminalDimensions } from '@opentui/react';
+import { RGBA } from '@opentui/core';
+import { useTheme } from '../../design';
 
 export type ModalProps = {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
-  size?: "small" | "medium" | "large";
+  size?: 'small' | 'medium' | 'large';
 };
 
-export function Modal({ title, children, onClose, size = "medium" }: ModalProps) {
+export function Modal({
+  title,
+  children,
+  onClose,
+  size = 'medium',
+}: ModalProps) {
   const { tokens } = useTheme();
   const { width: termWidth, height: termHeight } = useTerminalDimensions();
 
   useKeyboard((key: { name?: string }) => {
-    if (key.name === "escape" || key.name === "q") {
+    if (key.name === 'escape' || key.name === 'q') {
       onClose();
     }
   });
 
-  const modalWidth = size === "large" ? 80 : size === "small" ? 40 : 60;
+  const modalWidth = size === 'large' ? 80 : size === 'small' ? 40 : 60;
   const leftOffset = Math.max(0, Math.floor((termWidth - modalWidth) / 2));
   const topOffset = Math.floor(termHeight / 4);
 
@@ -32,7 +37,7 @@ export function Modal({ title, children, onClose, size = "medium" }: ModalProps)
     <>
       <box
         style={{
-          position: "absolute",
+          position: 'absolute',
           left: 0,
           top: 0,
           width: termWidth,
@@ -44,13 +49,13 @@ export function Modal({ title, children, onClose, size = "medium" }: ModalProps)
 
       <box
         style={{
-          position: "absolute",
+          position: 'absolute',
           left: leftOffset,
           top: topOffset,
           width: modalWidth,
           maxWidth: termWidth - 2,
           backgroundColor: tokens.bgSurface,
-          flexDirection: "column",
+          flexDirection: 'column',
           paddingTop: 1,
           paddingBottom: 1,
           paddingLeft: 2,
@@ -58,8 +63,16 @@ export function Modal({ title, children, onClose, size = "medium" }: ModalProps)
           zIndex: 101,
         }}
       >
-        <box style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 1 }}>
-          <text style={{ fg: tokens.textBase }}><b>{title}</b></text>
+        <box
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            marginBottom: 1,
+          }}
+        >
+          <text style={{ fg: tokens.textBase }}>
+            <b>{title}</b>
+          </text>
           <text style={{ fg: tokens.textSubtle }}>esc</text>
         </box>
 

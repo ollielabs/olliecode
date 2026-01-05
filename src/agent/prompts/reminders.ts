@@ -3,7 +3,7 @@
  * Based on OpenCode's <system-reminder> pattern.
  */
 
-import type { AgentMode } from "../modes";
+import type { AgentMode } from '../modes';
 
 /**
  * Plan mode reminder - reinforces read-only constraints
@@ -63,17 +63,20 @@ Proceed with implementation.
  * Get the appropriate reminder for a mode
  */
 export function getModeReminder(mode: AgentMode): string {
-  return mode === "plan" ? PLAN_MODE_REMINDER : BUILD_MODE_REMINDER;
+  return mode === 'plan' ? PLAN_MODE_REMINDER : BUILD_MODE_REMINDER;
 }
 
 /**
  * Get reminder for mode transition
  */
-export function getModeSwitchReminder(fromMode: AgentMode, toMode: AgentMode): string | null {
-  if (fromMode === "plan" && toMode === "build") {
+export function getModeSwitchReminder(
+  fromMode: AgentMode,
+  toMode: AgentMode,
+): string | null {
+  if (fromMode === 'plan' && toMode === 'build') {
     return MODE_SWITCH_REMINDER;
   }
-  if (fromMode === "build" && toMode === "plan") {
+  if (fromMode === 'build' && toMode === 'plan') {
     return PLAN_MODE_REMINDER;
   }
   return null;

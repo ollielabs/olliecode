@@ -3,7 +3,7 @@
  * Ported from OpenCode's color system for perceptually uniform color scales.
  */
 
-import type { HexColor } from "./tokens";
+import type { HexColor } from './tokens';
 
 /**
  * OKLCH color representation
@@ -18,13 +18,13 @@ export type OklchColor = {
  * Convert hex color to RGB (0-1 range)
  */
 export function hexToRgb(hex: HexColor): { r: number; g: number; b: number } {
-  const h = hex.replace("#", "");
+  const h = hex.replace('#', '');
   const full =
     h.length === 3
       ? h
-          .split("")
+          .split('')
           .map((c) => c + c)
-          .join("")
+          .join('')
       : h;
 
   const num = parseInt(full, 16);
@@ -42,19 +42,19 @@ export function rgbToHex(r: number, g: number, b: number): HexColor {
   const toHex = (v: number) => {
     const clamped = Math.max(0, Math.min(1, v));
     const int = Math.round(clamped * 255);
-    return int.toString(16).padStart(2, "0");
+    return int.toString(16).padStart(2, '0');
   };
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 function linearToSrgb(c: number): number {
   if (c <= 0.0031308) return c * 12.92;
-  return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  return 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
 function srgbToLinear(c: number): number {
   if (c <= 0.04045) return c / 12.92;
-  return Math.pow((c + 0.055) / 1.055, 2.4);
+  return ((c + 0.055) / 1.055) ** 2.4;
 }
 
 /**
@@ -141,8 +141,34 @@ export function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
   const scale: HexColor[] = [];
 
   const lightSteps = isDark
-    ? [0.15, 0.18, 0.22, 0.26, 0.32, 0.38, 0.46, 0.56, base.l, base.l - 0.05, 0.75, 0.93]
-    : [0.99, 0.97, 0.94, 0.9, 0.85, 0.79, 0.72, 0.64, base.l, base.l + 0.05, 0.45, 0.25];
+    ? [
+        0.15,
+        0.18,
+        0.22,
+        0.26,
+        0.32,
+        0.38,
+        0.46,
+        0.56,
+        base.l,
+        base.l - 0.05,
+        0.75,
+        0.93,
+      ]
+    : [
+        0.99,
+        0.97,
+        0.94,
+        0.9,
+        0.85,
+        0.79,
+        0.72,
+        0.64,
+        base.l,
+        base.l + 0.05,
+        0.45,
+        0.25,
+      ];
 
   const chromaMultipliers = isDark
     ? [0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1, 1, 0.9, 0.6]
@@ -151,10 +177,10 @@ export function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
   for (let i = 0; i < 12; i++) {
     scale.push(
       oklchToHex({
-        l: lightSteps[i]!,
-        c: base.c * chromaMultipliers[i]!,
+        l: lightSteps[i] ?? 0.5,
+        c: base.c * (chromaMultipliers[i] ?? 0.5),
         h: base.h,
-      })
+      }),
     );
   }
 
@@ -167,7 +193,7 @@ export function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
  */
 export function generateNeutralScale(
   seed: HexColor,
-  isDark: boolean
+  isDark: boolean,
 ): HexColor[] {
   const base = hexToOklch(seed);
   const scale: HexColor[] = [];
@@ -180,10 +206,10 @@ export function generateNeutralScale(
   for (let i = 0; i < 12; i++) {
     scale.push(
       oklchToHex({
-        l: lightSteps[i]!,
+        l: lightSteps[i] ?? 0.5,
         c: neutralChroma,
         h: base.h,
-      })
+      }),
     );
   }
 
@@ -196,7 +222,7 @@ export function generateNeutralScale(
 export function mixColors(
   color1: HexColor,
   color2: HexColor,
-  amount: number
+  amount: number,
 ): HexColor {
   const c1 = hexToOklch(color1);
   const c2 = hexToOklch(color2);

@@ -1,24 +1,28 @@
 /**
  * Tool execution processor.
  * Handles mode availability, safety checks, execution, and result formatting.
- * 
+ *
  * Supports parallel execution for safe tools (risk: "safe") using Promise.allSettled,
  * while unsafe tools run sequentially to support confirmation flows.
  */
 
-import type { Message, ToolCall } from "ollama";
-import type { AgentMode } from "./modes";
-import { isToolAvailable } from "./modes";
-import { executeTool, isToolSafeForParallel } from "./tools";
-import type { ToolResult, ToolContext } from "./types";
-import { SafetyLayer, type ConfirmationRequest, type ConfirmationResponse } from "./safety";
-import { log } from "./logger";
+import type { Message, ToolCall } from 'ollama';
+import type { AgentMode } from './modes';
+import { isToolAvailable } from './modes';
+import { executeTool, isToolSafeForParallel } from './tools';
+import type { ToolResult, ToolContext } from './types';
+import type {
+  SafetyLayer,
+  ConfirmationRequest,
+  ConfirmationResponse,
+} from './safety';
+import { log } from './logger';
 
 /**
  * Prefix for tool results to remind model that user can't see tool output.
  */
-export const TOOL_RESULT_PREFIX = 
-  "[TOOL RESULT - USER CANNOT SEE THIS. You must include the relevant content in your response.]";
+export const TOOL_RESULT_PREFIX =
+  '[TOOL RESULT - USER CANNOT SEE THIS. You must include the relevant content in your response.]';
 
 /**
  * Callbacks for tool processing events.
@@ -26,7 +30,9 @@ export const TOOL_RESULT_PREFIX =
 export type ToolProcessorCallbacks = {
   onToolResult: (result: ToolResult, index: number) => void;
   onToolBlocked?: (tool: string, reason: string) => void;
-  onConfirmationNeeded?: (request: ConfirmationRequest) => Promise<ConfirmationResponse>;
+  onConfirmationNeeded?: (
+    request: ConfirmationRequest,
+  ) => Promise<ConfirmationResponse>;
 };
 
 /**
@@ -78,20 +84,20 @@ function handleModeBlocked(
   toolName: string,
   mode: AgentMode,
   callbacks: ToolProcessorCallbacks,
-  index: number
+  index: number,
 ): ProcessedToolCall {
   log(`Tool not available in ${mode} mode: ${toolName}`);
   callbacks.onToolBlocked?.(toolName, `Not available in ${mode} mode`);
 
   const result: ToolResult = {
     tool: toolName,
-    output: "",
+    output: '',
     error: `BLOCKED: Tool "${toolName}" is not available in ${mode} mode`,
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content: `[TOOL NOT AVAILABLE] The ${toolName} tool is not available in ${mode} mode. Only read-only tools are available in plan mode.`,
   };
 
@@ -107,7 +113,7 @@ async function handleSafetyDenied(
   reason: string,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
-  index: number
+  index: number,
 ): Promise<ProcessedToolCall> {
   log(`Tool blocked: ${reason}`);
   callbacks.onToolBlocked?.(toolName, reason);
@@ -115,13 +121,13 @@ async function handleSafetyDenied(
 
   const result: ToolResult = {
     tool: toolName,
-    output: "",
+    output: '',
     error: `BLOCKED: ${reason}`,
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content: `[TOOL FAILED - OPERATION NOT PERFORMED] The ${toolName} operation was BLOCKED and did NOT execute. Reason: ${reason}. You must inform the user that this operation was not allowed.`,
   };
 
@@ -136,20 +142,20 @@ async function handleUserDenied(
   toolArgs: Record<string, unknown>,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
-  index: number
+  index: number,
 ): Promise<ProcessedToolCall> {
-  log("User denied tool execution");
+  log('User denied tool execution');
   await safetyLayer.recordRejected(toolName, toolArgs);
 
   const result: ToolResult = {
     tool: toolName,
-    output: "",
-    error: "User denied execution",
+    output: '',
+    error: 'User denied execution',
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content: `Error: ${result.error}`,
   };
 
@@ -164,20 +170,20 @@ async function handleNoConfirmationHandler(
   toolArgs: Record<string, unknown>,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
-  index: number
+  index: number,
 ): Promise<ProcessedToolCall> {
-  log("No confirmation handler, denying");
-  await safetyLayer.recordDenied(toolName, toolArgs, "No confirmation handler");
+  log('No confirmation handler, denying');
+  await safetyLayer.recordDenied(toolName, toolArgs, 'No confirmation handler');
 
   const result: ToolResult = {
     tool: toolName,
-    output: "",
-    error: "Tool requires confirmation but no confirmation handler provided",
+    output: '',
+    error: 'Tool requires confirmation but no confirmation handler provided',
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content: `Error: ${result.error}`,
   };
 
@@ -195,7 +201,7 @@ async function executeToolCall(
   callbacks: ToolProcessorCallbacks,
   index: number,
   signal: AbortSignal,
-  context?: ToolContext
+  context?: ToolContext,
 ): Promise<ProcessedToolCall> {
   log(`Executing tool: ${toolName}`, toolArgs);
   const toolStartTime = Date.now();
@@ -203,7 +209,10 @@ async function executeToolCall(
   const result = await executeTool(toolName, toolArgs, signal, context);
   const durationMs = Date.now() - toolStartTime;
 
-  log(`Tool result:`, result.error ? `Error: ${result.error}` : `${result.output.length} chars`);
+  log(
+    `Tool result:`,
+    result.error ? `Error: ${result.error}` : `${result.output.length} chars`,
+  );
 
   // Record execution
   await safetyLayer.recordExecution(
@@ -211,7 +220,7 @@ async function executeToolCall(
     toolArgs,
     result,
     needsConfirmation,
-    durationMs
+    durationMs,
   );
 
   callbacks.onToolResult(result, index);
@@ -222,7 +231,7 @@ async function executeToolCall(
     : `${TOOL_RESULT_PREFIX}\n\n${result.output}`;
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content,
   };
 
@@ -238,8 +247,8 @@ type CategorizedToolCalls = {
 };
 
 function categorizeToolCalls(toolCalls: ToolCall[]): CategorizedToolCalls {
-  const safe: CategorizedToolCalls["safe"] = [];
-  const unsafe: CategorizedToolCalls["unsafe"] = [];
+  const safe: CategorizedToolCalls['safe'] = [];
+  const unsafe: CategorizedToolCalls['unsafe'] = [];
 
   for (let i = 0; i < toolCalls.length; i++) {
     const call = toolCalls[i];
@@ -266,7 +275,7 @@ async function processSingleToolCall(
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
   signal: AbortSignal,
-  context?: ToolContext
+  context?: ToolContext,
 ): Promise<ProcessedToolCall> {
   const toolName = toolCall.function.name;
   const toolArgs = toolCall.function.arguments as Record<string, unknown>;
@@ -281,20 +290,20 @@ async function processSingleToolCall(
   // Step 2: Safety check
   const safetyCheck = await safetyLayer.checkToolCall(toolCall, mode);
 
-  if (safetyCheck.status === "denied") {
+  if (safetyCheck.status === 'denied') {
     return handleSafetyDenied(
       toolName,
       toolArgs,
       safetyCheck.reason,
       safetyLayer,
       callbacks,
-      index
+      index,
     );
   }
 
   // Step 3: Handle confirmation if needed
   let needsConfirmation = false;
-  if (safetyCheck.status === "needs_confirmation") {
+  if (safetyCheck.status === 'needs_confirmation') {
     log(`Tool needs confirmation: ${toolName}`);
     needsConfirmation = true;
 
@@ -304,7 +313,7 @@ async function processSingleToolCall(
         toolArgs,
         safetyLayer,
         callbacks,
-        index
+        index,
       );
     }
 
@@ -312,13 +321,13 @@ async function processSingleToolCall(
     const response = await callbacks.onConfirmationNeeded(safetyCheck.request);
     safetyLayer.handleConfirmationResponse(response);
 
-    if (response.action === "deny") {
+    if (response.action === 'deny') {
       return handleUserDenied(
         toolName,
         toolArgs,
         safetyLayer,
         callbacks,
-        index
+        index,
       );
     }
   }
@@ -332,7 +341,7 @@ async function processSingleToolCall(
     callbacks,
     index,
     signal,
-    context
+    context,
   );
 }
 
@@ -343,22 +352,22 @@ function handleParallelFailure(
   toolCall: ToolCall,
   index: number,
   error: unknown,
-  callbacks: ToolProcessorCallbacks
+  callbacks: ToolProcessorCallbacks,
 ): ProcessedToolCall {
   const toolName = toolCall.function.name;
   const errorMessage = error instanceof Error ? error.message : String(error);
-  
+
   log(`Parallel tool execution failed: ${toolName}`, errorMessage);
 
   const result: ToolResult = {
     tool: toolName,
-    output: "",
+    output: '',
     error: `Execution failed: ${errorMessage}`,
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
-    role: "tool",
+    role: 'tool',
     content: `Error: ${result.error}`,
   };
 
@@ -367,10 +376,10 @@ function handleParallelFailure(
 
 /**
  * Processes all tool calls from a model response.
- * 
+ *
  * Uses parallel execution for safe tools (risk: "safe") via Promise.allSettled,
  * while unsafe tools run sequentially to support confirmation flows.
- * 
+ *
  * Handles:
  * - Mode availability checking
  * - Safety layer checks (blocked, needs confirmation)
@@ -378,7 +387,7 @@ function handleParallelFailure(
  * - Parallel execution for safe tools
  * - Sequential execution for unsafe tools
  * - Result formatting with original ordering preserved
- * 
+ *
  * @param toolCalls - Array of tool calls from model response
  * @param mode - Current agent mode (plan or build)
  * @param safetyLayer - Safety layer instance
@@ -393,13 +402,13 @@ export async function processToolCalls(
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
   signal: AbortSignal,
-  options?: ToolProcessorOptions
+  options?: ToolProcessorOptions,
 ): Promise<ToolProcessingResult> {
-  log("Processing", toolCalls.length, "tool calls");
+  log('Processing', toolCalls.length, 'tool calls');
 
   // Categorize tools for parallel vs sequential execution
   const { safe, unsafe } = categorizeToolCalls(toolCalls);
-  
+
   log(`Parallel tools: ${safe.length}, Sequential tools: ${unsafe.length}`);
 
   const allResults: ProcessedToolCall[] = [];
@@ -407,7 +416,7 @@ export async function processToolCalls(
   // Process safe tools in parallel using Promise.allSettled
   if (safe.length > 0) {
     log(`Executing ${safe.length} safe tools in parallel`);
-    
+
     const parallelPromises = safe.map(({ index, call }) =>
       processSingleToolCall(
         call,
@@ -416,8 +425,8 @@ export async function processToolCalls(
         safetyLayer,
         callbacks,
         signal,
-        options?.context
-      )
+        options?.context,
+      ),
     );
 
     const settledResults = await Promise.allSettled(parallelPromises);
@@ -426,17 +435,17 @@ export async function processToolCalls(
     for (let i = 0; i < settledResults.length; i++) {
       const settled = settledResults[i];
       const safeItem = safe[i];
-      
+
       if (!settled || !safeItem) continue;
-      
+
       const { index, call } = safeItem;
 
-      if (settled.status === "fulfilled") {
+      if (settled.status === 'fulfilled') {
         allResults.push(settled.value);
       } else {
         // Handle rejected promise
         allResults.push(
-          handleParallelFailure(call, index, settled.reason, callbacks)
+          handleParallelFailure(call, index, settled.reason, callbacks),
         );
       }
     }
@@ -445,7 +454,7 @@ export async function processToolCalls(
   // Process unsafe tools sequentially (they may need confirmation)
   if (unsafe.length > 0) {
     log(`Executing ${unsafe.length} unsafe tools sequentially`);
-    
+
     for (const { index, call } of unsafe) {
       const result = await processSingleToolCall(
         call,
@@ -454,7 +463,7 @@ export async function processToolCalls(
         safetyLayer,
         callbacks,
         signal,
-        options?.context
+        options?.context,
       );
       allResults.push(result);
     }
@@ -473,12 +482,12 @@ export async function processToolCalls(
   for (const processed of allResults) {
     observations.push(processed.result);
     messages.push(processed.message);
-    
+
     if (processed.executed) {
       executedCount++;
       totalDurationMs += processed.durationMs ?? 0;
     }
-    
+
     if (processed.result.error) {
       failedCount++;
     }

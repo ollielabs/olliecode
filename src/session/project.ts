@@ -3,8 +3,8 @@
  * Tries git remote first, falls back to directory basename.
  */
 
-import { basename } from "path";
-import { $ } from "bun";
+import { basename } from 'node:path';
+import { $ } from 'bun';
 
 /**
  * Extract repository name from a git remote URL.
@@ -21,11 +21,11 @@ function extractRepoName(url: string): string | null {
 
 /**
  * Get the project name for a given project path.
- * 
+ *
  * Strategy:
  * 1. Try to get the git remote origin URL and extract repo name
  * 2. Fall back to the directory basename
- * 
+ *
  * @param projectPath - Absolute path to the project directory
  * @returns The project name (never null, always returns at least the basename)
  */

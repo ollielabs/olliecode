@@ -3,10 +3,10 @@
  * Manages command filtering, selection, and actions.
  */
 
-import { useState } from "react";
-import { useKeyboard } from "@opentui/react";
-import type { SlashCommand } from "../components/command-menu";
-import type { Status, TextareaRef } from "../types";
+import { useState } from 'react';
+import { useKeyboard } from '@opentui/react';
+import type { SlashCommand } from '../components/command-menu';
+import type { Status, TextareaRef } from '../types';
 
 export type UseCommandMenuProps = {
   /** Textarea ref for clearing text after command */
@@ -57,66 +57,71 @@ export function useCommandMenu({
   handlers,
 }: UseCommandMenuProps): UseCommandMenuReturn {
   const [showCommandMenu, setShowCommandMenu] = useState(false);
-  const [commandFilter, setCommandFilter] = useState("");
+  const [commandFilter, setCommandFilter] = useState('');
   const [commandSelectedIndex, setCommandSelectedIndex] = useState(0);
 
   // Define slash commands with their actions
   const slashCommands: SlashCommand[] = [
     {
-      name: "new",
-      description: "Start a new session",
+      name: 'new',
+      description: 'Start a new session',
       action: () => {
         handlers.handleNewSession();
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "session",
-      description: "Switch to a different session",
+      name: 'session',
+      description: 'Switch to a different session',
       action: () => {
         handlers.setShowSessionPicker(true);
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "clear",
-      description: "Clear context (keep session)",
+      name: 'clear',
+      description: 'Clear context (keep session)',
       action: () => {
         handlers.handleClearContext();
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "compact",
-      description: "Manually compact context",
+      name: 'compact',
+      description: 'Manually compact context',
       action: () => {
         void handlers.handleCompact();
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "context",
-      description: "Show context usage stats",
+      name: 'context',
+      description: 'Show context usage stats',
       action: () => {
         void handlers.handleShowContext();
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "forget",
-      description: "Forget last N messages (e.g., /forget 3)",
+      name: 'forget',
+      description: 'Forget last N messages (e.g., /forget 3)',
       action: () => {
-        const filterNum = parseInt(commandFilter.replace("forget", "").trim(), 10);
-        handlers.handleForget(isNaN(filterNum) || filterNum < 1 ? 1 : filterNum);
-        textareaRef.current?.setText("");
+        const filterNum = parseInt(
+          commandFilter.replace('forget', '').trim(),
+          10,
+        );
+        handlers.handleForget(
+          Number.isNaN(filterNum) || filterNum < 1 ? 1 : filterNum,
+        );
+        textareaRef.current?.setText('');
       },
     },
     {
-      name: "theme",
-      description: "Change color theme",
+      name: 'theme',
+      description: 'Change color theme',
       action: () => {
         handlers.setShowThemePicker(true);
-        textareaRef.current?.setText("");
+        textareaRef.current?.setText('');
       },
     },
   ];
@@ -125,15 +130,15 @@ export function useCommandMenu({
   useKeyboard(() => {
     setTimeout(() => {
       if (!textareaRef.current || textareaRef.current.isDestroyed) return;
-      const currentText = textareaRef.current.plainText ?? "";
-      if (status === "idle" && !showSessionPicker) {
-        if (currentText.startsWith("/")) {
+      const currentText = textareaRef.current.plainText ?? '';
+      if (status === 'idle' && !showSessionPicker) {
+        if (currentText.startsWith('/')) {
           const newFilter = currentText.slice(1);
           if (!showCommandMenu) setShowCommandMenu(true);
           setCommandFilter(newFilter);
         } else if (showCommandMenu) {
           setShowCommandMenu(false);
-          setCommandFilter("");
+          setCommandFilter('');
           setCommandSelectedIndex(0);
         }
       }
@@ -142,13 +147,13 @@ export function useCommandMenu({
 
   const handleCommandSelect = (command: SlashCommand) => {
     setShowCommandMenu(false);
-    setCommandFilter("");
+    setCommandFilter('');
     command.action();
   };
 
   const handleCommandMenuCancel = () => {
     setShowCommandMenu(false);
-    setCommandFilter("");
+    setCommandFilter('');
     setCommandSelectedIndex(0);
   };
 

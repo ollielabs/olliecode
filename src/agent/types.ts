@@ -1,8 +1,8 @@
-import type { z } from "zod";
-import type { ToolCall, Message } from "ollama";
+import type { z } from 'zod';
+import type { ToolCall, Message } from 'ollama';
 
 // Re-export safety types for convenience
-export type { ConfirmationRequest, ConfirmationResponse } from "./safety/types";
+export type { ConfirmationRequest, ConfirmationResponse } from './safety/types';
 
 /**
  * Risk level for a tool
@@ -12,7 +12,7 @@ export type { ConfirmationRequest, ConfirmationResponse } from "./safety/types";
  * - high: Destructive or dangerous, always confirm
  * - prompt: Always prompt user for confirmation before execution
  */
-export type ToolRisk = "safe" | "low" | "medium" | "high" | "prompt";
+export type ToolRisk = 'safe' | 'low' | 'medium' | 'high' | 'prompt';
 
 /**
  * Context passed to tools at execution time.
@@ -42,7 +42,7 @@ export type ToolDefinition<
   execute: (
     params: z.infer<TParams>,
     signal?: AbortSignal,
-    context?: ToolContext
+    context?: ToolContext,
   ) => Promise<z.infer<TOutput>>;
 };
 
@@ -99,11 +99,11 @@ export type AgentResult = {
  * Error types for agent failures
  */
 export type AgentError =
-  | { type: "aborted" }
-  | { type: "model_error"; message: string }
-  | { type: "loop_detected"; action: string; attempts: number }
-  | { type: "max_iterations"; iterations: number; lastThought: string }
-  | { type: "tool_error"; tool: string; message: string };
+  | { type: 'aborted' }
+  | { type: 'model_error'; message: string }
+  | { type: 'loop_detected'; action: string; attempts: number }
+  | { type: 'max_iterations'; iterations: number; lastThought: string }
+  | { type: 'tool_error'; tool: string; message: string };
 
 /**
  * Configuration for the agent
@@ -120,14 +120,14 @@ export type AgentConfig = {
 
 /**
  * Default agent configuration
- * 
+ *
  * maxIterations set to 15 to support complex exploration tasks.
  * Complex codebase analysis may need 15-20 iterations to systematically
  * explore structure, read key files, and synthesize findings.
- * 
+ *
  * loopThreshold of 3 means 3 truly consecutive identical calls trigger detection.
  * The smarter loop detection allows interleaved patterns like read→edit→read.
- * 
+ *
  * autoCompaction enabled by default at 80% context usage threshold.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {

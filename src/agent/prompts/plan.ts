@@ -1,6 +1,6 @@
 /**
  * Plan mode system prompt.
- * 
+ *
  * Focus: Research, analysis, exploration, planning.
  * Tools: Read-only only (read_file, list_dir, glob, grep)
  * Constraints: No modifications, no destructive commands.
@@ -18,7 +18,7 @@ import {
   CODE_REFERENCE_PATTERN,
   TODO_TOOLS_DOC,
   SEARCH_GUIDANCE,
-} from "./shared";
+} from './shared';
 
 export function buildPlanModePrompt(ctx: SystemPromptContext): string {
   return `# Identity

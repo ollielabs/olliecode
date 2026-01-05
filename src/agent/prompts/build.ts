@@ -1,6 +1,6 @@
 /**
  * Build mode system prompt.
- * 
+ *
  * Focus: Execution, implementation, getting things done.
  * Tools: All tools (read, write, edit, run commands)
  * Constraints: Safety boundaries for destructive operations.
@@ -17,7 +17,7 @@ import {
   CODE_REFERENCE_PATTERN,
   TODO_TOOLS_DOC,
   SEARCH_GUIDANCE,
-} from "./shared";
+} from './shared';
 
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
   return `# Identity

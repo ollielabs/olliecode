@@ -3,13 +3,15 @@
  * Displays temporary status messages about context operations.
  */
 
-import { useTheme } from "../../design";
+import { useTheme } from '../../design';
 
 export type ContextInfoNotificationProps = {
   message: string;
 };
 
-export function ContextInfoNotification({ message }: ContextInfoNotificationProps) {
+export function ContextInfoNotification({
+  message,
+}: ContextInfoNotificationProps) {
   const { tokens } = useTheme();
 
   return (

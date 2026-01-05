@@ -7,12 +7,12 @@
  * Get all git-tracked files in the repository.
  * Falls back to glob scanning if not in a git repo.
  */
-export async function getTrackedFiles(cwd: string = "."): Promise<string[]> {
+export async function getTrackedFiles(cwd: string = '.'): Promise<string[]> {
   try {
-    const proc = Bun.spawn(["git", "ls-files"], {
+    const proc = Bun.spawn(['git', 'ls-files'], {
       cwd,
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: 'pipe',
+      stderr: 'pipe',
     });
 
     const stdout = await new Response(proc.stdout).text();
@@ -23,9 +23,9 @@ export async function getTrackedFiles(cwd: string = "."): Promise<string[]> {
     }
 
     return stdout
-      .split("\n")
-      .filter((f) => f.trim() !== "")
-      .filter((f) => !f.startsWith(".")) // Exclude hidden files
+      .split('\n')
+      .filter((f) => f.trim() !== '')
+      .filter((f) => !f.startsWith('.')) // Exclude hidden files
       .sort();
   } catch {
     return await getFallbackFiles(cwd);
@@ -36,11 +36,11 @@ export async function getTrackedFiles(cwd: string = "."): Promise<string[]> {
  * Get all directories in the git repository.
  * Returns paths with trailing slash for directory identification.
  */
-export async function getDirectories(cwd: string = "."): Promise<string[]> {
+export async function getDirectories(cwd: string = '.'): Promise<string[]> {
   try {
     const proc = Bun.spawn(
-      ["git", "ls-tree", "-d", "--name-only", "-r", "HEAD"],
-      { cwd, stdout: "pipe", stderr: "pipe" }
+      ['git', 'ls-tree', '-d', '--name-only', '-r', 'HEAD'],
+      { cwd, stdout: 'pipe', stderr: 'pipe' },
     );
 
     const stdout = await new Response(proc.stdout).text();
@@ -49,10 +49,10 @@ export async function getDirectories(cwd: string = "."): Promise<string[]> {
     if (exitCode !== 0) return [];
 
     return stdout
-      .split("\n")
-      .filter((d) => d.trim() !== "")
-      .filter((d) => !d.startsWith("."))
-      .map((d) => d + "/") // Trailing slash for directories
+      .split('\n')
+      .filter((d) => d.trim() !== '')
+      .filter((d) => !d.startsWith('.'))
+      .map((d) => `${d}/`) // Trailing slash for directories
       .sort();
   } catch {
     return [];
@@ -64,7 +64,7 @@ export async function getDirectories(cwd: string = "."): Promise<string[]> {
  * Directories are marked with trailing slash.
  */
 export async function getFilesAndDirectories(
-  cwd: string = "."
+  cwd: string = '.',
 ): Promise<string[]> {
   const [files, dirs] = await Promise.all([
     getTrackedFiles(cwd),
@@ -73,8 +73,8 @@ export async function getFilesAndDirectories(
 
   // Combine and sort: directories first, then files
   return [...dirs, ...files].sort((a, b) => {
-    const aIsDir = a.endsWith("/");
-    const bIsDir = b.endsWith("/");
+    const aIsDir = a.endsWith('/');
+    const bIsDir = b.endsWith('/');
     if (aIsDir && !bIsDir) return -1;
     if (!aIsDir && bIsDir) return 1;
     return a.localeCompare(b);
@@ -110,11 +110,10 @@ export function parseMentions(message: string): ParsedMentions {
   const filePaths: string[] = [];
   let hasDirectories = false;
 
-  let match;
-  while ((match = mentionRegex.exec(message)) !== null) {
-    const path = match[1]!;
+  for (const match of message.matchAll(mentionRegex)) {
+    const path = match[1] ?? '';
     filePaths.push(path);
-    if (path.endsWith("/")) {
+    if (path.endsWith('/')) {
       hasDirectories = true;
     }
   }
@@ -132,7 +131,7 @@ export function parseMentions(message: string): ParsedMentions {
  */
 export async function augmentMessageWithFiles(
   message: string,
-  cwd: string = "."
+  cwd: string = '.',
 ): Promise<AugmentedMessage> {
   const { filePaths } = parseMentions(message);
 
@@ -145,7 +144,7 @@ export async function augmentMessageWithFiles(
 
   for (const filePath of filePaths) {
     // Skip directories - they're just path hints for the agent
-    if (filePath.endsWith("/")) {
+    if (filePath.endsWith('/')) {
       continue;
     }
 
@@ -171,7 +170,7 @@ export async function augmentMessageWithFiles(
   const augmentedContent = `${message}
 
 <attached-files>
-${fileContents.join("\n")}
+${fileContents.join('\n')}
 </attached-files>`;
 
   return { content: augmentedContent, attachedFiles };
@@ -181,15 +180,15 @@ ${fileContents.join("\n")}
  * Fallback file listing using Bun's Glob when git is not available.
  */
 async function getFallbackFiles(cwd: string): Promise<string[]> {
-  const { Glob } = await import("bun");
-  const glob = new Glob("**/*");
+  const { Glob } = await import('bun');
+  const glob = new Glob('**/*');
   const files: string[] = [];
 
   for await (const file of glob.scan({ cwd, onlyFiles: true })) {
     if (
-      file.startsWith(".") ||
-      file.includes("/node_modules/") ||
-      file.includes("/.git/")
+      file.startsWith('.') ||
+      file.includes('/node_modules/') ||
+      file.includes('/.git/')
     ) {
       continue;
     }

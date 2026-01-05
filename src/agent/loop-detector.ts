@@ -3,7 +3,7 @@
  * Detects when the agent is stuck repeating the same action or in a doom loop.
  */
 
-import type { AgentStep } from "./types";
+import type { AgentStep } from './types';
 
 export type LoopDetectionResult = {
   detected: boolean;
@@ -17,7 +17,7 @@ export type LoopDetectionResult = {
  */
 export type DoomLoopResult = {
   detected: boolean;
-  type: "identical" | "error_pattern" | "oscillating" | "none";
+  type: 'identical' | 'error_pattern' | 'oscillating' | 'none';
   /** Suggestion for how to break the loop */
   suggestion?: string;
   /** The tool that's stuck */
@@ -28,21 +28,26 @@ export type DoomLoopResult = {
  * Creates a unique signature for a tool call action.
  * Used to compare actions across steps.
  */
-function getActionSignature(action: { function: { name: string; arguments: unknown } }): string {
+function getActionSignature(action: {
+  function: { name: string; arguments: unknown };
+}): string {
   return `${action.function.name}:${JSON.stringify(action.function.arguments)}`;
 }
 
 /**
  * Detects if the agent is stuck in a loop by checking for repeated actions.
- * 
+ *
  * Compares the last N steps (where N = threshold) to see if they all
  * contain the same first action with identical arguments.
- * 
+ *
  * @param steps - Array of completed agent steps
  * @param threshold - Number of consecutive identical steps to trigger detection
  * @returns Detection result with action name if loop found
  */
-export function detectLoop(steps: AgentStep[], threshold: number): LoopDetectionResult {
+export function detectLoop(
+  steps: AgentStep[],
+  threshold: number,
+): LoopDetectionResult {
   if (steps.length < threshold) {
     return { detected: false };
   }
@@ -76,18 +81,21 @@ export function detectLoop(steps: AgentStep[], threshold: number): LoopDetection
 /**
  * Extended loop detection that checks all actions in each step,
  * not just the first one. Useful for detecting more complex loops.
- * 
+ *
  * @param steps - Array of completed agent steps
  * @param threshold - Number of consecutive identical steps to trigger detection
  * @returns Detection result with action name if loop found
  */
-export function detectLoopExtended(steps: AgentStep[], threshold: number): LoopDetectionResult {
+export function detectLoopExtended(
+  steps: AgentStep[],
+  threshold: number,
+): LoopDetectionResult {
   if (steps.length < threshold) {
     return { detected: false };
   }
 
   const recentSteps = steps.slice(-threshold);
-  
+
   // Create signature for all actions in first step
   const firstStepActions = recentSteps[0]?.actions ?? [];
   if (firstStepActions.length === 0) {
@@ -95,11 +103,11 @@ export function detectLoopExtended(steps: AgentStep[], threshold: number): LoopD
   }
 
   const targetSignatures = firstStepActions.map(getActionSignature);
-  const targetKey = targetSignatures.join("|");
+  const targetKey = targetSignatures.join('|');
 
   const allSame = recentSteps.every((step) => {
     const stepSignatures = step.actions.map(getActionSignature);
-    return stepSignatures.join("|") === targetKey;
+    return stepSignatures.join('|') === targetKey;
   });
 
   if (allSame) {
@@ -116,28 +124,31 @@ export function detectLoopExtended(steps: AgentStep[], threshold: number): LoopD
 /**
  * Detects doom loops - patterns where the agent is stuck but not necessarily
  * making identical calls. This catches:
- * 
+ *
  * 1. Identical loops - Same exact call repeated (handled by detectLoop)
  * 2. Error patterns - Same tool failing repeatedly with different args
  * 3. Oscillating patterns - Agent alternating between two states (A->B->A->B)
- * 
+ *
  * @param steps - Array of completed agent steps
  * @param threshold - Number of steps to analyze (default 4)
  * @returns Doom loop detection result with type and suggestion
  */
-export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomLoopResult {
+export function detectDoomLoop(
+  steps: AgentStep[],
+  threshold: number = 4,
+): DoomLoopResult {
   if (steps.length < threshold) {
-    return { detected: false, type: "none" };
+    return { detected: false, type: 'none' };
   }
 
   const recent = steps.slice(-threshold);
-  
+
   // Check for identical loops first (existing logic)
   const identicalLoop = detectLoop(steps, threshold);
   if (identicalLoop.detected) {
     return {
       detected: true,
-      type: "identical",
+      type: 'identical',
       tool: identicalLoop.action,
       suggestion: `Tool "${identicalLoop.action}" called ${threshold} times with identical arguments. Try a different approach or tool.`,
     };
@@ -158,7 +169,7 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
     if (errorCount >= threshold - 1) {
       return {
         detected: true,
-        type: "error_pattern",
+        type: 'error_pattern',
         tool,
         suggestion: `Tool "${tool}" has failed ${errorCount} times in the last ${threshold} steps. The approach isn't working - try a different strategy.`,
       };
@@ -167,10 +178,12 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
 
   // Check for oscillating pattern (A->B->A->B or similar)
   // But exclude search tool oscillations - grep/glob alternation is normal search behavior
-  const searchTools = new Set(["grep", "glob", "read_file", "list_dir"]);
+  const searchTools = new Set(['grep', 'glob', 'read_file', 'list_dir']);
   if (recent.length >= 4) {
-    const toolSequence = recent.map((s) => s.actions[0]?.function.name ?? "none");
-    
+    const toolSequence = recent.map(
+      (s) => s.actions[0]?.function.name ?? 'none',
+    );
+
     // Check for 2-step oscillation: [A, B, A, B]
     if (
       toolSequence.length >= 4 &&
@@ -179,14 +192,14 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
       toolSequence[0] !== toolSequence[1]
     ) {
       // Don't flag oscillation between search tools - that's normal exploration
-      const isSearchOscillation = 
-        searchTools.has(toolSequence[0] ?? "") && 
-        searchTools.has(toolSequence[1] ?? "");
-      
+      const isSearchOscillation =
+        searchTools.has(toolSequence[0] ?? '') &&
+        searchTools.has(toolSequence[1] ?? '');
+
       if (!isSearchOscillation) {
         return {
           detected: true,
-          type: "oscillating",
+          type: 'oscillating',
           tool: toolSequence[0],
           suggestion: `Agent is oscillating between "${toolSequence[0]}" and "${toolSequence[1]}". This pattern won't make progress - try a different approach.`,
         };
@@ -194,32 +207,33 @@ export function detectDoomLoop(steps: AgentStep[], threshold: number = 4): DoomL
     }
   }
 
-  return { detected: false, type: "none" };
+  return { detected: false, type: 'none' };
 }
 
 /**
  * Detects truly consecutive identical tool calls.
- * 
+ *
  * Unlike detectLoop() which checks if steps have the same first action,
  * this flattens all tool calls and only triggers when the EXACT same
  * tool+args appears N times in a row without ANY different tool in between.
- * 
+ *
  * This allows patterns like:
  *   read_file(A) → edit_file(A) → read_file(A)  ← OK (different tool between)
- * 
+ *
  * But catches:
  *   read_file(A) → read_file(A) → read_file(A)  ← LOOP (truly consecutive)
- * 
+ *
  * @param steps - Array of completed agent steps
  * @param threshold - Number of consecutive identical calls to trigger detection
  * @returns Detection result with action name if loop found
  */
 export function detectConsecutiveLoop(
   steps: AgentStep[],
-  threshold: number
+  threshold: number,
 ): LoopDetectionResult {
   // Flatten all tool calls across all steps into a single sequence
-  const allCalls: Array<{ function: { name: string; arguments: unknown } }> = [];
+  const allCalls: Array<{ function: { name: string; arguments: unknown } }> =
+    [];
   for (const step of steps) {
     for (const action of step.actions) {
       allCalls.push(action);
@@ -232,7 +246,7 @@ export function detectConsecutiveLoop(
 
   // Check for consecutive identical calls
   let consecutiveCount = 1;
-  let currentSignature = allCalls[0] ? getActionSignature(allCalls[0]) : "";
+  let currentSignature = allCalls[0] ? getActionSignature(allCalls[0]) : '';
 
   for (let i = 1; i < allCalls.length; i++) {
     const call = allCalls[i];
@@ -274,24 +288,24 @@ export type NotFoundResult = {
 
 /**
  * Detects when the agent is searching for something that doesn't exist.
- * 
+ *
  * Triggers when search tools (grep, glob) return empty results or errors
  * repeatedly, suggesting the item being searched for doesn't exist.
- * 
+ *
  * @param steps - Array of completed agent steps
  * @param threshold - Number of failed searches to trigger detection (default 3)
  * @returns Detection result with search info if pattern found
  */
 export function detectNotFoundPattern(
   steps: AgentStep[],
-  threshold: number = 3
+  threshold: number = 3,
 ): NotFoundResult {
   if (steps.length < 2) {
     return { detected: false };
   }
 
   // Track search tool results
-  const searchTools = ["grep", "glob", "read_file"];
+  const searchTools = ['grep', 'glob', 'read_file'];
   const emptySearches: Array<{ tool: string; args: unknown }> = [];
   const recentSteps = steps.slice(-Math.max(threshold + 2, 5));
 
@@ -308,15 +322,15 @@ export function detectNotFoundPattern(
       // Check if search returned empty or error
       const isEmptyOrError =
         observation.error !== undefined ||
-        observation.output === "" ||
-        observation.output === "[]" ||
-        observation.output.includes("No matches found") ||
-        observation.output.includes("no matches") ||
-        observation.output.includes("0 matches") ||
-        (toolName === "read_file" &&
-          (observation.output.includes("ENOENT") ||
-            observation.output.includes("no such file") ||
-            observation.output.includes("does not exist")));
+        observation.output === '' ||
+        observation.output === '[]' ||
+        observation.output.includes('No matches found') ||
+        observation.output.includes('no matches') ||
+        observation.output.includes('0 matches') ||
+        (toolName === 'read_file' &&
+          (observation.output.includes('ENOENT') ||
+            observation.output.includes('no such file') ||
+            observation.output.includes('does not exist')));
 
       if (isEmptyOrError) {
         emptySearches.push({ tool: toolName, args: action.function.arguments });
@@ -336,7 +350,7 @@ export function detectNotFoundPattern(
       if (args.path) searchTerms.add(String(args.path));
     }
 
-    const searchTerm = [...searchTerms].join(", ") || "unknown";
+    const searchTerm = [...searchTerms].join(', ') || 'unknown';
 
     return {
       detected: true,
@@ -353,13 +367,16 @@ export function detectNotFoundPattern(
  * Check if the agent appears to be making progress.
  * Returns false if the agent seems stuck.
  */
-export function isProgressBeingMade(steps: AgentStep[], windowSize: number = 5): boolean {
+export function isProgressBeingMade(
+  steps: AgentStep[],
+  windowSize: number = 5,
+): boolean {
   if (steps.length < windowSize) {
     return true; // Not enough data
   }
 
   const recent = steps.slice(-windowSize);
-  
+
   // Check if there's variety in tools being used
   const toolsUsed = new Set<string>();
   for (const step of recent) {
@@ -367,15 +384,15 @@ export function isProgressBeingMade(steps: AgentStep[], windowSize: number = 5):
       toolsUsed.add(action.function.name);
     }
   }
-  
+
   // If only using 1-2 tools in the window, might be stuck
   if (toolsUsed.size <= 1) {
     // Check if results are changing
-    const results = recent.map((s) => 
-      s.observations.map((o) => o.output.slice(0, 100)).join("|")
+    const results = recent.map((s) =>
+      s.observations.map((o) => o.output.slice(0, 100)).join('|'),
     );
     const uniqueResults = new Set(results);
-    
+
     // If same results, definitely stuck
     if (uniqueResults.size === 1) {
       return false;
@@ -391,7 +408,7 @@ export function isProgressBeingMade(steps: AgentStep[], windowSize: number = 5):
       if (obs.error) errorObs++;
     }
   }
-  
+
   // More than 50% errors is a bad sign
   if (totalObs > 0 && errorObs / totalObs > 0.5) {
     return false;
