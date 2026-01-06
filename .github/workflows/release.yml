@@ -63,12 +63,8 @@ jobs:
         id: version
         run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
 
-      - name: Create and push tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+      - name: Fetch tags
+        run: git fetch --tags
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -77,5 +73,6 @@ jobs:
           version: latest
           args: release --clean
         env:
+          GORELEASER_CURRENT_TAG: v${{ steps.version.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
