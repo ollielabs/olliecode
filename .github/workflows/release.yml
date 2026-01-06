@@ -41,38 +41,153 @@ jobs:
     outputs:
       published: ${{ steps.changesets.outputs.published }}
       publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
+      version: ${{ steps.changesets.outputs.publishedPackages && fromJson(steps.changesets.outputs.publishedPackages)[0].version || '' }}
 
-  goreleaser:
-    name: Build & Publish Binaries
+  build:
+    name: Build (${{ matrix.target }})
     needs: release
     if: needs.release.outputs.published == 'true'
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-latest
+          - target: darwin-x64
+            os: macos-13
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: v${{ needs.release.outputs.version }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Get version
-        id: version
-        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Fetch tags
-        run: git fetch --tags
+      - name: Build
+        run: |
+          bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js \
+            --compile \
+            --outfile=ollie \
+            --define 'OTUI_TREE_SITTER_WORKER_PATH="./node_modules/@opentui/core/parser.worker.js"'
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Create archive
+        run: |
+          tar -czf ollie-${{ matrix.target }}.tar.gz ollie
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
+          name: ollie-${{ matrix.target }}
+          path: ollie-${{ matrix.target }}.tar.gz
+
+  publish-release:
+    name: Publish Release
+    needs: [release, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.release.outputs.version }}
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
         env:
-          GORELEASER_CURRENT_TAG: v${{ steps.version.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew
+    needs: [release, publish-release]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: ollielabs/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: ollie-darwin-arm64
+          path: /tmp/arm64
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ollie-darwin-x64
+          path: /tmp/x64
+
+      - name: Calculate checksums
+        id: checksums
+        run: |
+          ARM64_SHA=$(sha256sum /tmp/arm64/ollie-darwin-arm64.tar.gz | cut -d' ' -f1)
+          X64_SHA=$(sha256sum /tmp/x64/ollie-darwin-x64.tar.gz | cut -d' ' -f1)
+          echo "arm64=$ARM64_SHA" >> $GITHUB_OUTPUT
+          echo "x64=$X64_SHA" >> $GITHUB_OUTPUT
+
+      - name: Update formula
+        run: |
+          mkdir -p Formula
+          cat > Formula/ollie.rb << 'EOF'
+          # typed: false
+          # frozen_string_literal: true
+
+          class Ollie < Formula
+            desc "Agentic coding tool powered by Ollama - local, private, and fast"
+            homepage "https://github.com/ollielabs/olliecode"
+            version "${{ needs.release.outputs.version }}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/ollielabs/olliecode/releases/download/v${{ needs.release.outputs.version }}/ollie-darwin-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.arm64 }}"
+              end
+              if Hardware::CPU.intel?
+                url "https://github.com/ollielabs/olliecode/releases/download/v${{ needs.release.outputs.version }}/ollie-darwin-x64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.x64 }}"
+              end
+            end
+
+            def install
+              bin.install "ollie"
+            end
+
+            test do
+              system "#{bin}/ollie", "--version"
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ollie.rb
+          git commit -m "Update ollie to v${{ needs.release.outputs.version }}"
+          git push
