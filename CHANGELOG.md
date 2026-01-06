@@ -1,5 +1,11 @@
 # olliecode
 
+## 0.1.6
+
+### Patch Changes
+
+- [`7881ec0`](https://github.com/ollielabs/olliecode/commit/7881ec08965e9a61497da8373f9e1733e09ea6c9) Thanks [@platypusrex](https://github.com/platypusrex)! - Fix worker path for compiled binaries using Bun's virtual filesystem
+
 ## 0.1.5
 
 ### Patch Changes
