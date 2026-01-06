@@ -23,7 +23,7 @@
     "local-llm"
   ],
   "bin": {
-    "ollie": "./src/index.tsx"
+    "ollie": "src/index.tsx"
   },
   "files": [
     "src",
