@@ -1,5 +1,11 @@
 # olliecode
 
+## 0.1.5
+
+### Patch Changes
+
+- [`8e03569`](https://github.com/ollielabs/olliecode/commit/8e03569311f0c2edefea58a0c258477577ae1db7) Thanks [@platypusrex](https://github.com/platypusrex)! - Fix macOS Intel runner for x64 builds
+
 ## 0.1.4
 
 ### Patch Changes
