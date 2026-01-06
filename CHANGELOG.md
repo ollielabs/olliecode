@@ -1,5 +1,11 @@
 # olliecode
 
+## 0.1.4
+
+### Patch Changes
+
+- [`2893ad5`](https://github.com/ollielabs/olliecode/commit/2893ad572e1206868158e5b614742a84f26936fb) Thanks [@platypusrex](https://github.com/platypusrex)! - Replace GoReleaser with native matrix builds for proper cross-platform compilation
+
 ## 0.1.3
 
 ### Patch Changes
