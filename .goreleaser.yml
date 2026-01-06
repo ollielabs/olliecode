@@ -1,0 +1,50 @@
+version: 2
+
+before:
+  hooks:
+    - bun install --frozen-lockfile
+    - bun run build:darwin-arm64
+    - bun run build:darwin-x64
+
+builds:
+  - id: ollie
+    builder: bun
+    dir: .
+    main: ./src/index.tsx
+    targets:
+      - darwin_arm64
+      - darwin_amd64
+    binary: ollie
+    command: build
+    flags:
+      - ./node_modules/@opentui/core/parser.worker.js
+      - --define
+      - 'OTUI_TREE_SITTER_WORKER_PATH="./node_modules/@opentui/core/parser.worker.js"'
+
+archives:
+  - id: ollie
+    format: tar.gz
+    name_template: "ollie-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: ollielabs
+    name: olliecode
+
+brews:
+  - name: ollie
+    repository:
+      owner: ollielabs
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ollielabs/olliecode"
+    description: "Agentic coding tool powered by Ollama - local, private, and fast"
+    license: "MIT"
+    install: |
+      bin.install "ollie"
+    test: |
+      system "#{bin}/ollie", "--version"

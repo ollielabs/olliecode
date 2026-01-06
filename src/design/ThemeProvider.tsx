@@ -13,10 +13,9 @@ import {
 } from './theme';
 import { getTheme, DEFAULT_THEME_ID } from './themes';
 
-
 export type ThemeProviderProps = {
   children: ReactNode;
-  /** Initial theme ID (defaults to "olly") */
+  /** Initial theme ID (defaults to "ollie") */
   initialTheme?: string;
   /** Force dark or light mode (defaults to auto-detect) */
   colorScheme?: 'dark' | 'light';

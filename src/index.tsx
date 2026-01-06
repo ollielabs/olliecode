@@ -14,9 +14,9 @@ import { getConfigValue } from './config';
 const program = new Command();
 
 program
-  .name('olly')
-  .description('Olly - Local agentic coding assistant')
-  .version('0.0.1');
+  .name('ollie')
+  .description('Ollie Code - Agentic coding tool powered by Ollama')
+  .version('0.1.0');
 
 program
   .option('--tsworker-debug', 'enable tsworker debug logging')

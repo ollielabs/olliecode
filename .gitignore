@@ -36,10 +36,10 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .DS_Store
 
 # Local app data
-.olly/
+.ollie/
 
 # Compiled binary
-olly
+ollie
 
 # Documentation (local reference only)
 docs/

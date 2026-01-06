@@ -1,5 +1,5 @@
 /**
- * Olly - Default theme
+ * Ollie - Default theme
  *
  * A minimal, achromatic theme with blue accents.
  * Dark blacks and grays for backgrounds, white/gray for text.
@@ -7,9 +7,9 @@
 
 import type { Theme } from '../tokens';
 
-export const ollyTheme: Theme = {
-  id: 'olly',
-  name: 'Olly',
+export const ollieTheme: Theme = {
+  id: 'ollie',
+  name: 'Ollie',
   dark: {
     seeds: {
       neutral: '#0a0a0a',

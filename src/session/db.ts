@@ -10,18 +10,18 @@ import { homedir } from 'node:os';
 import { runMigrations } from './migrations';
 
 /**
- * Get the path to the Olly data directory.
- * Follows XDG convention: ~/.local/share/olly/
+ * Get the path to the Ollie data directory.
+ * Follows XDG convention: ~/.local/share/ollie/
  */
 export function getDataDirectory(): string {
-  return join(homedir(), '.local', 'share', 'olly');
+  return join(homedir(), '.local', 'share', 'ollie');
 }
 
 /**
  * Get the path to the SQLite database file.
  */
 export function getDatabasePath(): string {
-  return join(getDataDirectory(), 'olly.db');
+  return join(getDataDirectory(), 'ollie.db');
 }
 
 // Singleton database instance

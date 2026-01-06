@@ -1,5 +1,5 @@
 /**
- * Olly Design System
+ * Ollie Design System
  *
  * Provides theming, design tokens, and styled component patterns.
  */
@@ -51,7 +51,7 @@ export {
   getTheme,
   getThemeIds,
   getThemeList,
-  ollyTheme,
+  ollieTheme,
   draculaTheme,
   tokyoNightTheme,
   nordTheme,

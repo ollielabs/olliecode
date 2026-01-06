@@ -1,6 +1,6 @@
 /**
- * Configuration management for Olly.
- * Stores user settings in ~/.config/olly/config.json
+ * Configuration management for Ollie.
+ * Stores user settings in ~/.config/ollie/config.json
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,11 +18,11 @@ export type Config = {
 const DEFAULT_CONFIG: Config = {};
 
 /**
- * Get the path to the Olly config directory.
- * Follows XDG convention: ~/.config/olly/
+ * Get the path to the Ollie config directory.
+ * Follows XDG convention: ~/.config/ollie/
  */
 export function getConfigDirectory(): string {
-  return join(homedir(), '.config', 'olly');
+  return join(homedir(), '.config', 'ollie');
 }
 
 /**

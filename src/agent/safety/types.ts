@@ -81,7 +81,7 @@ export type SafetyConfig = {
   allowNetworkCommands?: boolean; // Allow curl, wget, etc.
 
   // Audit
-  auditLogPath?: string; // Default: .olly/audit.jsonl
+  auditLogPath?: string; // Default: .ollie/audit.jsonl
   enableAuditLog: boolean;
 };
 
@@ -127,7 +127,7 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
   allowNetworkCommands: false,
 
   enableAuditLog: true,
-  auditLogPath: '.olly/audit.jsonl',
+  auditLogPath: '.ollie/audit.jsonl',
 };
 
 // Network-related commands that require explicit permission

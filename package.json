@@ -1,21 +1,60 @@
 {
-  "name": "ollycode",
+  "name": "olliecode",
+  "version": "0.1.0",
+  "description": "An agentic coding tool powered by Ollama - local, private, and fast",
+  "author": "Frank Cooke <frankcooke79@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ollielabs/olliecode.git"
+  },
+  "homepage": "https://github.com/ollielabs/olliecode#readme",
+  "bugs": {
+    "url": "https://github.com/ollielabs/olliecode/issues"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "ollama",
+    "coding-assistant",
+    "agentic",
+    "terminal",
+    "tui",
+    "local-llm"
+  ],
+  "bin": {
+    "ollie": "./src/index.tsx"
+  },
+  "files": [
+    "src",
+    "react-compiler.preload.ts",
+    "bunfig.toml"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "module": "src/index.tsx",
   "type": "module",
-  "private": true,
   "scripts": {
     "dev": "bun run src/index.tsx",
-    "build": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --outfile=olly --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'",
+    "build": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --outfile=ollie --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'",
+    "build:darwin-arm64": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --target=bun-darwin-arm64 --outfile=dist/ollie-darwin-arm64 --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'",
+    "build:darwin-x64": "bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js --compile --target=bun-darwin-x64 --outfile=dist/ollie-darwin-x64 --define 'OTUI_TREE_SITTER_WORKER_PATH=\"./node_modules/@opentui/core/parser.worker.js\"'",
     "format": "bunx biome format",
     "format:fix": "bunx biome format --fix",
     "lint": "bunx biome lint",
     "lint:fix": "bunx biome lint --fix",
-    "check:types": "tsc --noEmit"
+    "check:types": "tsc --noEmit",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
     "@biomejs/biome": "2.3.11",
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@types/babel__core": "^7.20.5",
     "@types/bun": "latest",
     "@types/diff": "^8.0.0",
