@@ -1,5 +1,11 @@
 # olliecode
 
+## 0.1.2
+
+### Patch Changes
+
+- [`c28169f`](https://github.com/ollielabs/olliecode/commit/c28169f8819cc2510df2bf13a08c1f491eef51fb) Thanks [@platypusrex](https://github.com/platypusrex)! - Fix release pipeline for GoReleaser
+
 ## 0.1.1
 
 ### Patch Changes
