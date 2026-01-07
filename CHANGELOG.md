@@ -1,5 +1,16 @@
 # olliecode
 
+## 0.2.0
+
+### Minor Changes
+
+- [#8](https://github.com/ollielabs/olliecode/pull/8) [`7115ab3`](https://github.com/ollielabs/olliecode/commit/7115ab330c0293c9f0e2b8f41984057224fc38b0) Thanks [@platypusrex](https://github.com/platypusrex)! - Add clipboard support and keyboard shortcuts help modal
+
+  - Ctrl+Y copies selected text to system clipboard (cross-platform: macOS, Linux, Windows)
+  - Ctrl+P opens keyboard shortcuts help modal showing all available shortcuts and commands
+  - Toast notification confirms successful copy
+  - Status bar now shows shortcut hints (tab/ctrl+p)
+
 ## 0.1.6
 
 ### Patch Changes
