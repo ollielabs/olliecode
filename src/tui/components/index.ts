@@ -13,6 +13,10 @@ export {
   ContextInfoNotification,
   type ContextInfoNotificationProps,
 } from './context-info-notification';
+export {
+  ToastNotification,
+  type ToastNotificationProps,
+} from './toast-notification';
 
 // Dialog and modal components
 export { CommandMenu, type SlashCommand } from './command-menu';
@@ -22,6 +26,7 @@ export {
   getFilteredFiles,
 } from './file-picker';
 export { ContextStatsModal } from './context-stats-modal';
+export { KeyboardShortcutsModal } from './keyboard-shortcuts-modal';
 export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
 export { ThemePicker } from './theme-picker';

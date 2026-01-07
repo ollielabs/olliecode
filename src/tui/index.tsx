@@ -3,12 +3,12 @@
  * Main application component with all hooks and UI rendering.
  */
 
-import { useRef } from 'react';
-import type { TextareaRenderable } from '@opentui/core';
-import { RGBA } from '@opentui/core';
-import { ThemeProvider, useTheme } from '../design';
-import { listSessions } from '../session';
-import { SESSION_LIST_LIMIT } from './constants';
+import { useRef, useState } from "react";
+import type { TextareaRenderable } from "@opentui/core";
+import { RGBA } from "@opentui/core";
+import { ThemeProvider, useTheme } from "../design";
+import { listSessions } from "../session";
+import { SESSION_LIST_LIMIT } from "./constants";
 import {
   useAgentSubmit,
   useAgentContext,
@@ -16,9 +16,10 @@ import {
   useCommandMenu,
   useKeyboardShortcuts,
   useFilePicker,
-} from './hooks';
+} from "./hooks";
 import {
   ContextStatsModal,
+  KeyboardShortcutsModal,
   SessionPicker,
   ThemePicker,
   ContextInfoNotification,
@@ -29,9 +30,10 @@ import {
   UserMessage,
   AssistantMessage,
   ToolMessage,
-} from './components';
-import { fastScrollAccel } from './utils';
-import type { AppProps, Status } from './types';
+  ToastNotification,
+} from "./components";
+import { fastScrollAccel } from "./utils";
+import type { AppProps, Status } from "./types";
 
 export function App({
   initialTheme,
@@ -57,10 +59,11 @@ function AppContent({
   host,
   projectPath,
   initialSessionId,
-}: Omit<AppProps, 'initialTheme'>) {
+}: Omit<AppProps, "initialTheme">) {
   const { tokens } = useTheme();
   const textareaRef = useRef<TextareaRenderable>(null);
-  const statusRef = useRef<Status>('idle');
+  const statusRef = useRef<Status>("idle");
+  const [toast, setToast] = useState<string | null>(null);
 
   // Initialize session hook first as other hooks depend on it
   const session = useSession({
@@ -119,7 +122,7 @@ function AppContent({
   });
 
   // Global keyboard shortcuts
-  const { toolsExpanded } = useKeyboardShortcuts({
+  const { toolsExpanded, showHelp, setShowHelp } = useKeyboardShortcuts({
     status: agent.status,
     mode: session.mode,
     setMode: session.setMode,
@@ -127,6 +130,7 @@ function AppContent({
     showCommandMenu: commands.showCommandMenu,
     showSessionPicker: session.showSessionPicker,
     currentSession: session.currentSession,
+    onCopySuccess: (message: string) => setToast(message),
   });
 
   // Render welcome screen if no messages
@@ -146,6 +150,10 @@ function AppContent({
             modelName={model}
             onClose={context.handleContextStatsClose}
           />
+        )}
+
+        {showHelp && (
+          <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
         )}
 
         <box flexDirection="row">
@@ -230,6 +238,10 @@ function AppContent({
             suppressSubmit={filePicker.showFilePicker}
           />
         </box>
+
+        {toast && (
+          <ToastNotification message={toast} onDismiss={() => setToast(null)} />
+        )}
       </box>
     );
   }
@@ -249,6 +261,10 @@ function AppContent({
           modelName={model}
           onClose={context.handleContextStatsClose}
         />
+      )}
+
+      {showHelp && (
+        <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
       )}
 
       {session.showSessionPicker && (
@@ -371,6 +387,10 @@ function AppContent({
         todos={session.sidebarTodos}
         width={40}
       />
+
+      {toast && (
+        <ToastNotification message={toast} onDismiss={() => setToast(null)} />
+      )}
     </box>
   );
 }

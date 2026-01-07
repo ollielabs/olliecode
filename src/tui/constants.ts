@@ -20,3 +20,6 @@ export const SESSION_LIST_LIMIT = 50;
 export const TOOL_ID_RADIX = 36;
 export const TOOL_ID_SLICE_START = 2;
 export const TOOL_ID_SLICE_END = 9;
+
+// Toast notification duration (milliseconds)
+export const TOAST_DURATION_MS = 2500;
