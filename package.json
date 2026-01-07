@@ -1,6 +1,6 @@
 {
   "name": "olliecode",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "An agentic coding tool powered by Ollama - local, private, and fast",
   "author": "Frank Cooke <frankcooke79@gmail.com>",
   "license": "MIT",
