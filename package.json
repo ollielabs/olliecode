@@ -67,6 +67,7 @@
   "dependencies": {
     "@opentui/core": "^0.1.61",
     "@opentui/react": "^0.1.61",
+    "clipboardy": "^5.0.2",
     "commander": "^14.0.2",
     "diff": "^8.0.2",
     "fuse.js": "^7.1.0",
