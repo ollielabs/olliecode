@@ -9,6 +9,7 @@
 import {
   type SystemPromptContext,
   buildEnvironmentBlock,
+  buildProjectInstructionsBlock,
   READ_ONLY_TOOLS_DOC,
   TOOL_RESULT_NOTE,
   PARALLEL_TOOL_CALLS,
@@ -34,6 +35,7 @@ You are a codebase exploration specialist. Your job is to quickly and systematic
 
 ${buildEnvironmentBlock(ctx)}
 
+${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 # Your Mission
 
 Search the codebase to answer the question or complete the task. Be systematic and thorough.

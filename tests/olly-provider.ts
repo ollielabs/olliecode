@@ -1,5 +1,5 @@
 /**
- * Custom promptfoo provider that wraps our Olly agent.
+ * Custom promptfoo provider that wraps our Ollie agent.
  * This allows promptfoo to test the full agent loop, not just raw model calls.
  */
 

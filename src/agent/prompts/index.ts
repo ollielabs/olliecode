@@ -1,5 +1,5 @@
 /**
- * System prompts for Olly.
+ * System prompts for Ollie.
  *
  * Each mode has its own focused prompt:
  * - Plan mode: Research and planning (read-only)

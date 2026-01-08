@@ -1,5 +1,5 @@
 /**
- * Design token type definitions for the Olly theme system.
+ * Design token type definitions for the Ollie theme system.
  * Tokens are semantic color values derived from theme seeds.
  */
 

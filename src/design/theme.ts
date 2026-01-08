@@ -1,5 +1,5 @@
 /**
- * Theme resolver and React context for the Olly design system.
+ * Theme resolver and React context for the Ollie design system.
  */
 
 import { createContext, useContext } from 'react';
@@ -12,8 +12,7 @@ import { generateScale, generateNeutralScale, withAlpha } from './color';
 const FALLBACK = '#888888' as HexColor;
 
 /** Safe scale access - returns fallback if index is out of bounds */
-const s = (scale: HexColor[], idx: number): HexColor =>
-  scale[idx] ?? FALLBACK;
+const s = (scale: HexColor[], idx: number): HexColor => scale[idx] ?? FALLBACK;
 
 /**
  * Resolve a theme variant (dark or light) into semantic tokens.
