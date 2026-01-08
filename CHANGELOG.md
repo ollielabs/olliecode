@@ -1,5 +1,19 @@
 # olliecode
 
+## 0.3.0
+
+### Minor Changes
+
+- [#10](https://github.com/ollielabs/olliecode/pull/10) [`91c6f8b`](https://github.com/ollielabs/olliecode/commit/91c6f8bc959680dc2ceeb58d2d397144854d6be7) Thanks [@platypusrex](https://github.com/platypusrex)! - Add AGENTS.md support and /init command
+
+  - Automatically load project instructions from `AGENTS.md` files
+    - Global: `~/.config/ollie/AGENTS.md`
+    - Project: `./AGENTS.md`
+  - Inject instructions into system prompts for all modes (build, plan, explore)
+  - Add `/init` slash command to create or update AGENTS.md
+    - Analyzes codebase and generates comprehensive project instructions
+    - Supports optional arguments: `/init focus on testing conventions`
+
 ## 0.2.0
 
 ### Minor Changes
