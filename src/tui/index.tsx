@@ -3,12 +3,12 @@
  * Main application component with all hooks and UI rendering.
  */
 
-import { useRef, useState } from "react";
-import type { TextareaRenderable } from "@opentui/core";
-import { RGBA } from "@opentui/core";
-import { ThemeProvider, useTheme } from "../design";
-import { listSessions } from "../session";
-import { SESSION_LIST_LIMIT } from "./constants";
+import { useRef, useState } from 'react';
+import type { TextareaRenderable } from '@opentui/core';
+import { RGBA } from '@opentui/core';
+import { ThemeProvider, useTheme } from '../design';
+import { listSessions } from '../session';
+import { SESSION_LIST_LIMIT } from './constants';
 import {
   useAgentSubmit,
   useAgentContext,
@@ -16,7 +16,7 @@ import {
   useCommandMenu,
   useKeyboardShortcuts,
   useFilePicker,
-} from "./hooks";
+} from './hooks';
 import {
   ContextStatsModal,
   KeyboardShortcutsModal,
@@ -31,9 +31,19 @@ import {
   AssistantMessage,
   ToolMessage,
   ToastNotification,
-} from "./components";
-import { fastScrollAccel } from "./utils";
-import type { AppProps, Status } from "./types";
+} from './components';
+import { fastScrollAccel } from './utils';
+import type { AppProps, Status } from './types';
+
+/** Prompt template for /init command - creates/updates AGENTS.md */
+const INIT_PROMPT_TEMPLATE = `Please analyze this codebase and create an AGENTS.md file containing:
+1. Build/lint/test commands - especially for running a single test
+2. Code style guidelines including imports, formatting, types, naming conventions, error handling, etc.
+
+The file you create will be given to agentic coding agents (such as yourself) that operate in this repository. Make it about 150 lines long.
+If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include them.
+
+If there's already an AGENTS.md, improve it.`;
 
 export function App({
   initialTheme,
@@ -59,10 +69,10 @@ function AppContent({
   host,
   projectPath,
   initialSessionId,
-}: Omit<AppProps, "initialTheme">) {
+}: Omit<AppProps, 'initialTheme'>) {
   const { tokens } = useTheme();
   const textareaRef = useRef<TextareaRenderable>(null);
-  const statusRef = useRef<Status>("idle");
+  const statusRef = useRef<Status>('idle');
   const [toast, setToast] = useState<string | null>(null);
 
   // Initialize session hook first as other hooks depend on it
@@ -98,6 +108,14 @@ function AppContent({
   // Keep statusRef in sync
   statusRef.current = agent.status;
 
+  // Handler for /init command - submits prompt to agent to create/update AGENTS.md
+  const handleInit = (args?: string) => {
+    const prompt = args
+      ? `${INIT_PROMPT_TEMPLATE}\n\nAdditional instructions: ${args}`
+      : INIT_PROMPT_TEMPLATE;
+    void agent.handleSubmit(prompt);
+  };
+
   // Command menu hook
   const commands = useCommandMenu({
     textareaRef,
@@ -109,6 +127,7 @@ function AppContent({
       handleCompact: context.handleCompact,
       handleShowContext: context.handleShowContext,
       handleForget: context.handleForget,
+      handleInit,
       setShowSessionPicker: session.setShowSessionPicker,
       setShowThemePicker: session.setShowThemePicker,
     },

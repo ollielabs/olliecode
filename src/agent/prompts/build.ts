@@ -9,6 +9,7 @@
 import {
   type SystemPromptContext,
   buildEnvironmentBlock,
+  buildProjectInstructionsBlock,
   COMMUNICATION_STYLE,
   SCOPE_DISCIPLINE,
   ALL_TOOLS_DOC,
@@ -22,12 +23,13 @@ import {
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
   return `# Identity
 
-You are Olly in **build mode**, a local coding assistant focused on implementation.
+You are Ollie in **build mode**, a local coding assistant focused on implementation.
 
 You are an expert software engineer. You write clean, working code and execute plans efficiently.
 
 ${buildEnvironmentBlock(ctx)}
 
+${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 
 # Your Responsibility

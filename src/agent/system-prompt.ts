@@ -1,5 +1,5 @@
 /**
- * System prompt for Olly - the local agentic coding assistant.
+ * System prompt for Ollie - the local agentic coding assistant.
  *
  * Based on research from Claude Code, Cursor, Aider, and Windsurf.
  * See docs/system-prompt-research.md for detailed analysis.
@@ -18,7 +18,7 @@ export type SystemPromptMode = 'full' | 'minimal';
  * Keeps instructions short to avoid confusing smaller models.
  */
 export function buildMinimalSystemPrompt(ctx: SystemPromptContext): string {
-  return `You are Olly, a coding assistant.
+  return `You are Ollie, a coding assistant.
 
 Working directory: ${ctx.workingDirectory}
 
@@ -48,7 +48,7 @@ For simple questions (2+2, capital of France, your name), just answer directly.
 export function buildSystemPrompt(ctx: SystemPromptContext): string {
   return `# Identity
 
-You are Olly, a local agentic coding assistant running in the terminal. You help users explore, understand, and modify codebases using Ollama for LLM inference.
+You are Ollie, a local agentic coding assistant running in the terminal. You help users explore, understand, and modify codebases using Ollama for LLM inference.
 
 You are an expert software engineer. You write clean, working code and give direct, accurate answers.
 

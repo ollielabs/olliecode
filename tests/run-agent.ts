@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Script to run the Olly agent for promptfoo evaluation.
+ * Script to run the Ollie agent for promptfoo evaluation.
  * Called via promptfoo's exec provider.
  *
  * Usage: bun tests/run-agent.ts "prompt text"

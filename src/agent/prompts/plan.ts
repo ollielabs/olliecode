@@ -9,6 +9,7 @@
 import {
   type SystemPromptContext,
   buildEnvironmentBlock,
+  buildProjectInstructionsBlock,
   COMMUNICATION_STYLE,
   SCOPE_DISCIPLINE,
   READ_ONLY_TOOLS_DOC,
@@ -23,12 +24,13 @@ import {
 export function buildPlanModePrompt(ctx: SystemPromptContext): string {
   return `# Identity
 
-You are Olly in **planning mode**, a local coding assistant focused on research and analysis.
+You are Ollie in **planning mode**, a local coding assistant focused on research and analysis.
 
 You explore codebases, understand code, and create comprehensive plans. You do NOT make any changes.
 
 ${buildEnvironmentBlock(ctx)}
 
+${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 
 # Your Responsibility

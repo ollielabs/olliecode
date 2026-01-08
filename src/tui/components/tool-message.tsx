@@ -443,7 +443,6 @@ function EditCompleted({
           before={diff ? '' : String(args.oldString ?? '')}
           after={diff ? '' : String(args.newString ?? '')}
           diff={diff}
-          maxHeight={25}
           view="split"
         />
       ) : (
@@ -484,7 +483,6 @@ function WriteCompleted({
           filePath={filePath}
           before=""
           after={content}
-          maxHeight={25}
           view="unified"
         />
       ) : (

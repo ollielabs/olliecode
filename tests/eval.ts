@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Custom eval runner for Olly agent.
+ * Custom eval runner for Ollie agent.
  * Runs tests and reports pass/fail with detailed results.
  *
  * Usage: bun tests/eval.ts [--model <model>] [--filter <pattern>]
@@ -1492,7 +1492,7 @@ async function main() {
       )
     : tests;
 
-  console.log(`\n🧪 Olly Agent Eval`);
+  console.log(`\n🧪 Ollie Agent Eval`);
   console.log(`   Model: ${model}`);
   console.log(`   Host: ${host}`);
   console.log(`   Tests: ${testsToRun.length}\n`);

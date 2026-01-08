@@ -3,20 +3,61 @@
  * Following best practices from docs/system-prompt-research.md
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+
 export type SystemPromptContext = {
   workingDirectory: string;
   platform: string;
   date: string;
+  projectInstructions?: string;
 };
+
+/**
+ * Load AGENTS.md from global config and/or project root.
+ * Combines both if present (global first, then project-specific).
+ *
+ * Locations checked:
+ * - Global: ~/.config/ollie/AGENTS.md
+ * - Project: <projectRoot>/AGENTS.md
+ */
+export function loadProjectInstructions(projectRoot: string): string | null {
+  const parts: string[] = [];
+
+  // 1. Global AGENTS.md (user-wide instructions)
+  const globalPath = join(homedir(), '.config', 'ollie', 'AGENTS.md');
+  if (existsSync(globalPath)) {
+    try {
+      parts.push(readFileSync(globalPath, 'utf-8'));
+    } catch {
+      // Silently skip if unreadable
+    }
+  }
+
+  // 2. Project AGENTS.md (project-specific instructions)
+  const projectPath = join(projectRoot, 'AGENTS.md');
+  if (existsSync(projectPath)) {
+    try {
+      parts.push(readFileSync(projectPath, 'utf-8'));
+    } catch {
+      // Silently skip if unreadable
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n\n---\n\n') : null;
+}
 
 /**
  * Get default context for the current environment
  */
 export function getDefaultContext(): SystemPromptContext {
+  const workingDirectory = process.cwd();
   return {
-    workingDirectory: process.cwd(),
+    workingDirectory,
     platform: process.platform,
     date: new Date().toISOString().split('T')[0] ?? 'unknown',
+    projectInstructions: loadProjectInstructions(workingDirectory) ?? undefined,
   };
 }
 
@@ -29,6 +70,15 @@ Working directory: ${ctx.workingDirectory}
 Platform: ${ctx.platform}
 Date: ${ctx.date}
 </env>`;
+}
+
+/**
+ * Project instructions block - included when AGENTS.md exists
+ */
+export function buildProjectInstructionsBlock(instructions: string): string {
+  return `# Project Instructions (from AGENTS.md)
+
+${instructions}`;
 }
 
 /**

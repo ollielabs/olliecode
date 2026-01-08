@@ -26,7 +26,7 @@ export function DiffView({
   before,
   after,
   diff,
-  maxHeight = 15,
+  maxHeight,
   view = 'split',
 }: DiffViewProps) {
   const { tokens, syntaxStyle } = useTheme();
@@ -34,6 +34,12 @@ export function DiffView({
   // Use pre-computed diff if provided, otherwise generate from before/after
   const diffString = diff || generateDiff(filePath, before, after);
   const filetype = getFiletype(filePath);
+
+  // Build style object - only include maxHeight if specified
+  const diffStyle: { maxHeight?: number; flexGrow: number } = { flexGrow: 1 };
+  if (maxHeight !== undefined) {
+    diffStyle.maxHeight = maxHeight;
+  }
 
   return (
     <box style={{ flexDirection: 'column' }}>
@@ -54,7 +60,7 @@ export function DiffView({
         lineNumberBg={tokens.bgBase}
         addedLineNumberBg={tokens.diffAddBg}
         removedLineNumberBg={tokens.diffDeleteBg}
-        style={{ maxHeight, flexGrow: 1 }}
+        style={diffStyle}
       />
     </box>
   );

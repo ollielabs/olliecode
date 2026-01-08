@@ -22,6 +22,7 @@ export type UseCommandMenuProps = {
     handleCompact: () => Promise<void>;
     handleShowContext: () => Promise<void>;
     handleForget: (n: number) => void;
+    handleInit: (args?: string) => void;
     setShowSessionPicker: React.Dispatch<React.SetStateAction<boolean>>;
     setShowThemePicker: React.Dispatch<React.SetStateAction<boolean>>;
   };
@@ -121,6 +122,16 @@ export function useCommandMenu({
       description: 'Change color theme',
       action: () => {
         handlers.setShowThemePicker(true);
+        textareaRef.current?.setText('');
+      },
+    },
+    {
+      name: 'init',
+      description: 'Create/update AGENTS.md for this project',
+      action: () => {
+        // Extract any arguments after "init " from the command filter
+        const args = commandFilter.replace(/^init\s*/, '').trim();
+        handlers.handleInit(args || undefined);
         textareaRef.current?.setText('');
       },
     },
