@@ -235,9 +235,19 @@ export function mergeConfigs(
     const stripped = structuredClone(merged);
     for (const issue of result.error.issues) {
       const path = issue.path.map(String);
-      const location = path.length > 0 ? path.join('.') : '<root>';
+      if (path.length === 0) {
+        // Root-level validation failure — cannot strip a specific field
+        warnings.push(
+          `Invalid merged config at "<root>": ${issue.message}; using default configuration.`,
+        );
+        return {
+          config: ConfigSchema.parse({}),
+          layers,
+          warnings,
+        };
+      }
       warnings.push(
-        `Invalid merged config at "${location}": ${issue.message} (using default)`,
+        `Invalid merged config at "${path.join('.')}": ${issue.message} (using default for this field)`,
       );
       deleteAtPath(stripped, path);
     }

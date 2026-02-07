@@ -152,9 +152,15 @@ export function parseConfigString(content: string): ParseResult {
     const stripped = structuredClone(raw);
     for (const issue of result.error.issues) {
       const path = issue.path.map(String);
-      const location = path.length > 0 ? path.join('.') : '<root>';
+      if (path.length === 0) {
+        // Root-level validation failure — cannot strip a specific field
+        warnings.push(
+          `Invalid config at "<root>": ${issue.message}; using default configuration.`,
+        );
+        return { raw, config: ConfigSchema.parse({}), warnings };
+      }
       warnings.push(
-        `Invalid config at "${location}": ${issue.message} (using default)`,
+        `Invalid config at "${path.join('.')}": ${issue.message} (using default for this field)`,
       );
       deleteAtPath(stripped, path);
     }

@@ -4,7 +4,8 @@
  * Run with: bun test tests/test-config.ts
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 
 import { getConfigDirectory } from '../src/config/index';
 import {
@@ -299,10 +300,7 @@ describe('buildCliOverrides', () => {
 describe('getConfigDirectory', () => {
   const originalXdg = process.env.XDG_CONFIG_HOME;
 
-  test('uses XDG_CONFIG_HOME when set', () => {
-    process.env.XDG_CONFIG_HOME = '/custom/config';
-    expect(getConfigDirectory()).toBe('/custom/config/ollie');
-    // restore
+  afterEach(() => {
     if (originalXdg === undefined) {
       delete process.env.XDG_CONFIG_HOME;
     } else {
@@ -310,14 +308,15 @@ describe('getConfigDirectory', () => {
     }
   });
 
+  test('uses XDG_CONFIG_HOME when set', () => {
+    process.env.XDG_CONFIG_HOME = '/custom/config';
+    expect(getConfigDirectory()).toBe('/custom/config/ollie');
+  });
+
   test('falls back to ~/.config when XDG_CONFIG_HOME is unset', () => {
     delete process.env.XDG_CONFIG_HOME;
     const result = getConfigDirectory();
-    expect(result.endsWith('.config/ollie')).toBe(true);
-    // restore
-    if (originalXdg !== undefined) {
-      process.env.XDG_CONFIG_HOME = originalXdg;
-    }
+    expect(result.endsWith(join('.config', 'ollie'))).toBe(true);
   });
 });
 
