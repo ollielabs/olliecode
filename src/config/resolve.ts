@@ -118,6 +118,7 @@ export function extractCompactionConfig(
     minPreservedMessages: config.compaction.minPreservedMessages,
     useLLMSummary: config.compaction.useLLMSummary,
     maxSummaryTokens: config.compaction.maxSummaryTokens,
+    temperature: config.compaction.temperature,
   };
 }
 

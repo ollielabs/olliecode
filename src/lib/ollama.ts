@@ -1,5 +1,5 @@
-import { Ollama } from 'ollama';
 import type { Message } from 'ollama';
+import { Ollama } from 'ollama';
 import { getSystemPrompt } from '../agent/system-prompt';
 
 // Re-export Message type for consumers
@@ -21,6 +21,8 @@ export type StreamOllamaChatArgs = {
   onAbort: () => void;
   onError: (msg: string) => void;
   signal: AbortSignal;
+  /** Chat temperature (default 0.2) */
+  temperature?: number;
 };
 
 export async function streamOllamaChat(args: StreamOllamaChatArgs) {
@@ -42,7 +44,7 @@ export async function streamOllamaChat(args: StreamOllamaChatArgs) {
       messages: [getSystemMessage(), ...args.messages],
       stream: true,
       options: {
-        temperature: 0.2,
+        temperature: args.temperature ?? 0.2,
       },
     });
 

@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { compactMessages, getCompactionLevel } from '../../agent/compaction';
+import { extractCompactionConfig } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
 import {
@@ -101,7 +102,7 @@ export function useAgentContext({
       const result = await compactMessages(
         [{ role: 'system', content: '' }, ...history],
         level,
-        undefined,
+        extractCompactionConfig(config),
         model,
         host,
       );

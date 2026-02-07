@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { DEFAULT_MODE } from '../../agent/modes';
 import type { ResolvedConfig } from '../../config/schema';
 import {
   createSession,
@@ -98,7 +97,8 @@ export function useSession({
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [history, setHistory] = useState<Message[]>([]);
   const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([]);
-  const [mode, setMode] = useState<AgentMode>(DEFAULT_MODE);
+  const defaultMode = config.agent.defaultMode;
+  const [mode, setMode] = useState<AgentMode>(defaultMode);
   const [sidebarTodos, setSidebarTodos] = useState<Todo[]>([]);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
@@ -141,7 +141,7 @@ export function useSession({
     setCurrentSession(null);
     setHistory([]);
     setDisplayMessages([]);
-    setMode(DEFAULT_MODE);
+    setMode(defaultMode);
   };
 
   const handleSessionSelect = (session: Session) => {

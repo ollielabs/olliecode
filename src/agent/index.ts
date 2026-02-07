@@ -3,42 +3,42 @@
  * Handles the main agent loop: streaming, tool handling, safety, and loop detection.
  */
 
-import { Ollama } from 'ollama';
 import type { Message, ToolCall } from 'ollama';
-
-import { getToolsForMode } from './tools';
-import { getSystemPromptForMode } from './prompts';
-import type { AgentMode } from './modes';
-import { DEFAULT_MODE } from './modes';
-import type {
-  AgentStep,
-  AgentResult,
-  AgentError,
-  AgentConfig,
-  ToolResult,
-  ContextUsage,
-} from './types';
-import { DEFAULT_AGENT_CONFIG } from './types';
+import { Ollama } from 'ollama';
+import { fetchModelInfo, getContextStats } from '../lib/tokenizer';
 import {
-  SafetyLayer,
-  type ConfirmationRequest,
-  type ConfirmationResponse,
-  type SafetyConfig,
-} from './safety';
+  needsCompaction as checkNeedsCompaction,
+  compactMessages,
+  DEFAULT_COMPACTION_CONFIG,
+  getCompactionLevel,
+} from './compaction';
 import { log } from './logger';
-import { processStream, isAbortError } from './stream-handler';
-import { processToolCalls } from './tool-processor';
 import {
   detectConsecutiveLoop,
   detectDoomLoop,
   detectNotFoundPattern,
 } from './loop-detector';
-import { fetchModelInfo, getContextStats } from '../lib/tokenizer';
+import type { AgentMode } from './modes';
+import { DEFAULT_MODE } from './modes';
+import { getSystemPromptForMode } from './prompts';
 import {
-  compactMessages,
-  getCompactionLevel,
-  needsCompaction as checkNeedsCompaction,
-} from './compaction';
+  type ConfirmationRequest,
+  type ConfirmationResponse,
+  type SafetyConfig,
+  SafetyLayer,
+} from './safety';
+import { isAbortError, processStream } from './stream-handler';
+import { processToolCalls } from './tool-processor';
+import { getToolsForMode } from './tools';
+import type {
+  AgentConfig,
+  AgentError,
+  AgentResult,
+  AgentStep,
+  ContextUsage,
+  ToolResult,
+} from './types';
+import { DEFAULT_AGENT_CONFIG } from './types';
 
 /**
  * Arguments for running the agent.
@@ -73,6 +73,12 @@ export type RunAgentArgs = {
   /** Configuration overrides */
   config?: Partial<AgentConfig>;
   safetyConfig?: Partial<SafetyConfig>;
+
+  /** Chat temperature (default 0.2) */
+  temperature?: number;
+
+  /** Compaction temperature (default 0.3, separate from chat temperature) */
+  compactionTemperature?: number;
 
   /** Override the system prompt (used by subagents) */
   systemPromptOverride?: string;
@@ -152,6 +158,8 @@ export async function runAgent(
   const config: AgentConfig = { ...DEFAULT_AGENT_CONFIG, ...args.config };
   const safetyLayer = new SafetyLayer(args.safetyConfig);
   const mode = args.mode ?? DEFAULT_MODE;
+  const temperature = args.temperature ?? 0.2;
+  const compactionTemperature = args.compactionTemperature ?? 0.3;
 
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
@@ -227,7 +235,7 @@ export async function runAgent(
           tools: modeTools,
           stream: true,
           options: {
-            temperature: 0.2,
+            temperature,
           },
         });
         log('Got response iterator, starting to stream...');
@@ -403,7 +411,10 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
           const result = await compactMessages(
             messages,
             level,
-            undefined, // use default config
+            {
+              ...DEFAULT_COMPACTION_CONFIG,
+              temperature: compactionTemperature,
+            },
             args.model,
             args.host,
           );
