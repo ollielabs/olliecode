@@ -1,0 +1,290 @@
+/**
+ * Unit tests for the config module.
+ *
+ * Run with: bun test tests/test-config.ts
+ */
+
+import { describe, expect, test } from 'bun:test';
+
+import { buildCliOverrides, deepMerge } from '../src/config/merge';
+import { deleteAtPath, parseConfigString } from '../src/config/parse';
+import { resolvePermissions } from '../src/config/resolve';
+import { ConfigSchema } from '../src/config/schema';
+
+// === deleteAtPath ===
+
+describe('deleteAtPath', () => {
+  test('deletes a top-level key', () => {
+    const obj: Record<string, unknown> = { a: 1, b: 2 };
+    deleteAtPath(obj, ['a']);
+    expect(obj).toEqual({ b: 2 });
+  });
+
+  test('deletes a nested key', () => {
+    const obj: Record<string, unknown> = { a: { b: { c: 3 }, d: 4 } };
+    deleteAtPath(obj, ['a', 'b', 'c']);
+    expect(obj).toEqual({ a: { b: {}, d: 4 } });
+  });
+
+  test('no-ops on empty path', () => {
+    const obj = { a: 1 };
+    deleteAtPath(obj, []);
+    expect(obj).toEqual({ a: 1 });
+  });
+
+  test('no-ops on non-existent path', () => {
+    const obj = { a: 1 };
+    deleteAtPath(obj, ['x', 'y']);
+    expect(obj).toEqual({ a: 1 });
+  });
+
+  test('splices array element by index', () => {
+    const obj = { items: ['a', 'b', 'c'] };
+    deleteAtPath(obj, ['items', '1']);
+    expect(obj.items).toEqual(['a', 'c']);
+  });
+
+  test('deletes nested key inside array element', () => {
+    const obj: Record<string, unknown> = {
+      list: [{ name: 'bad', keep: true }],
+    };
+    deleteAtPath(obj, ['list', '0', 'name']);
+    expect((obj.list as unknown[])[0]).toEqual({ keep: true });
+  });
+
+  test('no-ops on out-of-bounds array index', () => {
+    const obj = { items: ['a'] };
+    deleteAtPath(obj, ['items', '5']);
+    expect(obj.items).toEqual(['a']);
+  });
+
+  test('handles numeric path segments', () => {
+    const obj = { items: ['x', 'y', 'z'] };
+    deleteAtPath(obj, ['items', 0]);
+    expect(obj.items).toEqual(['y', 'z']);
+  });
+});
+
+// === deepMerge ===
+
+describe('deepMerge', () => {
+  test('overrides primitives', () => {
+    const result = deepMerge({ a: 1 }, { a: 2 });
+    expect(result.a).toBe(2);
+  });
+
+  test('preserves keys not in override', () => {
+    const result = deepMerge({ a: 1, b: 2 }, { a: 3 });
+    expect(result).toEqual({ a: 3, b: 2 });
+  });
+
+  test('deep merges nested objects', () => {
+    const result = deepMerge(
+      { agent: { maxIterations: 15, loopDetection: true } },
+      { agent: { maxIterations: 25 } },
+    );
+    expect(result.agent).toEqual({ maxIterations: 25, loopDetection: true });
+  });
+
+  test('concatenates and deduplicates instructions', () => {
+    const result = deepMerge(
+      { instructions: ['AGENTS.md', 'RULES.md'] },
+      { instructions: ['RULES.md', 'PROJECT.md'] },
+    );
+    expect(result.instructions).toEqual([
+      'AGENTS.md',
+      'RULES.md',
+      'PROJECT.md',
+    ]);
+  });
+
+  test('replaces non-instructions arrays', () => {
+    const result = deepMerge(
+      { safety: { deniedPaths: ['.env', '*.pem'] } },
+      { safety: { deniedPaths: ['*.key'] } },
+    );
+    expect((result.safety as Record<string, unknown>).deniedPaths).toEqual([
+      '*.key',
+    ]);
+  });
+
+  test('handles empty override', () => {
+    const base = { a: 1, b: { c: 2 } };
+    const result = deepMerge(base, {});
+    expect(result).toEqual(base);
+  });
+
+  test('handles empty base', () => {
+    const result = deepMerge({}, { a: 1 });
+    expect(result).toEqual({ a: 1 });
+  });
+
+  test('override adds new keys', () => {
+    const result = deepMerge({ a: 1 }, { b: 2 });
+    expect(result).toEqual({ a: 1, b: 2 });
+  });
+});
+
+// === parseConfigString ===
+
+describe('parseConfigString', () => {
+  test('empty string returns defaults', () => {
+    const result = parseConfigString('');
+    expect(result.config.model).toBe('llama3.2:latest');
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  test('empty object returns defaults', () => {
+    const result = parseConfigString('{}');
+    expect(result.config.model).toBe('llama3.2:latest');
+    expect(result.config.temperature).toBe(0.2);
+  });
+
+  test('valid partial config applies overrides', () => {
+    const result = parseConfigString(
+      '{"model": "qwen3:8b", "temperature": 0.5}',
+    );
+    expect(result.config.model).toBe('qwen3:8b');
+    expect(result.config.temperature).toBe(0.5);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  test('JSONC with comments parses correctly', () => {
+    const result = parseConfigString('{ // comment\n  "model": "gemma2" }');
+    expect(result.config.model).toBe('gemma2');
+  });
+
+  test('invalid field is stripped, valid fields preserved', () => {
+    const result = parseConfigString(
+      '{"model": "custom", "temperature": "bad"}',
+    );
+    expect(result.config.model).toBe('custom');
+    expect(result.config.temperature).toBe(0.2); // default
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings[0]).toContain('temperature');
+    expect(result.warnings[0]).toContain('using default');
+  });
+
+  test('multiple invalid fields stripped independently', () => {
+    const result = parseConfigString(
+      '{"model": "kept", "temperature": "bad", "debug": "also-bad"}',
+    );
+    expect(result.config.model).toBe('kept');
+    expect(result.config.temperature).toBe(0.2);
+    expect(result.config.debug).toBe(false);
+    expect(result.warnings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('nested invalid field stripped, sibling preserved', () => {
+    const result = parseConfigString(
+      '{"agent": {"maxIterations": -5, "loopDetection": false}}',
+    );
+    expect(result.config.agent.loopDetection).toBe(false); // valid, preserved
+    expect(result.config.agent.maxIterations).toBe(15); // invalid, defaulted
+  });
+
+  test('legacy top-level theme emits deprecation warning', () => {
+    const result = parseConfigString('{"theme": "dark"}');
+    expect(result.warnings.some((w) => w.includes('Deprecated'))).toBe(true);
+  });
+
+  test('throws on invalid JSONC syntax', () => {
+    expect(() => parseConfigString('{bad json}')).toThrow('Invalid JSONC');
+  });
+
+  test('throws on non-object root', () => {
+    expect(() => parseConfigString('"string"')).toThrow(
+      'Config must be a JSON object',
+    );
+  });
+});
+
+// === resolvePermissions ===
+
+describe('resolvePermissions', () => {
+  test('cautious baseline allows reads, asks for writes', () => {
+    const config = ConfigSchema.parse({});
+    const perms = resolvePermissions(config);
+    expect(perms.read_file).toBe('allow');
+    expect(perms.list_dir).toBe('allow');
+    expect(perms.glob).toBe('allow');
+    expect(perms.write_file).toBe('ask');
+    expect(perms.edit_file).toBe('ask');
+    expect(perms.run_command).toBe('ask');
+  });
+
+  test('paranoid asks for everything', () => {
+    const config = ConfigSchema.parse({ autonomy: 'paranoid' });
+    const perms = resolvePermissions(config);
+    expect(perms.read_file).toBe('ask');
+    expect(perms.write_file).toBe('ask');
+    expect(perms.run_command).toBe('ask');
+  });
+
+  test('autonomous allows everything', () => {
+    const config = ConfigSchema.parse({ autonomy: 'autonomous' });
+    const perms = resolvePermissions(config);
+    expect(perms.read_file).toBe('allow');
+    expect(perms.write_file).toBe('allow');
+    expect(perms.edit_file).toBe('allow');
+    expect(perms.run_command).toBe('allow');
+  });
+
+  test('explicit permission overrides baseline', () => {
+    const config = ConfigSchema.parse({
+      autonomy: 'cautious',
+      permissions: { write_file: 'allow', run_command: 'deny' },
+    });
+    const perms = resolvePermissions(config);
+    expect(perms.write_file).toBe('allow'); // overridden from ask
+    expect(perms.run_command).toBe('deny'); // overridden from ask
+    expect(perms.read_file).toBe('allow'); // unchanged baseline
+  });
+
+  test('override for unknown tool is included', () => {
+    const config = ConfigSchema.parse({
+      permissions: { custom_tool: 'deny' },
+    });
+    const perms = resolvePermissions(config);
+    expect(perms.custom_tool).toBe('deny');
+  });
+});
+
+// === buildCliOverrides ===
+
+describe('buildCliOverrides', () => {
+  test('includes only explicitly-set CLI flags', () => {
+    const options = {
+      model: 'qwen3',
+      host: 'http://localhost:11434',
+      debug: true,
+    };
+    const getSource = (key: string) => (key === 'model' ? 'cli' : 'default');
+    const result = buildCliOverrides(options, getSource);
+    expect(result).toEqual({ model: 'qwen3' });
+  });
+
+  test('returns empty object when nothing explicitly set', () => {
+    const options = { model: 'llama3', host: 'http://localhost:11434' };
+    const getSource = () => 'default';
+    const result = buildCliOverrides(options, getSource);
+    expect(result).toEqual({});
+  });
+
+  test('includes multiple explicit flags', () => {
+    const options = {
+      model: 'qwen3',
+      host: 'http://custom:11434',
+      autonomy: 'balanced',
+      debug: true,
+    };
+    const getSource = () => 'cli';
+    const result = buildCliOverrides(options, getSource);
+    expect(result).toEqual({
+      model: 'qwen3',
+      host: 'http://custom:11434',
+      autonomy: 'balanced',
+      debug: true,
+    });
+  });
+});
