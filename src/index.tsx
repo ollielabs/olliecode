@@ -22,7 +22,7 @@ program
   .option('--tsworker-debug', 'enable tsworker debug logging')
   .option('-m, --model <model>', 'ollama model to use', 'llama3.2:latest')
   .option(
-    '-H, --host <host>',
+    '--host <host>',
     'ollama host to connect to',
     'http://127.0.0.1:11434',
   )
