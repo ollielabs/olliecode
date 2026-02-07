@@ -36,7 +36,10 @@ export type ParseResult = {
  * Delete a value at a nested path in an object.
  * Used to strip invalid fields during partial recovery.
  */
-function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
+export function deleteAtPath(
+  obj: Record<string, unknown>,
+  path: string[],
+): void {
   if (path.length === 0) return;
   if (path.length === 1) {
     delete obj[path[0] as string];
@@ -127,8 +130,14 @@ export function parseConfigString(content: string): ParseResult {
       );
       deleteAtPath(stripped, path);
     }
-    const config = ConfigSchema.parse(stripped);
-    return { raw, config, warnings };
+    const strippedResult = ConfigSchema.safeParse(stripped);
+    if (!strippedResult.success) {
+      warnings.push(
+        'Config contained unrecoverable validation errors after stripping; using defaults.',
+      );
+      return { raw, config: ConfigSchema.parse({}), warnings };
+    }
+    return { raw, config: strippedResult.data, warnings };
   }
 
   return { raw, config: result.data, warnings };

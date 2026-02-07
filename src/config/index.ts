@@ -97,13 +97,12 @@ export function loadMergedConfig(
   const effectiveCustomPath =
     customConfigPath ?? process.env.OLLIE_CONFIG ?? undefined;
 
-  // OLLAMA_HOST env var overrides host from all config sources.
-  // Fold it into CLI overrides so config.host is always authoritative.
+  // OLLAMA_HOST env var is the highest-precedence host override,
+  // winning even over explicit --host CLI flag.
   const envHost = process.env.OLLAMA_HOST;
-  const effectiveCliOverrides =
-    envHost && !cliOverrides?.host
-      ? { ...cliOverrides, host: envHost }
-      : cliOverrides;
+  const effectiveCliOverrides = envHost
+    ? { ...(cliOverrides ?? {}), host: envHost }
+    : cliOverrides;
 
   return mergeConfigs(
     globalRaw,

@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseConfigFile } from './parse';
+import { deleteAtPath, parseConfigFile } from './parse';
 import type { ResolvedConfig } from './schema';
 import { ConfigSchema } from './schema';
 
@@ -37,23 +37,6 @@ export type MergedConfigResult = {
   /** All warnings from all sources */
   warnings: string[];
 };
-
-/**
- * Delete a value at a nested path in an object.
- * Used to strip invalid fields during partial recovery.
- */
-function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
-  if (path.length === 0) return;
-  if (path.length === 1) {
-    delete obj[path[0] as string];
-    return;
-  }
-  const [head, ...rest] = path;
-  const child = obj[head as string];
-  if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
-    deleteAtPath(child as Record<string, unknown>, rest);
-  }
-}
 
 /**
  * Check if a value is a plain object (not array, not null).
@@ -257,8 +240,19 @@ export function mergeConfigs(
       );
       deleteAtPath(stripped, path);
     }
+    const strippedResult = ConfigSchema.safeParse(stripped);
+    if (!strippedResult.success) {
+      warnings.push(
+        'Merged config contained unrecoverable validation errors after stripping; using defaults.',
+      );
+      return {
+        config: ConfigSchema.parse({}),
+        layers,
+        warnings,
+      };
+    }
     return {
-      config: ConfigSchema.parse(stripped),
+      config: strippedResult.data,
       layers,
       warnings,
     };
