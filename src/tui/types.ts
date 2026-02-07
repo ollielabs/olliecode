@@ -6,10 +6,11 @@ import type { TextareaRenderable } from '@opentui/core';
 import type { Message } from 'ollama';
 import type { AgentMode } from '../agent/modes';
 import type {
+  ConfirmationPreview,
   ConfirmationRequest,
   ConfirmationResponse,
-  ConfirmationPreview,
 } from '../agent/safety/types';
+import type { ResolvedConfig } from '../config/schema';
 import type { ContextStats } from '../lib/tokenizer';
 import type { Session } from '../session';
 import type { Todo } from '../session/todo';
@@ -80,11 +81,10 @@ export type DisplayMessage =
  * Props for the main App component.
  */
 export type AppProps = {
-  model: string;
+  config: ResolvedConfig;
   host: string;
   projectPath: string;
   initialSessionId?: string;
-  initialTheme?: string;
 };
 
 /**

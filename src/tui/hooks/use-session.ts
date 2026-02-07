@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_MODE } from '../../agent/modes';
+import type { ResolvedConfig } from '../../config/schema';
 import {
   createSession,
   getMessages,
@@ -27,9 +28,9 @@ import type {
 export type UseSessionProps = {
   /** Project path for session creation */
   projectPath: string;
-  /** Model name */
-  model: string;
-  /** Ollama host URL */
+  /** Resolved config */
+  config: ResolvedConfig;
+  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
   host: string;
   /** Initial session ID to load */
   initialSessionId?: string;
@@ -88,11 +89,12 @@ export type UseSessionReturn = {
 
 export function useSession({
   projectPath,
-  model,
+  config,
   host,
   initialSessionId,
   textareaRef,
 }: UseSessionProps): UseSessionReturn {
+  const model = config.model;
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [history, setHistory] = useState<Message[]>([]);
   const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([]);

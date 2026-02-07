@@ -101,11 +101,10 @@ program
 
     createRoot(renderer).render(
       <App
-        model={config.model}
+        config={config}
         host={host}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
-        initialTheme={config.tui.theme}
       />,
     );
 

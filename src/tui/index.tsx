@@ -3,37 +3,37 @@
  * Main application component with all hooks and UI rendering.
  */
 
-import { useRef, useState } from 'react';
 import type { TextareaRenderable } from '@opentui/core';
 import { RGBA } from '@opentui/core';
+import { useRef, useState } from 'react';
 import { ThemeProvider, useTheme } from '../design';
 import { listSessions } from '../session';
-import { SESSION_LIST_LIMIT } from './constants';
 import {
-  useAgentSubmit,
-  useAgentContext,
-  useSession,
-  useCommandMenu,
-  useKeyboardShortcuts,
-  useFilePicker,
-} from './hooks';
-import {
-  ContextStatsModal,
-  KeyboardShortcutsModal,
-  SessionPicker,
-  ThemePicker,
-  ContextInfoNotification,
+  AssistantMessage,
   CommandMenu,
+  ContextInfoNotification,
+  ContextStatsModal,
   FilePicker,
   InputBox,
+  KeyboardShortcutsModal,
+  SessionPicker,
   SidePanel,
-  UserMessage,
-  AssistantMessage,
-  ToolMessage,
+  ThemePicker,
   ToastNotification,
+  ToolMessage,
+  UserMessage,
 } from './components';
-import { fastScrollAccel } from './utils';
+import { SESSION_LIST_LIMIT } from './constants';
+import {
+  useAgentContext,
+  useAgentSubmit,
+  useCommandMenu,
+  useFilePicker,
+  useKeyboardShortcuts,
+  useSession,
+} from './hooks';
 import type { AppProps, Status } from './types';
+import { fastScrollAccel } from './utils';
 
 /** Prompt template for /init command - creates/updates AGENTS.md */
 const INIT_PROMPT_TEMPLATE = `Please analyze this codebase and create an AGENTS.md file containing:
@@ -45,17 +45,11 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 
 If there's already an AGENTS.md, improve it.`;
 
-export function App({
-  initialTheme,
-  model,
-  host,
-  projectPath,
-  initialSessionId,
-}: AppProps) {
+export function App({ config, host, projectPath, initialSessionId }: AppProps) {
   return (
-    <ThemeProvider initialTheme={initialTheme}>
+    <ThemeProvider initialTheme={config.tui.theme}>
       <AppContent
-        model={model}
+        config={config}
         host={host}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
@@ -64,12 +58,8 @@ export function App({
   );
 }
 
-function AppContent({
-  model,
-  host,
-  projectPath,
-  initialSessionId,
-}: Omit<AppProps, 'initialTheme'>) {
+function AppContent({ config, host, projectPath, initialSessionId }: AppProps) {
+  const model = config.model;
   const { tokens } = useTheme();
   const textareaRef = useRef<TextareaRenderable>(null);
   const statusRef = useRef<Status>('idle');
@@ -78,7 +68,7 @@ function AppContent({
   // Initialize session hook first as other hooks depend on it
   const session = useSession({
     projectPath,
-    model,
+    config,
     host,
     initialSessionId,
     textareaRef,
@@ -87,7 +77,7 @@ function AppContent({
   // Context hook for stats, compaction, and related operations
   const context = useAgentContext({
     history: session.history,
-    model,
+    config,
     host,
     setHistory: session.setHistory,
     setDisplayMessages: session.setDisplayMessages,
@@ -95,8 +85,9 @@ function AppContent({
 
   // Agent submission hook (includes confirmation handling)
   const agent = useAgentSubmit({
-    model,
+    config,
     host,
+    projectPath,
     ensureSession: session.ensureSession,
     mode: session.mode,
     history: session.history,
