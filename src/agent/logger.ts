@@ -1,28 +1,36 @@
 /**
  * Debug logging for the agent.
- * Controlled by OLLY_DEBUG environment variable.
+ * Controlled by OLLY_DEBUG environment variable or config.debug.
  */
 
 /**
- * Check if debug logging is enabled.
+ * Check if debug logging is enabled via environment.
  * Set OLLY_DEBUG=1 or OLLY_DEBUG=true to enable.
  */
-function isDebugEnabled(): boolean {
+function isEnvDebugEnabled(): boolean {
   const envValue = process.env.OLLY_DEBUG;
   return envValue === '1' || envValue === 'true';
 }
 
-// Cache the result at module load time
-const DEBUG_ENABLED = isDebugEnabled();
+// Module-level debug flag. Starts with env value, can be enabled by config.
+let debugEnabled = isEnvDebugEnabled();
+
+/**
+ * Enable or disable debug logging.
+ * Called during config resolution to wire config.debug.
+ */
+export function setDebugEnabled(enabled: boolean): void {
+  debugEnabled = enabled;
+}
 
 /**
  * Log debug messages to stderr.
- * Only outputs when OLLY_DEBUG environment variable is set.
+ * Only outputs when debug is enabled (via env or config).
  *
  * @param args - Values to log (same as console.error)
  */
 export function log(...args: unknown[]): void {
-  if (DEBUG_ENABLED) {
+  if (debugEnabled) {
     console.error('[agent]', ...args);
   }
 }
@@ -34,7 +42,7 @@ export function log(...args: unknown[]): void {
  * @param args - Values to log
  */
 export function logWithPrefix(prefix: string, ...args: unknown[]): void {
-  if (DEBUG_ENABLED) {
+  if (debugEnabled) {
     console.error(`[${prefix}]`, ...args);
   }
 }
@@ -43,5 +51,5 @@ export function logWithPrefix(prefix: string, ...args: unknown[]): void {
  * Check if debug mode is currently enabled.
  */
 export function isDebugMode(): boolean {
-  return DEBUG_ENABLED;
+  return debugEnabled;
 }

@@ -5,8 +5,8 @@
  * See docs/context-compaction.md for the full strategy.
  */
 
-import { Ollama } from 'ollama';
 import type { Message } from 'ollama';
+import { Ollama } from 'ollama';
 import { estimateMessagesTokens } from '../lib/tokenizer';
 import { log } from './logger';
 
@@ -22,6 +22,8 @@ export type CompactionConfig = {
   useLLMSummary: boolean;
   /** Maximum tokens for summaries, default 200 */
   maxSummaryTokens: number;
+  /** Temperature for summarization LLM calls, default 0.3 */
+  temperature: number;
 };
 
 /**
@@ -32,6 +34,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   minPreservedMessages: 6,
   useLLMSummary: true,
   maxSummaryTokens: 200,
+  temperature: 0.3,
 };
 
 /**
@@ -151,6 +154,7 @@ async function createSummary(
   model: string,
   host: string,
   maxTokens: number,
+  temperature: number = 0.3,
 ): Promise<string> {
   // Build a prompt for summarization
   const conversationText = messages
@@ -176,7 +180,7 @@ Summary:`;
       model,
       messages: [{ role: 'user', content: summaryPrompt }],
       options: {
-        temperature: 0.3,
+        temperature,
         num_predict: maxTokens,
       },
     });
@@ -257,6 +261,7 @@ async function compactWithSummary(
           model,
           host,
           config.maxSummaryTokens,
+          config.temperature,
         );
         result.push({
           role: 'system',
@@ -284,6 +289,7 @@ async function compactWithSummary(
       model,
       host,
       config.maxSummaryTokens,
+      config.temperature,
     );
     result.push({
       role: 'system',

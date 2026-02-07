@@ -189,6 +189,8 @@ export function useAgentSubmit({
       signal: abortControllerRef.current.signal,
       config: extractAgentConfig(config),
       safetyConfig: extractSafetyConfig(config, projectPath),
+      temperature: config.temperature,
+      compactionTemperature: config.compaction.temperature,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();

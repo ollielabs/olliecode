@@ -1,6 +1,7 @@
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { Command } from 'commander';
+import { setDebugEnabled } from './agent/logger';
 import { buildCliOverrides, loadMergedConfig } from './config';
 import { initializeTreeSitterParsers } from './lib/tree-sitter';
 import {
@@ -57,6 +58,11 @@ program
 
     // Apply OLLAMA_HOST env var (highest precedence for host)
     const host = process.env.OLLAMA_HOST ?? config.host;
+
+    // Wire debug config to logger (env var takes precedence, config enables)
+    if (config.debug) {
+      setDebugEnabled(true);
+    }
 
     // Log config warnings to stderr
     for (const warning of warnings) {
