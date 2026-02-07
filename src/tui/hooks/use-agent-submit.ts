@@ -6,43 +6,47 @@
  * pending → confirming → executing → completed/error/denied/blocked
  */
 
-import { useState, useRef } from 'react';
 import type { ToolCall } from 'ollama';
+import { useRef, useState } from 'react';
 import { runAgent } from '../../agent';
-import type { ToolResult, AgentStep } from '../../agent/types';
+import type { AgentStep, ToolResult } from '../../agent/types';
+import { extractAgentConfig, extractSafetyConfig } from '../../config/resolve';
+import type { ResolvedConfig } from '../../config/schema';
 import {
   addMessage,
-  fromUserInput,
   fromAssistantResponse,
+  fromUserInput,
 } from '../../session';
-import { augmentMessageWithFiles } from '../../utils/file-list';
-import type { ToolPart } from '../../session/types';
 import { getTodos } from '../../session/todo';
+import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
+import { augmentMessageWithFiles } from '../../utils/file-list';
 import {
   TOOL_ID_RADIX,
-  TOOL_ID_SLICE_START,
   TOOL_ID_SLICE_END,
+  TOOL_ID_SLICE_START,
 } from '../constants';
-import type { ToolMetadata } from '../types';
 import type {
-  Status,
-  Message,
-  DisplayMessage,
-  ToolDisplayMessage,
-  ToolState,
   AgentMode,
-  Session,
   ConfirmationRequest,
   ConfirmationResponse,
+  DisplayMessage,
+  Message,
+  Session,
+  Status,
   Todo,
+  ToolDisplayMessage,
+  ToolMetadata,
+  ToolState,
 } from '../types';
 
 export type UseAgentSubmitProps = {
-  /** Model name */
-  model: string;
-  /** Ollama host URL */
+  /** Resolved config */
+  config: ResolvedConfig;
+  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
   host: string;
+  /** Project path for safety config */
+  projectPath: string;
   /** Function to ensure a session exists and return it */
   ensureSession: () => Promise<Session>;
   /** Current mode */
@@ -86,8 +90,9 @@ function generateToolId(): string {
 }
 
 export function useAgentSubmit({
-  model,
+  config,
   host,
+  projectPath,
   ensureSession,
   mode,
   history,
@@ -95,6 +100,7 @@ export function useAgentSubmit({
   setHistory,
   setSidebarTodos,
 }: UseAgentSubmitProps): UseAgentSubmitReturn {
+  const model = config.model;
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
@@ -181,6 +187,8 @@ export function useAgentSubmit({
       mode: modeRef.current,
       sessionId: session.id,
       signal: abortControllerRef.current.signal,
+      config: extractAgentConfig(config),
+      safetyConfig: extractSafetyConfig(config, projectPath),
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();

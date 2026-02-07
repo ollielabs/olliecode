@@ -3,21 +3,22 @@
  * Handles sidebar stats, context info notifications, and context manipulation.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { compactMessages, getCompactionLevel } from '../../agent/compaction';
+import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
 import {
-  NOTIFICATION_DURATION_SHORT,
   NOTIFICATION_DURATION_LONG,
+  NOTIFICATION_DURATION_SHORT,
 } from '../constants';
-import type { Message, ContextStats, DisplayMessage } from '../types';
+import type { ContextStats, DisplayMessage, Message } from '../types';
 
 export type UseAgentContextProps = {
   /** Current message history */
   history: Message[];
-  /** Model name */
-  model: string;
-  /** Ollama host URL */
+  /** Resolved config */
+  config: ResolvedConfig;
+  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
   host: string;
   /** Setter for history (for compaction and forget) */
   setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -50,11 +51,12 @@ export type UseAgentContextReturn = {
 
 export function useAgentContext({
   history,
-  model,
+  config,
   host,
   setHistory,
   setDisplayMessages,
 }: UseAgentContextProps): UseAgentContextReturn {
+  const model = config.model;
   const [contextInfo, setContextInfo] = useState<string | null>(null);
   const [contextStats, setContextStats] = useState<ContextStats | null>(null);
   const [showContextStats, setShowContextStats] = useState(false);
