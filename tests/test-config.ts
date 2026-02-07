@@ -6,7 +6,12 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import { buildCliOverrides, deepMerge } from '../src/config/merge';
+import { getConfigDirectory } from '../src/config/index';
+import {
+  buildCliOverrides,
+  deepMerge,
+  mergeConfigs,
+} from '../src/config/merge';
 import { deleteAtPath, parseConfigString } from '../src/config/parse';
 import { resolvePermissions } from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
@@ -286,5 +291,62 @@ describe('buildCliOverrides', () => {
       autonomy: 'balanced',
       debug: true,
     });
+  });
+});
+
+// === getConfigDirectory (XDG_CONFIG_HOME) ===
+
+describe('getConfigDirectory', () => {
+  const originalXdg = process.env.XDG_CONFIG_HOME;
+
+  test('uses XDG_CONFIG_HOME when set', () => {
+    process.env.XDG_CONFIG_HOME = '/custom/config';
+    expect(getConfigDirectory()).toBe('/custom/config/ollie');
+    // restore
+    if (originalXdg === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = originalXdg;
+    }
+  });
+
+  test('falls back to ~/.config when XDG_CONFIG_HOME is unset', () => {
+    delete process.env.XDG_CONFIG_HOME;
+    const result = getConfigDirectory();
+    expect(result.endsWith('.config/ollie')).toBe(true);
+    // restore
+    if (originalXdg !== undefined) {
+      process.env.XDG_CONFIG_HOME = originalXdg;
+    }
+  });
+});
+
+// === mergeConfigs (partial recovery) ===
+
+describe('mergeConfigs', () => {
+  test('preserves valid settings when merged config has invalid field', () => {
+    const result = mergeConfigs(
+      { model: 'custom-model' },
+      '/nonexistent',
+      undefined,
+      { temperature: 'not-a-number' },
+    );
+    expect(result.config.model).toBe('custom-model');
+    expect(result.config.temperature).toBe(0.2); // default
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings.some((w) => w.includes('temperature'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('using default'))).toBe(true);
+  });
+
+  test('preserves valid settings from multiple layers with one invalid', () => {
+    const result = mergeConfigs(
+      { model: 'base-model', debug: true },
+      '/nonexistent',
+      undefined,
+      { autonomy: 'invalid-level' },
+    );
+    expect(result.config.model).toBe('base-model');
+    expect(result.config.debug).toBe(true);
+    expect(result.config.autonomy).toBe('cautious'); // default
   });
 });
