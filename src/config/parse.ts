@@ -33,22 +33,49 @@ export type ParseResult = {
 };
 
 /**
- * Delete a value at a nested path in an object.
+ * Delete a value at a nested path in an object or array.
  * Used to strip invalid fields during partial recovery.
+ * Handles both object keys and array indices (Zod paths can include numbers).
  */
 export function deleteAtPath(
-  obj: Record<string, unknown>,
-  path: string[],
+  container: unknown,
+  path: (string | number)[],
 ): void {
-  if (path.length === 0) return;
-  if (path.length === 1) {
-    delete obj[path[0] as string];
+  if (
+    path.length === 0 ||
+    container === null ||
+    typeof container !== 'object'
+  ) {
     return;
   }
+
   const [head, ...rest] = path;
-  const child = obj[head as string];
-  if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
-    deleteAtPath(child as Record<string, unknown>, rest);
+  const isLast = rest.length === 0;
+
+  if (Array.isArray(container)) {
+    const index = typeof head === 'number' ? head : Number(head);
+    if (!Number.isInteger(index) || index < 0 || index >= container.length) {
+      return;
+    }
+    if (isLast) {
+      container.splice(index, 1);
+      return;
+    }
+    const child = container[index] as unknown;
+    if (child !== null && typeof child === 'object') {
+      deleteAtPath(child, rest);
+    }
+    return;
+  }
+
+  const key = String(head);
+  if (isLast) {
+    delete (container as Record<string, unknown>)[key];
+    return;
+  }
+  const child = (container as Record<string, unknown>)[key];
+  if (child !== null && typeof child === 'object') {
+    deleteAtPath(child, rest);
   }
 }
 
@@ -125,8 +152,9 @@ export function parseConfigString(content: string): ParseResult {
     const stripped = structuredClone(raw);
     for (const issue of result.error.issues) {
       const path = issue.path.map(String);
+      const location = path.length > 0 ? path.join('.') : '<root>';
       warnings.push(
-        `Invalid config at "${path.join('.')}": ${issue.message} (using default)`,
+        `Invalid config at "${location}": ${issue.message} (using default)`,
       );
       deleteAtPath(stripped, path);
     }

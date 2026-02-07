@@ -235,8 +235,9 @@ export function mergeConfigs(
     const stripped = structuredClone(merged);
     for (const issue of result.error.issues) {
       const path = issue.path.map(String);
+      const location = path.length > 0 ? path.join('.') : '<root>';
       warnings.push(
-        `Invalid merged config at "${path.join('.')}": ${issue.message} (using default)`,
+        `Invalid merged config at "${location}": ${issue.message} (using default)`,
       );
       deleteAtPath(stripped, path);
     }
