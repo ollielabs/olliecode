@@ -41,10 +41,8 @@ import type {
 } from '../types';
 
 export type UseAgentSubmitProps = {
-  /** Resolved config */
+  /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
   config: ResolvedConfig;
-  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
-  host: string;
   /** Project path for safety config */
   projectPath: string;
   /** Function to ensure a session exists and return it */
@@ -91,7 +89,6 @@ function generateToolId(): string {
 
 export function useAgentSubmit({
   config,
-  host,
   projectPath,
   ensureSession,
   mode,
@@ -101,6 +98,7 @@ export function useAgentSubmit({
   setSidebarTodos,
 }: UseAgentSubmitProps): UseAgentSubmitReturn {
   const model = config.model;
+  const host = config.host;
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [streamingContent, setStreamingContent] = useState('');

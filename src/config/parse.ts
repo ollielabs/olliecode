@@ -33,6 +33,23 @@ export type ParseResult = {
 };
 
 /**
+ * Delete a value at a nested path in an object.
+ * Used to strip invalid fields during partial recovery.
+ */
+function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
+  if (path.length === 0) return;
+  if (path.length === 1) {
+    delete obj[path[0] as string];
+    return;
+  }
+  const [head, ...rest] = path;
+  const child = obj[head as string];
+  if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
+    deleteAtPath(child as Record<string, unknown>, rest);
+  }
+}
+
+/**
  * Parse a JSONC string into a raw object.
  * Returns null if the string is empty or invalid.
  */
@@ -101,13 +118,16 @@ export function parseConfigString(content: string): ParseResult {
   const result = ConfigSchema.safeParse(raw);
 
   if (!result.success) {
-    // Collect validation errors as warnings, fall back to defaults for invalid fields
+    // Strip only the invalid fields and re-parse to preserve valid settings
+    const stripped = structuredClone(raw);
     for (const issue of result.error.issues) {
-      const path = issue.path.join('.');
-      warnings.push(`Invalid config at "${path}": ${issue.message}`);
+      const path = issue.path.map(String);
+      warnings.push(
+        `Invalid config at "${path.join('.')}": ${issue.message} (using default)`,
+      );
+      deleteAtPath(stripped, path);
     }
-    // Re-parse with defaults by stripping invalid fields
-    const config = ConfigSchema.parse({});
+    const config = ConfigSchema.parse(stripped);
     return { raw, config, warnings };
   }
 

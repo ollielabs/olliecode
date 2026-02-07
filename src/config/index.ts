@@ -38,10 +38,13 @@ export type {
 
 /**
  * Get the path to the Ollie config directory.
- * Follows XDG convention: ~/.config/ollie/
+ * Follows XDG Base Directory Specification:
+ * $XDG_CONFIG_HOME/ollie/ (default: ~/.config/ollie/)
  */
 export function getConfigDirectory(): string {
-  return join(homedir(), '.config', 'ollie');
+  const xdgConfigHome =
+    process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(xdgConfigHome, 'ollie');
 }
 
 /**
@@ -94,11 +97,19 @@ export function loadMergedConfig(
   const effectiveCustomPath =
     customConfigPath ?? process.env.OLLIE_CONFIG ?? undefined;
 
+  // OLLAMA_HOST env var overrides host from all config sources.
+  // Fold it into CLI overrides so config.host is always authoritative.
+  const envHost = process.env.OLLAMA_HOST;
+  const effectiveCliOverrides =
+    envHost && !cliOverrides?.host
+      ? { ...cliOverrides, host: envHost }
+      : cliOverrides;
+
   return mergeConfigs(
     globalRaw,
     projectRoot,
     effectiveCustomPath,
-    cliOverrides,
+    effectiveCliOverrides,
   );
 }
 

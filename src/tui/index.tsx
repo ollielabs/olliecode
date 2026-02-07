@@ -45,12 +45,11 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 
 If there's already an AGENTS.md, improve it.`;
 
-export function App({ config, host, projectPath, initialSessionId }: AppProps) {
+export function App({ config, projectPath, initialSessionId }: AppProps) {
   return (
     <ThemeProvider initialTheme={config.tui.theme}>
       <AppContent
         config={config}
-        host={host}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
       />
@@ -58,7 +57,7 @@ export function App({ config, host, projectPath, initialSessionId }: AppProps) {
   );
 }
 
-function AppContent({ config, host, projectPath, initialSessionId }: AppProps) {
+function AppContent({ config, projectPath, initialSessionId }: AppProps) {
   const model = config.model;
   const { tokens } = useTheme();
   const textareaRef = useRef<TextareaRenderable>(null);
@@ -69,7 +68,6 @@ function AppContent({ config, host, projectPath, initialSessionId }: AppProps) {
   const session = useSession({
     projectPath,
     config,
-    host,
     initialSessionId,
     textareaRef,
   });
@@ -78,7 +76,6 @@ function AppContent({ config, host, projectPath, initialSessionId }: AppProps) {
   const context = useAgentContext({
     history: session.history,
     config,
-    host,
     setHistory: session.setHistory,
     setDisplayMessages: session.setDisplayMessages,
   });
@@ -86,7 +83,6 @@ function AppContent({ config, host, projectPath, initialSessionId }: AppProps) {
   // Agent submission hook (includes confirmation handling)
   const agent = useAgentSubmit({
     config,
-    host,
     projectPath,
     ensureSession: session.ensureSession,
     mode: session.mode,

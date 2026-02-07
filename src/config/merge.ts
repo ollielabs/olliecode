@@ -39,6 +39,23 @@ export type MergedConfigResult = {
 };
 
 /**
+ * Delete a value at a nested path in an object.
+ * Used to strip invalid fields during partial recovery.
+ */
+function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
+  if (path.length === 0) return;
+  if (path.length === 1) {
+    delete obj[path[0] as string];
+    return;
+  }
+  const [head, ...rest] = path;
+  const child = obj[head as string];
+  if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
+    deleteAtPath(child as Record<string, unknown>, rest);
+  }
+}
+
+/**
  * Check if a value is a plain object (not array, not null).
  */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -231,13 +248,17 @@ export function mergeConfigs(
   const result = ConfigSchema.safeParse(merged);
 
   if (!result.success) {
+    // Strip only the invalid fields and re-parse to preserve valid settings
+    const stripped = structuredClone(merged);
     for (const issue of result.error.issues) {
-      const path = issue.path.join('.');
-      warnings.push(`Invalid merged config at "${path}": ${issue.message}`);
+      const path = issue.path.map(String);
+      warnings.push(
+        `Invalid merged config at "${path.join('.')}": ${issue.message} (using default)`,
+      );
+      deleteAtPath(stripped, path);
     }
-    // Fall back to defaults for the entire config
     return {
-      config: ConfigSchema.parse({}),
+      config: ConfigSchema.parse(stripped),
       layers,
       warnings,
     };
