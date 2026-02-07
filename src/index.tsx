@@ -1,15 +1,15 @@
-import { Command } from 'commander';
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
+import { Command } from 'commander';
+import { getResolvedConfig } from './config';
 import { initializeTreeSitterParsers } from './lib/tree-sitter';
-import { App } from './tui';
 import {
-  initDatabase,
-  getSession,
-  getLatestSession,
   closeDatabase,
+  getLatestSession,
+  getSession,
+  initDatabase,
 } from './session';
-import { getConfigValue } from './config';
+import { App } from './tui';
 
 const program = new Command();
 
@@ -76,7 +76,7 @@ program
     });
 
     // Load theme preference from config
-    const initialTheme = getConfigValue('theme');
+    const initialTheme = getResolvedConfig().tui.theme;
 
     createRoot(renderer).render(
       <App

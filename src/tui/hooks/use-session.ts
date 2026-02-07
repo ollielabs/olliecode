@@ -3,25 +3,25 @@
  * Handles session CRUD, mode, history, display messages, and todos.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_MODE } from '../../agent/modes';
 import {
-  getSession,
-  getMessages,
-  listSessions,
   createSession,
-  toOllamaMessages,
+  getMessages,
+  getSession,
+  listSessions,
   toDisplayMessages,
+  toOllamaMessages,
 } from '../../session';
 import { getTodos } from '../../session/todo';
 import { FOCUS_DELAY_MS, SESSION_LIST_LIMIT } from '../constants';
 import type {
-  Session,
-  Message,
-  DisplayMessage,
   AgentMode,
-  Todo,
+  DisplayMessage,
+  Message,
+  Session,
   TextareaRef,
+  Todo,
 } from '../types';
 
 export type UseSessionProps = {
@@ -165,7 +165,7 @@ export function useSession({
     setShowThemePicker(false);
     // Persist theme selection to config
     void import('../../config').then(({ setConfigValue }) => {
-      setConfigValue('theme', themeId);
+      setConfigValue(['tui', 'theme'], themeId);
     });
     setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
   };

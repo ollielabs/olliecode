@@ -1,21 +1,29 @@
 /**
  * Configuration management for Ollie.
- * Stores user settings in ~/.config/ollie/config.json
+ *
+ * Loads and validates config from ~/.config/ollie/config.json (JSONC).
+ * Uses Zod schema for validation and jsonc-parser for comment-preserving writes.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
+import {
+  migrateConfig,
+  type ParseResult,
+  parseConfigFile,
+  setConfigFileValue,
+} from './parse';
+import type { ResolvedConfig } from './schema';
+import { ConfigSchema } from './schema';
 
-/**
- * Configuration schema
- */
-export type Config = {
-  /** Selected theme ID */
-  theme?: string;
-};
-
-const DEFAULT_CONFIG: Config = {};
+// Re-export schema types
+export type {
+  AutonomyLevel,
+  OllieConfig,
+  PermissionValue,
+  ResolvedConfig,
+} from './schema';
 
 /**
  * Get the path to the Ollie config directory.
@@ -26,7 +34,7 @@ export function getConfigDirectory(): string {
 }
 
 /**
- * Get the path to the config file.
+ * Get the path to the global config file.
  */
 export function getConfigPath(): string {
   return join(getConfigDirectory(), 'config.json');
@@ -43,56 +51,55 @@ function ensureConfigDirectory(): void {
 }
 
 /**
- * Load configuration from disk.
- * Returns default config if file doesn't exist or is invalid.
+ * Load and validate the global config file.
+ * Runs migration for legacy format, validates with Zod schema.
+ *
+ * @returns Parsed config with warnings, or defaults if file missing/invalid
  */
-export function loadConfig(): Config {
+export function loadConfig(): ParseResult {
   const configPath = getConfigPath();
 
-  if (!existsSync(configPath)) {
-    return { ...DEFAULT_CONFIG };
+  // Run migration before parsing
+  migrateConfig(configPath);
+
+  const result = parseConfigFile(configPath);
+  if (result === null) {
+    return {
+      raw: {},
+      config: ConfigSchema.parse({}),
+      warnings: [],
+    };
   }
 
-  try {
-    const content = readFileSync(configPath, 'utf-8');
-    const parsed = JSON.parse(content) as Partial<Config>;
-    return { ...DEFAULT_CONFIG, ...parsed };
-  } catch {
-    // Invalid JSON or read error - return defaults
-    return { ...DEFAULT_CONFIG };
-  }
+  return result;
 }
 
 /**
- * Save configuration to disk.
+ * Get the resolved config with all defaults applied.
  */
-export function saveConfig(config: Config): void {
+export function getResolvedConfig(): ResolvedConfig {
+  return loadConfig().config;
+}
+
+/**
+ * Set a config value in the global config file.
+ * Preserves comments and formatting via jsonc-parser modify().
+ *
+ * @param path - JSON path segments (e.g. ["tui", "theme"])
+ * @param value - Value to set
+ */
+export function setConfigValue(path: string[], value: unknown): void {
   ensureConfigDirectory();
-  const configPath = getConfigPath();
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  setConfigFileValue(getConfigPath(), path, value);
 }
 
 /**
- * Update specific config values (merges with existing).
+ * Get a specific top-level config value.
+ * Provided for backward compatibility.
+ *
+ * @deprecated Use getResolvedConfig() instead for typed access.
  */
-export function updateConfig(updates: Partial<Config>): void {
-  const current = loadConfig();
-  saveConfig({ ...current, ...updates });
-}
-
-/**
- * Get a specific config value.
- */
-export function getConfigValue<K extends keyof Config>(key: K): Config[K] {
-  return loadConfig()[key];
-}
-
-/**
- * Set a specific config value.
- */
-export function setConfigValue<K extends keyof Config>(
-  key: K,
-  value: Config[K],
-): void {
-  updateConfig({ [key]: value });
+export function getConfigValueLegacy(key: string): unknown {
+  const config = getResolvedConfig();
+  return config[key as keyof ResolvedConfig];
 }
