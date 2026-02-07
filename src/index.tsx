@@ -1,7 +1,7 @@
 import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { Command } from 'commander';
-import { getResolvedConfig } from './config';
+import { buildCliOverrides, loadMergedConfig } from './config';
 import { initializeTreeSitterParsers } from './lib/tree-sitter';
 import {
   closeDatabase,
@@ -22,22 +22,46 @@ program
   .option('--tsworker-debug', 'enable tsworker debug logging')
   .option('-m, --model <model>', 'ollama model to use', 'llama3.2:latest')
   .option(
-    '-h, --host <host>',
+    '-H, --host <host>',
     'ollama host to connect to',
     'http://127.0.0.1:11434',
   )
   .option('-s, --session <id>', 'resume a specific session by ID')
   .option('-c, --continue', 'continue the most recent session for this project')
+  .option('--config <path>', 'path to custom config file')
+  .option(
+    '--autonomy <level>',
+    'autonomy level (paranoid, cautious, balanced, autonomous)',
+  )
+  .option('--debug', 'enable debug logging')
   .action(async (options) => {
     const tsworkerDebug = options.tsworkerDebug ? 1 : undefined;
     const {
-      model,
-      host,
       session: sessionId,
       continue: continueSession,
+      config: customConfigPath,
     } = options;
-    const ollamaHost = process.env.OLLAMA_HOST || host;
     const projectPath = process.cwd();
+
+    // Build CLI overrides (only explicitly-provided flags)
+    const getSource = (key: string) =>
+      program.getOptionValueSource(key) as string | undefined;
+    const cliOverrides = buildCliOverrides(options, getSource);
+
+    // Load and merge all config sources
+    const { config, warnings } = loadMergedConfig(
+      projectPath,
+      customConfigPath,
+      cliOverrides,
+    );
+
+    // Apply OLLAMA_HOST env var (highest precedence for host)
+    const host = process.env.OLLAMA_HOST ?? config.host;
+
+    // Log config warnings to stderr
+    for (const warning of warnings) {
+      console.error(`[config] ${warning}`);
+    }
 
     // Initialize database
     initDatabase();
@@ -75,16 +99,13 @@ program
       exitOnCtrlC: true,
     });
 
-    // Load theme preference from config
-    const initialTheme = getResolvedConfig().tui.theme;
-
     createRoot(renderer).render(
       <App
-        model={model}
-        host={ollamaHost}
+        model={config.model}
+        host={host}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
-        initialTheme={initialTheme}
+        initialTheme={config.tui.theme}
       />,
     );
 
