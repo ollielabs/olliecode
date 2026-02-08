@@ -192,6 +192,7 @@ export function useAgentSubmit({
       config: extractAgentConfig(config),
       safetyConfig: extractSafetyConfig(config, projectPath),
       toolsConfig: extractToolsConfig(config),
+      configInstructions: config.instructions,
       temperature: config.temperature,
       compactionTemperature: config.compaction.temperature,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),

@@ -20,7 +20,7 @@ import {
 } from './loop-detector';
 import type { AgentMode } from './modes';
 import { DEFAULT_MODE } from './modes';
-import { getSystemPromptForMode } from './prompts';
+import { getDefaultContext, getSystemPromptForMode } from './prompts';
 import {
   type ConfirmationRequest,
   type ConfirmationResponse,
@@ -75,6 +75,9 @@ export type RunAgentArgs = {
   config?: Partial<AgentConfig>;
   safetyConfig: SafetyConfig;
   toolsConfig?: ToolsConfig;
+
+  /** Instruction file paths from config (resolved and loaded into system prompt) */
+  configInstructions?: string[];
 
   /** Chat temperature (default 0.2) */
   temperature?: number;
@@ -166,7 +169,11 @@ export async function runAgent(
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
   const systemPrompt =
-    args.systemPromptOverride ?? getSystemPromptForMode(mode);
+    args.systemPromptOverride ??
+    getSystemPromptForMode(
+      mode,
+      getDefaultContext(args.safetyConfig.projectRoot, args.configInstructions),
+    );
 
   log(
     'Starting agent with model:',
@@ -330,6 +337,7 @@ export async function runAgent(
             host: args.host,
             safetyConfig: args.safetyConfig,
             toolsConfig: args.toolsConfig,
+            configInstructions: args.configInstructions,
           },
         },
       );

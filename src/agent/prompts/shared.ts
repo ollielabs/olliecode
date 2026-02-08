@@ -4,8 +4,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
+import { log } from '../logger';
 
 export type SystemPromptContext = {
   workingDirectory: string;
@@ -15,33 +16,125 @@ export type SystemPromptContext = {
 };
 
 /**
- * Load AGENTS.md from global config and/or project root.
- * Combines both if present (global first, then project-specific).
+ * Resolve an instruction file path relative to a base directory.
  *
- * Locations checked:
- * - Global: ~/.config/ollie/AGENTS.md
- * - Project: <projectRoot>/AGENTS.md
+ * - Paths starting with `~` or `~/` expand to the home directory
+ * - Absolute paths are used as-is
+ * - Relative paths resolve against baseDir
  */
-export function loadProjectInstructions(projectRoot: string): string | null {
+export function resolveInstructionPath(
+  filePath: string,
+  baseDir: string,
+): string {
+  if (filePath.startsWith('~/') || filePath === '~') {
+    return join(homedir(), filePath.slice(2));
+  }
+  if (isAbsolute(filePath)) {
+    return filePath;
+  }
+  return resolve(baseDir, filePath);
+}
+
+/**
+ * Load instruction files from an array of paths.
+ *
+ * Resolves each path relative to baseDir, reads the file,
+ * and returns the content. Missing or unreadable files are
+ * logged as warnings and skipped.
+ *
+ * @param paths - Array of instruction file paths
+ * @param baseDir - Base directory for resolving relative paths
+ * @returns Array of file contents (only successfully read files)
+ */
+export function loadInstructionFiles(
+  paths: string[],
+  baseDir: string,
+): string[] {
+  const contents: string[] = [];
+
+  for (const filePath of paths) {
+    const resolved = resolveInstructionPath(filePath, baseDir);
+    if (!existsSync(resolved)) {
+      log(`Instruction file not found: ${resolved} (from "${filePath}")`);
+      continue;
+    }
+    try {
+      const content = readFileSync(resolved, 'utf-8').trim();
+      if (content) {
+        contents.push(content);
+      }
+    } catch {
+      log(`Could not read instruction file: ${resolved}`);
+    }
+  }
+
+  return contents;
+}
+
+/**
+ * Load project instructions from AGENTS.md files and configured instruction paths.
+ *
+ * Loading order:
+ * 1. Global AGENTS.md (~/.config/ollie/AGENTS.md)
+ * 2. Project AGENTS.md (<projectRoot>/AGENTS.md)
+ * 3. Configured instruction files (from config.instructions)
+ *
+ * Files from config.instructions that duplicate AGENTS.md are
+ * automatically skipped (path-based deduplication).
+ *
+ * @param projectRoot - Project root directory
+ * @param configInstructions - Optional instruction paths from config
+ * @returns Combined instruction content, or null if none found
+ */
+export function loadProjectInstructions(
+  projectRoot: string,
+  configInstructions?: string[],
+): string | null {
   const parts: string[] = [];
+  const loadedPaths = new Set<string>();
 
   // 1. Global AGENTS.md (user-wide instructions)
   const globalPath = join(homedir(), '.config', 'ollie', 'AGENTS.md');
   if (existsSync(globalPath)) {
     try {
       parts.push(readFileSync(globalPath, 'utf-8'));
+      loadedPaths.add(globalPath);
     } catch {
       // Silently skip if unreadable
     }
   }
 
   // 2. Project AGENTS.md (project-specific instructions)
-  const projectPath = join(projectRoot, 'AGENTS.md');
-  if (existsSync(projectPath)) {
+  const projectAgentsPath = join(projectRoot, 'AGENTS.md');
+  if (existsSync(projectAgentsPath)) {
     try {
-      parts.push(readFileSync(projectPath, 'utf-8'));
+      parts.push(readFileSync(projectAgentsPath, 'utf-8'));
+      loadedPaths.add(projectAgentsPath);
     } catch {
       // Silently skip if unreadable
+    }
+  }
+
+  // 3. Configured instruction files (deduplicated against already-loaded paths)
+  if (configInstructions && configInstructions.length > 0) {
+    for (const filePath of configInstructions) {
+      const resolved = resolveInstructionPath(filePath, projectRoot);
+      if (loadedPaths.has(resolved)) {
+        continue; // Already loaded (e.g., AGENTS.md in config.instructions)
+      }
+      if (!existsSync(resolved)) {
+        log(`Instruction file not found: ${resolved} (from "${filePath}")`);
+        continue;
+      }
+      try {
+        const content = readFileSync(resolved, 'utf-8').trim();
+        if (content) {
+          parts.push(content);
+          loadedPaths.add(resolved);
+        }
+      } catch {
+        log(`Could not read instruction file: ${resolved}`);
+      }
     }
   }
 
@@ -49,15 +142,23 @@ export function loadProjectInstructions(projectRoot: string): string | null {
 }
 
 /**
- * Get default context for the current environment
+ * Get default context for the current environment.
+ *
+ * @param projectRoot - Project root (defaults to process.cwd())
+ * @param configInstructions - Optional instruction file paths from config
  */
-export function getDefaultContext(): SystemPromptContext {
-  const workingDirectory = process.cwd();
+export function getDefaultContext(
+  projectRoot?: string,
+  configInstructions?: string[],
+): SystemPromptContext {
+  const workingDirectory = projectRoot ?? process.cwd();
   return {
     workingDirectory,
     platform: process.platform,
     date: new Date().toISOString().split('T')[0] ?? 'unknown',
-    projectInstructions: loadProjectInstructions(workingDirectory) ?? undefined,
+    projectInstructions:
+      loadProjectInstructions(workingDirectory, configInstructions) ??
+      undefined,
   };
 }
 
@@ -73,10 +174,10 @@ Date: ${ctx.date}
 }
 
 /**
- * Project instructions block - included when AGENTS.md exists
+ * Project instructions block - included when instruction files are loaded
  */
 export function buildProjectInstructionsBlock(instructions: string): string {
-  return `# Project Instructions (from AGENTS.md)
+  return `# Project Instructions
 
 ${instructions}`;
 }

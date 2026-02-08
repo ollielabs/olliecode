@@ -4,9 +4,15 @@
  * Run with: bun test tests/test-config.ts
  */
 
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-
+import {
+  loadInstructionFiles,
+  loadProjectInstructions,
+  resolveInstructionPath,
+} from '../src/agent/prompts/shared';
 import { validatePath } from '../src/agent/safety/path-validation';
 import type { SafetyConfig } from '../src/agent/safety/types';
 import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
@@ -594,5 +600,130 @@ describe('extractTuiConfig', () => {
     expect(defaults.toastDuration).toBe(2500); // TOAST_DURATION_MS
     expect(defaults.doubleEscapeThreshold).toBe(500); // DOUBLE_ESCAPE_THRESHOLD_MS
     expect(defaults.sessionListLimit).toBe(50); // SESSION_LIST_LIMIT
+  });
+});
+
+// === Instructions ===
+
+describe('resolveInstructionPath', () => {
+  test('resolves tilde paths to home directory', () => {
+    const result = resolveInstructionPath('~/docs/rules.md', '/project');
+    expect(result).toBe(join(homedir(), 'docs/rules.md'));
+  });
+
+  test('resolves bare tilde to home directory', () => {
+    const result = resolveInstructionPath('~', '/project');
+    expect(result).toBe(homedir());
+  });
+
+  test('preserves absolute paths', () => {
+    const result = resolveInstructionPath('/etc/rules.md', '/project');
+    expect(result).toBe('/etc/rules.md');
+  });
+
+  test('resolves relative paths against base directory', () => {
+    const result = resolveInstructionPath(
+      'docs/CONTRIBUTING.md',
+      '/my/project',
+    );
+    expect(result).toBe('/my/project/docs/CONTRIBUTING.md');
+  });
+
+  test('resolves bare filename against base directory', () => {
+    const result = resolveInstructionPath('AGENTS.md', '/my/project');
+    expect(result).toBe('/my/project/AGENTS.md');
+  });
+});
+
+describe('loadInstructionFiles', () => {
+  const tmpDir = join(import.meta.dir, '.tmp-instructions');
+
+  beforeEach(() => {
+    mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('loads existing files', () => {
+    writeFileSync(join(tmpDir, 'rules.md'), 'Be concise');
+    writeFileSync(join(tmpDir, 'style.md'), 'Use 2 spaces');
+
+    const contents = loadInstructionFiles(['rules.md', 'style.md'], tmpDir);
+    expect(contents).toEqual(['Be concise', 'Use 2 spaces']);
+  });
+
+  test('skips missing files gracefully', () => {
+    writeFileSync(join(tmpDir, 'exists.md'), 'I exist');
+
+    const contents = loadInstructionFiles(['exists.md', 'missing.md'], tmpDir);
+    expect(contents).toEqual(['I exist']);
+  });
+
+  test('skips empty files', () => {
+    writeFileSync(join(tmpDir, 'empty.md'), '   ');
+    writeFileSync(join(tmpDir, 'real.md'), 'Content');
+
+    const contents = loadInstructionFiles(['empty.md', 'real.md'], tmpDir);
+    expect(contents).toEqual(['Content']);
+  });
+
+  test('returns empty array when no files exist', () => {
+    const contents = loadInstructionFiles(['nope.md', 'also-nope.md'], tmpDir);
+    expect(contents).toEqual([]);
+  });
+});
+
+describe('loadProjectInstructions with configInstructions', () => {
+  const tmpDir = join(import.meta.dir, '.tmp-project');
+
+  beforeEach(() => {
+    mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('loads only configured files when no AGENTS.md exists', () => {
+    writeFileSync(join(tmpDir, 'rules.md'), 'Custom rules');
+    const result = loadProjectInstructions(tmpDir, ['rules.md']);
+    expect(result).toBe('Custom rules');
+  });
+
+  test('combines AGENTS.md with configured files', () => {
+    writeFileSync(join(tmpDir, 'AGENTS.md'), 'Agent instructions');
+    writeFileSync(join(tmpDir, 'extra.md'), 'Extra rules');
+    const result = loadProjectInstructions(tmpDir, ['extra.md']);
+    expect(result).toContain('Agent instructions');
+    expect(result).toContain('Extra rules');
+    expect(result).toContain('---'); // separator
+  });
+
+  test('deduplicates AGENTS.md if also in config.instructions', () => {
+    writeFileSync(join(tmpDir, 'AGENTS.md'), 'Agent instructions');
+    // AGENTS.md appears in config.instructions but should only be loaded once
+    const result = loadProjectInstructions(tmpDir, ['AGENTS.md']);
+    // Count occurrences of the content
+    const occurrences = (result ?? '').split('Agent instructions').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  test('returns null when no files exist and no config instructions', () => {
+    const result = loadProjectInstructions(tmpDir);
+    expect(result).toBeNull();
+  });
+
+  test('returns null when config instructions are empty', () => {
+    const result = loadProjectInstructions(tmpDir, []);
+    expect(result).toBeNull();
+  });
+
+  test('skips missing configured files gracefully', () => {
+    writeFileSync(join(tmpDir, 'AGENTS.md'), 'Agent instructions');
+    const result = loadProjectInstructions(tmpDir, ['nonexistent.md']);
+    // Should still return AGENTS.md content
+    expect(result).toBe('Agent instructions');
   });
 });
