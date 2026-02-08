@@ -101,8 +101,8 @@ const ReadFileToolObjectSchema = z.object({
 });
 
 const RunCommandToolObjectSchema = z.object({
-  timeout: z.number().int().min(1000).default(30000),
-  maxOutputSize: z.number().int().min(100).default(10000),
+  timeout: z.number().int().min(1000).max(300000).default(30000),
+  maxOutputSize: z.number().int().min(100).max(1000000).default(10000),
 });
 
 const IterationLimitsObjectSchema = z.object({

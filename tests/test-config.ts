@@ -527,4 +527,22 @@ describe('extractToolsConfig', () => {
     expect(tools.run_command.maxOutputSize).toBe(10000); // default
     expect(tools.read_file.defaultLimit).toBe(2000); // default
   });
+
+  test('schema defaults match hardcoded tool constants', () => {
+    // Ensures schema defaults and tool fallback constants stay in sync.
+    // If this fails, update the hardcoded constant in the tool file.
+    const defaults = extractToolsConfig(ConfigSchema.parse({}));
+    // read_file constants (src/agent/tools/read-file.ts)
+    expect(defaults.read_file.defaultLimit).toBe(2000);
+    expect(defaults.read_file.maxLineLength).toBe(2000);
+    // run_command constants (src/agent/tools/run-command.ts)
+    expect(defaults.run_command.timeout).toBe(30000);
+    expect(defaults.run_command.maxOutputSize).toBe(10000);
+    // task constants (src/agent/tools/task.ts)
+    expect(defaults.task.iterationLimits).toEqual({
+      quick: 8,
+      medium: 15,
+      thorough: 25,
+    });
+  });
 });
