@@ -8,6 +8,7 @@
  */
 
 import { runAgent } from '../src/agent';
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
 import prompts from './prompts.json';
 
 type Category = keyof typeof prompts.categories;
@@ -58,6 +59,7 @@ async function testPrompt(
       onToolBlocked: (tool, reason) => {
         notes.push(`Blocked: ${tool} - ${reason}`);
       },
+      safetyConfig: DEFAULT_SAFETY_CONFIG,
     });
 
     clearTimeout(timeout);

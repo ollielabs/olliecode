@@ -9,26 +9,25 @@
  */
 
 import type { ToolCall } from 'ollama';
+import type { AgentMode } from '../modes';
 import type { ToolResult } from '../types';
-import type {
-  SafetyConfig,
-  SafetyCheckResult,
-  ConfirmationRequest,
-  ConfirmationPreview,
-  RiskLevel,
-  ConfirmationResponse,
-} from './types';
-import { DEFAULT_SAFETY_CONFIG } from './types';
-
-import { RateLimiter } from './rate-limiter';
 import { AuditLog } from './audit-log';
-import { validatePath, getDisplayPath } from './path-validation';
 import {
+  sanitizeEnvironment,
   validateCommand,
   validateCommandForMode,
-  sanitizeEnvironment,
 } from './command-filter';
-import type { AgentMode } from '../modes';
+import { getDisplayPath, validatePath } from './path-validation';
+import { RateLimiter } from './rate-limiter';
+import type {
+  ConfirmationPreview,
+  ConfirmationRequest,
+  ConfirmationResponse,
+  SafetyCheckResult,
+  SafetyConfig,
+  ToolPermission,
+} from './types';
+import { DEFAULT_SAFETY_CONFIG } from './types';
 
 // Tools that operate on paths
 const PATH_TOOLS = [
@@ -43,19 +42,24 @@ const PATH_TOOLS = [
 // Tools that execute commands
 const COMMAND_TOOLS = ['run_command'];
 
-// Tool risk levels (should match tool definitions, but we enforce here too)
-const TOOL_RISK: Record<string, RiskLevel> = {
-  read_file: 'safe',
-  list_dir: 'safe',
-  glob: 'safe',
-  grep: 'safe',
-  write_file: 'prompt',
-  edit_file: 'prompt',
-  run_command: 'prompt',
-  todo_write: 'safe',
-  todo_read: 'safe',
-  task: 'safe', // Subagent delegation is read-only
-};
+/**
+ * Get the risk level for a tool (used for confirmation UI display only).
+ * This does NOT drive permission decisions — toolPermissions does.
+ */
+function getToolRiskLevel(tool: string): 'safe' | 'prompt' | 'dangerous' {
+  switch (tool) {
+    case 'read_file':
+    case 'list_dir':
+    case 'glob':
+    case 'grep':
+    case 'todo_read':
+    case 'todo_write':
+    case 'task':
+      return 'safe';
+    default:
+      return 'prompt';
+  }
+}
 
 /**
  * Safety layer instance for a session.
@@ -66,8 +70,8 @@ export class SafetyLayer {
   private auditLog: AuditLog;
   private alwaysAllow: Set<string> = new Set();
 
-  constructor(config: Partial<SafetyConfig> = {}) {
-    this.config = { ...DEFAULT_SAFETY_CONFIG, ...config };
+  constructor(config: SafetyConfig) {
+    this.config = config;
     this.rateLimiter = new RateLimiter(this.config);
     this.auditLog = new AuditLog(this.config);
   }
@@ -92,12 +96,12 @@ export class SafetyLayer {
       return { status: 'denied', reason: rateCheck.reason };
     }
 
-    // Check tool overrides
-    const override = this.config.toolOverrides[tool];
-    if (override?.autonomy === 'always_deny') {
+    // Check per-tool permission from resolved map
+    const permission = this.getToolPermission(tool);
+    if (permission === 'deny') {
       return {
         status: 'denied',
-        reason: `Tool "${tool}" is configured to always deny.`,
+        reason: `Tool "${tool}" is denied by configuration.`,
       };
     }
 
@@ -207,15 +211,9 @@ export class SafetyLayer {
       }
     }
 
-    // Check if confirmation is needed based on autonomy level
-    const riskLevel = TOOL_RISK[tool] ?? 'prompt';
-    const needsConfirmation = this.shouldConfirm(tool, riskLevel);
-
-    if (
-      needsConfirmation &&
-      !this.alwaysAllow.has(tool) &&
-      override?.autonomy !== 'always_allow'
-    ) {
+    // Check if confirmation is needed based on per-tool permission
+    if (permission === 'ask' && !this.alwaysAllow.has(tool)) {
+      const riskLevel = getToolRiskLevel(tool);
       const preview = await this.buildPreview(tool, args);
       const request: ConfirmationRequest = {
         id: generateRequestId(),
@@ -324,27 +322,12 @@ export class SafetyLayer {
   }
 
   /**
-   * Check if tool requires confirmation based on autonomy level.
+   * Get the resolved permission for a tool.
+   * Looks up the tool in the pre-resolved permission map.
+   * Unknown tools default to 'ask' for safety.
    */
-  private shouldConfirm(tool: string, riskLevel: RiskLevel): boolean {
-    const { autonomyLevel } = this.config;
-
-    switch (autonomyLevel) {
-      case 'paranoid':
-        return true; // Confirm everything
-
-      case 'cautious':
-        return riskLevel !== 'safe'; // Confirm prompt and dangerous
-
-      case 'balanced':
-        return riskLevel === 'dangerous' || tool === 'run_command';
-
-      case 'autonomous':
-        return false; // Confirm nothing
-
-      default:
-        return riskLevel !== 'safe';
-    }
+  private getToolPermission(tool: string): ToolPermission {
+    return this.config.toolPermissions[tool] ?? 'ask';
   }
 
   /**
@@ -483,6 +466,7 @@ export type {
   SafetyCheckResult,
   ConfirmationRequest,
   ConfirmationResponse,
+  ToolPermission,
 };
 export { DEFAULT_SAFETY_CONFIG };
 export {

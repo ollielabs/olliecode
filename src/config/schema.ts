@@ -57,10 +57,34 @@ const SafetyObjectSchema = z.object({
   allowNetworkCommands: z.boolean().default(false),
   deniedPaths: z
     .array(z.string())
-    .default(['.env', '.env.*', '*.pem', '*.key', 'id_rsa*']),
+    .default([
+      '.env',
+      '.env.*',
+      '*.pem',
+      '*.key',
+      'id_rsa',
+      'id_ed25519',
+      '*.p12',
+      '*.pfx',
+      'credentials.*',
+      'secrets.*',
+      '.git/config',
+    ]),
   deniedCommands: z
     .array(z.string())
-    .default(['rm -rf /', 'sudo rm -rf', ':(){ :|:& };:']),
+    .default([
+      'rm -rf /',
+      'rm -rf /*',
+      'sudo',
+      'chmod 777',
+      '> /dev/',
+      'mkfs',
+      'dd if=',
+      ':(){:|:&};:',
+      'mv /* ',
+      'cat /etc/passwd',
+      'cat /etc/shadow',
+    ]),
   auditLog: z.boolean().default(true),
   auditLogPath: z.string().default('.ollie/audit.jsonl'),
 });

@@ -11,7 +11,8 @@ import type {
   ConfirmationRequest,
   ConfirmationResponse,
 } from '../src/agent/safety/types';
-import { initDatabase, createSession, closeDatabase } from '../src/session';
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
+import { closeDatabase, createSession, initDatabase } from '../src/session';
 
 // Auto-approve confirmation handler for evals
 // Approves most operations except truly dangerous ones
@@ -1417,6 +1418,7 @@ async function runTest(
       onStepComplete: () => {},
       onToolBlocked: () => {},
       onConfirmationNeeded: autoApproveHandler,
+      safetyConfig: DEFAULT_SAFETY_CONFIG,
     });
 
     const duration = Date.now() - start;

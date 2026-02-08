@@ -4,6 +4,7 @@
  */
 
 import { runAgent } from './src/agent';
+import { DEFAULT_SAFETY_CONFIG } from './src/agent/safety/types';
 
 const controller = new AbortController();
 
@@ -52,6 +53,7 @@ async function main() {
     },
 
     signal: controller.signal,
+    safetyConfig: DEFAULT_SAFETY_CONFIG,
   });
 
   console.log('\n\n[test] ========== RESULT ==========');

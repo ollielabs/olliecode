@@ -3,8 +3,9 @@
  * This allows promptfoo to test the full agent loop, not just raw model calls.
  */
 
-import { runAgent } from '../src/agent';
 import type { Message } from 'ollama';
+import { runAgent } from '../src/agent';
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
 
 type ProviderOptions = {
   config?: {
@@ -65,6 +66,7 @@ export async function callApi(
       onToolBlocked: (tool, _reason) => {
         toolResults.push({ tool, success: false });
       },
+      safetyConfig: DEFAULT_SAFETY_CONFIG,
     });
 
     if ('type' in result) {

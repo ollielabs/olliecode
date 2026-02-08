@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
 import { getConfigDirectory } from '../src/config/index';
 import {
   buildCliOverrides,
@@ -14,7 +15,7 @@ import {
   mergeConfigs,
 } from '../src/config/merge';
 import { deleteAtPath, parseConfigString } from '../src/config/parse';
-import { resolvePermissions } from '../src/config/resolve';
+import { extractSafetyConfig, resolvePermissions } from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
 
 // === deleteAtPath ===
@@ -347,5 +348,80 @@ describe('mergeConfigs', () => {
     expect(result.config.model).toBe('base-model');
     expect(result.config.debug).toBe(true);
     expect(result.config.autonomy).toBe('cautious'); // default
+  });
+});
+
+// === extractSafetyConfig ===
+
+describe('extractSafetyConfig', () => {
+  test('returns full SafetyConfig with correct toolPermissions for cautious', () => {
+    const config = ConfigSchema.parse({});
+    const safety = extractSafetyConfig(config, '/test/project');
+    expect(safety.projectRoot).toBe('/test/project');
+    expect(safety.autonomyLevel).toBe('cautious');
+    expect(safety.toolPermissions.read_file).toBe('allow');
+    expect(safety.toolPermissions.write_file).toBe('ask');
+    expect(safety.toolPermissions.run_command).toBe('ask');
+    expect(safety.toolPermissions.glob).toBe('allow');
+  });
+
+  test('returns correct permissions for autonomous', () => {
+    const config = ConfigSchema.parse({ autonomy: 'autonomous' });
+    const safety = extractSafetyConfig(config, '/test');
+    expect(safety.toolPermissions.read_file).toBe('allow');
+    expect(safety.toolPermissions.write_file).toBe('allow');
+    expect(safety.toolPermissions.edit_file).toBe('allow');
+    expect(safety.toolPermissions.run_command).toBe('allow');
+  });
+
+  test('applies permission overrides from config', () => {
+    const config = ConfigSchema.parse({
+      autonomy: 'cautious',
+      permissions: { write_file: 'allow', run_command: 'deny' },
+    });
+    const safety = extractSafetyConfig(config, '/test');
+    expect(safety.toolPermissions.write_file).toBe('allow');
+    expect(safety.toolPermissions.run_command).toBe('deny');
+    expect(safety.toolPermissions.read_file).toBe('allow'); // unchanged
+    expect(safety.toolPermissions.edit_file).toBe('ask'); // unchanged
+  });
+
+  test('maps safety config values from schema', () => {
+    const config = ConfigSchema.parse({
+      safety: {
+        maxFileSizeBytes: 50000,
+        maxToolCallsPerTurn: 10,
+        allowNetworkCommands: true,
+      },
+    });
+    const safety = extractSafetyConfig(config, '/test');
+    expect(safety.maxFileSizeBytes).toBe(50000);
+    expect(safety.maxToolCallsPerTurn).toBe(10);
+    expect(safety.allowNetworkCommands).toBe(true);
+    expect(safety.enableAuditLog).toBe(true); // default
+  });
+});
+
+// === Schema defaults match DEFAULT_SAFETY_CONFIG ===
+
+describe('schema safety defaults', () => {
+  test('deniedPaths defaults match DEFAULT_SAFETY_CONFIG', () => {
+    const config = ConfigSchema.parse({});
+    const schemaDefaults = config.safety.deniedPaths;
+    const hardcodedDefaults = DEFAULT_SAFETY_CONFIG.deniedPaths ?? [];
+    expect(schemaDefaults).toEqual(hardcodedDefaults);
+  });
+
+  test('deniedCommands defaults match DEFAULT_SAFETY_CONFIG', () => {
+    const config = ConfigSchema.parse({});
+    const schemaDefaults = config.safety.deniedCommands;
+    const hardcodedDefaults = DEFAULT_SAFETY_CONFIG.deniedCommands ?? [];
+    expect(schemaDefaults).toEqual(hardcodedDefaults);
+  });
+
+  test('toolPermissions for cautious match DEFAULT_SAFETY_CONFIG', () => {
+    const config = ConfigSchema.parse({});
+    const perms = resolvePermissions(config);
+    expect(perms).toEqual(DEFAULT_SAFETY_CONFIG.toolPermissions);
   });
 });

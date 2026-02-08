@@ -1,8 +1,12 @@
+import type { Message, ToolCall } from 'ollama';
 import type { z } from 'zod';
-import type { ToolCall, Message } from 'ollama';
 
 // Re-export safety types for convenience
-export type { ConfirmationRequest, ConfirmationResponse } from './safety/types';
+export type {
+  ConfirmationRequest,
+  ConfirmationResponse,
+  SafetyConfig,
+} from './safety/types';
 
 /**
  * Risk level for a tool
@@ -25,6 +29,8 @@ export type ToolContext = {
   model?: string;
   /** Host URL for subagent delegation */
   host?: string;
+  /** Safety config for subagent delegation */
+  safetyConfig?: import('./safety/types').SafetyConfig;
 };
 
 /**

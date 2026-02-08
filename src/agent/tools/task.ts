@@ -6,10 +6,10 @@
  */
 
 import { z } from 'zod';
-import type { ToolDefinition } from '../types';
 import { runAgent } from '../index';
 import { buildExplorePrompt, type ThoroughnessLevel } from '../prompts/explore';
 import { getDefaultContext } from '../prompts/shared';
+import type { ToolDefinition } from '../types';
 
 // ============================================================================
 // Schema Definitions
@@ -92,14 +92,15 @@ The tasks will run concurrently and you'll receive all results together.`,
   execute: async (params, signal, context) => {
     const { prompt, thoroughness = 'medium' } = params;
 
-    // Get model and host from context (passed from parent agent)
+    // Get model, host, and safety config from context (passed from parent agent)
     const model = context?.model;
     const host = context?.host;
+    const parentSafetyConfig = context?.safetyConfig;
 
-    if (!model || !host) {
+    if (!model || !host || !parentSafetyConfig) {
       return {
         success: false,
-        output: 'Task tool requires model and host in context',
+        output: 'Task tool requires model, host, and safetyConfig in context',
         filesExplored: [],
         iterations: 0,
       };
@@ -142,6 +143,7 @@ The tasks will run concurrently and you'll receive all results together.`,
           loopThreshold: 2,
         },
 
+        safetyConfig: parentSafetyConfig,
         systemPromptOverride,
       });
 

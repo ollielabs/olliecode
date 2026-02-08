@@ -125,32 +125,14 @@ export function extractCompactionConfig(
 /**
  * Extract SafetyConfig from resolved config.
  *
- * Maps the config schema permission vocabulary ("allow"/"ask"/"deny")
- * to the internal safety layer vocabulary ("always_allow"/"always_confirm"/"always_deny").
- * This mapping exists temporarily until #32 refactors the internal vocabulary.
+ * Resolves autonomy level + permission overrides into a per-tool
+ * permission map using the unified allow/ask/deny vocabulary.
  */
 export function extractSafetyConfig(
   config: ResolvedConfig,
   projectRoot: string,
-): Partial<SafetyConfig> {
-  const permissions = resolvePermissions(config);
-
-  // Map config vocabulary to internal vocabulary (temporary until #32)
-  const permissionToInternal: Record<
-    string,
-    'always_allow' | 'always_confirm' | 'always_deny'
-  > = {
-    allow: 'always_allow',
-    ask: 'always_confirm',
-    deny: 'always_deny',
-  };
-
-  const toolOverrides: SafetyConfig['toolOverrides'] = {};
-  for (const [tool, permission] of Object.entries(permissions)) {
-    toolOverrides[tool] = {
-      autonomy: permissionToInternal[permission],
-    };
-  }
+): SafetyConfig {
+  const toolPermissions = resolvePermissions(config);
 
   return {
     projectRoot,
@@ -163,7 +145,7 @@ export function extractSafetyConfig(
     deniedCommands: config.safety.deniedCommands,
     enableAuditLog: config.safety.auditLog,
     auditLogPath: config.safety.auditLogPath,
-    toolOverrides,
+    toolPermissions,
   };
 }
 
