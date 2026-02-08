@@ -20,6 +20,7 @@ import { deleteAtPath, parseConfigString } from '../src/config/parse';
 import {
   extractSafetyConfig,
   extractToolsConfig,
+  extractTuiConfig,
   resolvePermissions,
 } from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
@@ -544,5 +545,54 @@ describe('extractToolsConfig', () => {
       medium: 15,
       thorough: 25,
     });
+  });
+});
+
+// === extractTuiConfig ===
+
+describe('extractTuiConfig', () => {
+  test('returns defaults when no TUI config is specified', () => {
+    const config = ConfigSchema.parse({});
+    const tui = extractTuiConfig(config);
+    expect(tui.theme).toBe('auto');
+    expect(tui.toastDuration).toBe(2500);
+    expect(tui.doubleEscapeThreshold).toBe(500);
+    expect(tui.sessionListLimit).toBe(50);
+  });
+
+  test('respects custom TUI settings', () => {
+    const config = ConfigSchema.parse({
+      tui: {
+        theme: 'dracula',
+        toastDuration: 5000,
+        doubleEscapeThreshold: 300,
+        sessionListLimit: 100,
+      },
+    });
+    const tui = extractTuiConfig(config);
+    expect(tui.theme).toBe('dracula');
+    expect(tui.toastDuration).toBe(5000);
+    expect(tui.doubleEscapeThreshold).toBe(300);
+    expect(tui.sessionListLimit).toBe(100);
+  });
+
+  test('partial overrides keep other defaults', () => {
+    const config = ConfigSchema.parse({
+      tui: { theme: 'nord' },
+    });
+    const tui = extractTuiConfig(config);
+    expect(tui.theme).toBe('nord');
+    expect(tui.toastDuration).toBe(2500); // default
+    expect(tui.doubleEscapeThreshold).toBe(500); // default
+    expect(tui.sessionListLimit).toBe(50); // default
+  });
+
+  test('schema defaults match hardcoded TUI constants', () => {
+    // Ensures schema defaults and TUI fallback constants stay in sync.
+    const defaults = extractTuiConfig(ConfigSchema.parse({}));
+    // constants.ts values
+    expect(defaults.toastDuration).toBe(2500); // TOAST_DURATION_MS
+    expect(defaults.doubleEscapeThreshold).toBe(500); // DOUBLE_ESCAPE_THRESHOLD_MS
+    expect(defaults.sessionListLimit).toBe(50); // SESSION_LIST_LIMIT
   });
 });

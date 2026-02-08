@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import type { TuiConfig } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
 import {
   createSession,
@@ -33,6 +34,8 @@ export type UseSessionProps = {
   initialSessionId?: string;
   /** Textarea ref for focus management */
   textareaRef: TextareaRef;
+  /** TUI config for session list limit */
+  tuiConfig?: TuiConfig;
 };
 
 export type UseSessionReturn = {
@@ -89,9 +92,11 @@ export function useSession({
   config,
   initialSessionId,
   textareaRef,
+  tuiConfig,
 }: UseSessionProps): UseSessionReturn {
   const model = config.model;
   const host = config.host;
+  const sessionListLimit = tuiConfig?.sessionListLimit ?? SESSION_LIST_LIMIT;
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [history, setHistory] = useState<Message[]>([]);
   const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([]);
@@ -132,7 +137,7 @@ export function useSession({
   }, [currentSession]);
 
   const listAvailableSessions = () => {
-    return listSessions({ limit: SESSION_LIST_LIMIT });
+    return listSessions({ limit: sessionListLimit });
   };
 
   const handleNewSession = () => {

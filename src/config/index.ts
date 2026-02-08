@@ -19,7 +19,7 @@ import { ConfigSchema } from './schema';
 // Re-export merge types
 export type { ConfigLayer, ConfigSource, MergedConfigResult } from './merge';
 export { buildCliOverrides } from './merge';
-export type { ToolPermissionMap } from './resolve';
+export type { ToolPermissionMap, TuiConfig } from './resolve';
 // Re-export resolve functions
 export {
   deriveSubagentConfig,
@@ -27,6 +27,7 @@ export {
   extractCompactionConfig,
   extractSafetyConfig,
   extractToolsConfig,
+  extractTuiConfig,
   resolvePermissions,
 } from './resolve';
 // Re-export schema types
