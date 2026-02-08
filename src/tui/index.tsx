@@ -5,7 +5,8 @@
 
 import type { TextareaRenderable } from '@opentui/core';
 import { RGBA } from '@opentui/core';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider, useTheme } from '../design';
 import { listSessions } from '../session';
 import {
@@ -23,7 +24,6 @@ import {
   ToolMessage,
   UserMessage,
 } from './components';
-import { SESSION_LIST_LIMIT } from './constants';
 import {
   useAgentContext,
   useAgentSubmit,
@@ -64,12 +64,16 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
   const statusRef = useRef<Status>('idle');
   const [toast, setToast] = useState<string | null>(null);
 
+  // Extract TUI config once
+  const tuiConfig = useMemo(() => extractTuiConfig(config), [config]);
+
   // Initialize session hook first as other hooks depend on it
   const session = useSession({
     projectPath,
     config,
     initialSessionId,
     textareaRef,
+    tuiConfig,
   });
 
   // Context hook for stats, compaction, and related operations
@@ -137,6 +141,7 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
     showSessionPicker: session.showSessionPicker,
     currentSession: session.currentSession,
     onCopySuccess: (message: string) => setToast(message),
+    tuiConfig,
   });
 
   // Render welcome screen if no messages
@@ -179,7 +184,7 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
         {session.showSessionPicker && (
           <SessionPicker
             key={session.sessionRefreshKey}
-            sessions={listSessions({ limit: SESSION_LIST_LIMIT })}
+            sessions={listSessions({ limit: tuiConfig.sessionListLimit })}
             projectPath={projectPath}
             onSelect={session.handleSessionSelect}
             onCancel={session.handleSessionPickerCancel}
@@ -246,7 +251,11 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
         </box>
 
         {toast && (
-          <ToastNotification message={toast} onDismiss={() => setToast(null)} />
+          <ToastNotification
+            message={toast}
+            duration={tuiConfig.toastDuration}
+            onDismiss={() => setToast(null)}
+          />
         )}
       </box>
     );
@@ -276,7 +285,7 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
       {session.showSessionPicker && (
         <SessionPicker
           key={session.sessionRefreshKey}
-          sessions={listSessions({ limit: 50 })}
+          sessions={listSessions({ limit: tuiConfig.sessionListLimit })}
           projectPath={projectPath}
           onSelect={session.handleSessionSelect}
           onCancel={session.handleSessionPickerCancel}
@@ -395,7 +404,11 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
       />
 
       {toast && (
-        <ToastNotification message={toast} onDismiss={() => setToast(null)} />
+        <ToastNotification
+          message={toast}
+          duration={tuiConfig.toastDuration}
+          onDismiss={() => setToast(null)}
+        />
       )}
     </box>
   );

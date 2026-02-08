@@ -11,6 +11,16 @@ import type { SafetyConfig } from '../agent/safety/types';
 import type { AgentConfig, ToolsConfig } from '../agent/types';
 import type { PermissionValue, ResolvedConfig } from './schema';
 
+// === TUI config type ===
+
+/** Extracted TUI configuration for components and hooks */
+export type TuiConfig = {
+  theme: string;
+  toastDuration: number;
+  doubleEscapeThreshold: number;
+  sessionListLimit: number;
+};
+
 // === Autonomy → Permission mapping ===
 
 /** Per-tool permission map derived from autonomy level */
@@ -169,6 +179,18 @@ export function extractToolsConfig(config: ResolvedConfig): ToolsConfig {
         thorough: config.tools.task.iterationLimits.thorough,
       },
     },
+  };
+}
+
+/**
+ * Extract TuiConfig from resolved config.
+ */
+export function extractTuiConfig(config: ResolvedConfig): TuiConfig {
+  return {
+    theme: config.tui.theme,
+    toastDuration: config.tui.toastDuration,
+    doubleEscapeThreshold: config.tui.doubleEscapeThreshold,
+    sessionListLimit: config.tui.sessionListLimit,
   };
 }
 
