@@ -112,8 +112,8 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
     '.env.*',
     '*.pem',
     '*.key',
-    'id_rsa',
-    'id_ed25519',
+    'id_rsa*',
+    'id_ed25519*',
     '*.p12',
     '*.pfx',
     'credentials.*',
@@ -127,9 +127,11 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
     'sudo',
     'chmod 777',
     '> /dev/',
+    '>/dev/',
     'mkfs',
     'dd if=',
-    ':(){:|:&};:', // Fork bomb
+    ':(){:|:&};:', // Fork bomb (compact)
+    ':(){ :|:& };:', // Fork bomb (spaced)
     'mv /*',
     'cat /etc/passwd',
     'cat /etc/shadow',

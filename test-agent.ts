@@ -53,7 +53,7 @@ async function main() {
     },
 
     signal: controller.signal,
-    safetyConfig: DEFAULT_SAFETY_CONFIG,
+    safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
   });
 
   console.log('\n\n[test] ========== RESULT ==========');

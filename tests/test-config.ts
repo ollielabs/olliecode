@@ -408,15 +408,21 @@ describe('schema safety defaults', () => {
   test('deniedPaths defaults match DEFAULT_SAFETY_CONFIG', () => {
     const config = ConfigSchema.parse({});
     const schemaDefaults = config.safety.deniedPaths;
-    const hardcodedDefaults = DEFAULT_SAFETY_CONFIG.deniedPaths ?? [];
-    expect(schemaDefaults).toEqual(hardcodedDefaults);
+    const hardcoded = DEFAULT_SAFETY_CONFIG.deniedPaths;
+    expect(hardcoded).toBeDefined();
+    if (hardcoded) {
+      expect(schemaDefaults).toEqual(hardcoded);
+    }
   });
 
   test('deniedCommands defaults match DEFAULT_SAFETY_CONFIG', () => {
     const config = ConfigSchema.parse({});
     const schemaDefaults = config.safety.deniedCommands;
-    const hardcodedDefaults = DEFAULT_SAFETY_CONFIG.deniedCommands ?? [];
-    expect(schemaDefaults).toEqual(hardcodedDefaults);
+    const hardcoded = DEFAULT_SAFETY_CONFIG.deniedCommands;
+    expect(hardcoded).toBeDefined();
+    if (hardcoded) {
+      expect(schemaDefaults).toEqual(hardcoded);
+    }
   });
 
   test('toolPermissions for cautious match DEFAULT_SAFETY_CONFIG', () => {

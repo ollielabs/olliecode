@@ -66,7 +66,7 @@ export async function callApi(
       onToolBlocked: (tool, _reason) => {
         toolResults.push({ tool, success: false });
       },
-      safetyConfig: DEFAULT_SAFETY_CONFIG,
+      safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
     });
 
     if ('type' in result) {

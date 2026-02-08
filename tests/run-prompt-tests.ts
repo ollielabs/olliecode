@@ -59,7 +59,7 @@ async function testPrompt(
       onToolBlocked: (tool, reason) => {
         notes.push(`Blocked: ${tool} - ${reason}`);
       },
-      safetyConfig: DEFAULT_SAFETY_CONFIG,
+      safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
     });
 
     clearTimeout(timeout);

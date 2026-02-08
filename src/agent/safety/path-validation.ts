@@ -3,7 +3,7 @@
  * Ensures all file operations stay within project root and avoid sensitive files.
  */
 
-import { resolve, relative, isAbsolute } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { SafetyConfig } from './types';
 
 export type PathValidationResult =
@@ -120,6 +120,19 @@ function matchesPattern(path: string, pattern: string): boolean {
       fileName.startsWith(`${prefix}.`) &&
       (!suffix || fileName.endsWith(suffix))
     ) {
+      return true;
+    }
+  }
+
+  // Trailing wildcard: "id_rsa*" matches "id_rsa", "id_rsa.pub", "id_rsa_old"
+  if (
+    normalizedPattern.endsWith('*') &&
+    !normalizedPattern.endsWith('.*') &&
+    !normalizedPattern.startsWith('*')
+  ) {
+    const prefix = normalizedPattern.slice(0, -1);
+    const fileName = normalizedPath.split('/').pop() ?? '';
+    if (fileName.startsWith(prefix)) {
       return true;
     }
   }

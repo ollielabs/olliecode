@@ -1418,7 +1418,7 @@ async function runTest(
       onStepComplete: () => {},
       onToolBlocked: () => {},
       onConfirmationNeeded: autoApproveHandler,
-      safetyConfig: DEFAULT_SAFETY_CONFIG,
+      safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
     });
 
     const duration = Date.now() - start;

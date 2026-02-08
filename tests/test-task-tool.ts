@@ -55,7 +55,7 @@ try {
         `--- Step complete (${step.actions.length} tool calls) ---\n`,
       );
     },
-    safetyConfig: DEFAULT_SAFETY_CONFIG,
+    safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
   });
 
   console.log('\n=== RESULTS ===');
