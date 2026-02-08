@@ -110,8 +110,11 @@ The tasks will run concurrently and you'll receive all results together.`,
     const iterationLimits =
       context?.toolsConfig?.task.iterationLimits ?? ITERATION_LIMITS;
 
-    // Build the explore subagent prompt
-    const ctx = getDefaultContext();
+    // Build the explore subagent prompt (with instructions from config)
+    const ctx = getDefaultContext(
+      context?.projectRoot,
+      context?.configInstructions,
+    );
     const systemPromptOverride = buildExplorePrompt(ctx, thoroughness);
 
     // Track files explored by the subagent
@@ -149,6 +152,7 @@ The tasks will run concurrently and you'll receive all results together.`,
 
         safetyConfig: parentSafetyConfig,
         toolsConfig: context?.toolsConfig,
+        configInstructions: context?.configInstructions,
         systemPromptOverride,
       });
 

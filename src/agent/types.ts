@@ -47,6 +47,8 @@ export type ToolContext = {
   safetyConfig?: SafetyConfig;
   /** Tool-specific configuration from config file */
   toolsConfig?: ToolsConfig;
+  /** Instruction file paths from config (for subagent delegation) */
+  configInstructions?: string[];
 };
 
 /**
