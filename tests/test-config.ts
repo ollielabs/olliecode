@@ -17,6 +17,7 @@ import { validatePath } from '../src/agent/safety/path-validation';
 import type { SafetyConfig } from '../src/agent/safety/types';
 import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
 import { getConfigDirectory } from '../src/config/index';
+import type { ConfigLayer } from '../src/config/merge';
 import {
   buildCliOverrides,
   deepMerge,
@@ -30,6 +31,7 @@ import {
   resolvePermissions,
 } from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
+import { getSource } from '../src/tui/components/config-modal';
 
 // === deleteAtPath ===
 
@@ -725,5 +727,128 @@ describe('loadProjectInstructions with configInstructions', () => {
     const result = loadProjectInstructions(tmpDir, ['nonexistent.md']);
     // Should still return AGENTS.md content
     expect(result).toBe('Agent instructions');
+  });
+});
+
+// === getSource (ConfigModal helper) ===
+
+describe('getSource', () => {
+  test('returns "default" when no layers set the key', () => {
+    const layers: ConfigLayer[] = [
+      {
+        source: 'global',
+        path: '/home/user/.config/ollie/config.json',
+        raw: { debug: true },
+        warnings: [],
+      },
+    ];
+    expect(getSource('model', layers)).toBe('default');
+  });
+
+  test('returns "default" when layers array is empty', () => {
+    expect(getSource('model', [])).toBe('default');
+  });
+
+  test('returns "cli" for CLI layer', () => {
+    const layers: ConfigLayer[] = [
+      {
+        source: 'global',
+        path: '/home/user/.config/ollie/config.json',
+        raw: { model: 'base' },
+        warnings: [],
+      },
+      { source: 'cli', raw: { model: 'override' }, warnings: [] },
+    ];
+    expect(getSource('model', layers)).toBe('cli');
+  });
+
+  test('returns source with shortened path for global layer', () => {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    const globalPath = `${home}/.config/ollie/config.json`;
+    const layers: ConfigLayer[] = [
+      {
+        source: 'global',
+        path: globalPath,
+        raw: { model: 'gemma2' },
+        warnings: [],
+      },
+    ];
+    const result = getSource('model', layers);
+    expect(result).toMatch(/^global \(~/);
+    expect(result).toContain('.config/ollie/config.json');
+  });
+
+  test('returns source with shortened path for project layer', () => {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    const projectPath = `${home}/projects/myapp/ollie.json`;
+    const layers: ConfigLayer[] = [
+      {
+        source: 'project',
+        path: projectPath,
+        raw: { temperature: 0.5 },
+        warnings: [],
+      },
+    ];
+    const result = getSource('temperature', layers);
+    expect(result).toMatch(/^project \(~/);
+    expect(result).toContain('ollie.json');
+  });
+
+  test('highest precedence layer wins when multiple layers set the same key', () => {
+    const layers: ConfigLayer[] = [
+      {
+        source: 'global',
+        path: '/global/config.json',
+        raw: { model: 'base' },
+        warnings: [],
+      },
+      {
+        source: 'project',
+        path: '/project/ollie.json',
+        raw: { model: 'project-model' },
+        warnings: [],
+      },
+      { source: 'cli', raw: { model: 'cli-model' }, warnings: [] },
+    ];
+    // CLI is last (highest precedence), should win
+    expect(getSource('model', layers)).toBe('cli');
+  });
+
+  test('project layer wins over global when no CLI override', () => {
+    const layers: ConfigLayer[] = [
+      {
+        source: 'global',
+        path: '/global/config.json',
+        raw: { model: 'global-model' },
+        warnings: [],
+      },
+      {
+        source: 'project',
+        path: '/project/ollie.json',
+        raw: { model: 'project-model' },
+        warnings: [],
+      },
+    ];
+    expect(getSource('model', layers)).toMatch(/^project/);
+  });
+
+  test('returns source name without path when layer has no path', () => {
+    const layers: ConfigLayer[] = [
+      { source: 'custom', raw: { debug: true }, warnings: [] },
+    ];
+    expect(getSource('debug', layers)).toBe('custom');
+  });
+
+  test('returns full path when path is not under home directory', () => {
+    const layers: ConfigLayer[] = [
+      {
+        source: 'project',
+        path: '/opt/configs/ollie.json',
+        raw: { model: 'test' },
+        warnings: [],
+      },
+    ];
+    const result = getSource('model', layers);
+    expect(result).toBe('project (/opt/configs/ollie.json)');
   });
 });

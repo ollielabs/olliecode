@@ -3,8 +3,8 @@
  * Displays all available keyboard shortcuts and slash commands.
  */
 
-import { Modal } from "./modal";
-import { useTheme } from "../../design";
+import { useTheme } from '../../design';
+import { Modal } from './modal';
 
 export type KeyboardShortcutsModalProps = {
   onClose: () => void;
@@ -17,45 +17,48 @@ type ShortcutCategory = {
 
 const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
   {
-    title: "Editing",
+    title: 'Editing',
     shortcuts: [
-      { keys: "Ctrl+J", description: "Insert newline" },
-      { keys: "Ctrl+Y", description: "Copy selected text" },
-      { keys: "Enter", description: "Submit message" },
+      { keys: 'Ctrl+J', description: 'Insert newline' },
+      { keys: 'Ctrl+Y', description: 'Copy selected text' },
+      { keys: 'Enter', description: 'Submit message' },
     ],
   },
   {
-    title: "Navigation",
+    title: 'Navigation',
     shortcuts: [
-      { keys: "Ctrl+P", description: "Show this help" },
-      { keys: "Tab", description: "Switch mode (plan/build)" },
-      { keys: "/", description: "Open command menu" },
-      { keys: "@", description: "Open file picker" },
-      { keys: "Esc", description: "Close modal/menu" },
+      { keys: 'Ctrl+P', description: 'Show this help' },
+      { keys: 'Tab', description: 'Switch mode (plan/build)' },
+      { keys: '/', description: 'Open command menu' },
+      { keys: '@', description: 'Open file picker' },
+      { keys: 'Esc', description: 'Close modal/menu' },
     ],
   },
   {
-    title: "Agent Control",
+    title: 'Agent Control',
     shortcuts: [
-      { keys: "Esc Esc", description: "Abort (when thinking)" },
-      { keys: "Ctrl+E", description: "Expand/collapse tool outputs" },
+      { keys: 'Esc Esc', description: 'Abort (when thinking)' },
+      { keys: 'Ctrl+E', description: 'Expand/collapse tool outputs' },
     ],
   },
   {
-    title: "Slash Commands",
+    title: 'Slash Commands',
     shortcuts: [
-      { keys: "/new", description: "Start new session" },
-      { keys: "/session", description: "Switch session" },
-      { keys: "/clear", description: "Clear context" },
-      { keys: "/compact", description: "Compact context" },
-      { keys: "/context", description: "Show context stats" },
-      { keys: "/forget N", description: "Forget last N messages" },
-      { keys: "/theme", description: "Change theme" },
+      { keys: '/new', description: 'Start new session' },
+      { keys: '/session', description: 'Switch session' },
+      { keys: '/clear', description: 'Clear context' },
+      { keys: '/compact', description: 'Compact context' },
+      { keys: '/context', description: 'Show context stats' },
+      { keys: '/forget N', description: 'Forget last N messages' },
+      { keys: '/theme', description: 'Change theme' },
+      { keys: '/config', description: 'Show active configuration' },
     ],
   },
 ];
 
-export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps) {
+export function KeyboardShortcutsModal({
+  onClose,
+}: KeyboardShortcutsModalProps) {
   const { tokens } = useTheme();
 
   return (
@@ -75,13 +78,17 @@ export function KeyboardShortcutsModal({ onClose }: KeyboardShortcutsModalProps)
                 <text style={{ fg: tokens.textBase, width: 14 }}>
                   {shortcut.keys}
                 </text>
-                <text style={{ fg: tokens.textMuted }}>{shortcut.description}</text>
+                <text style={{ fg: tokens.textMuted }}>
+                  {shortcut.description}
+                </text>
               </box>
             ))}
           </box>
         ))}
         <box marginTop={1}>
-          <text style={{ fg: tokens.textSubtle }}>Press Ctrl+P or Esc to close</text>
+          <text style={{ fg: tokens.textSubtle }}>
+            Press Ctrl+P or Esc to close
+          </text>
         </box>
       </box>
     </Modal>
