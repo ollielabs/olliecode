@@ -103,6 +103,25 @@
 - Do NOT add features unless explicitly requested
 - Ask for clarification when requests are ambiguous
 
+## Code Review Process
+
+Use internal agents for code review instead of GitHub Copilot reviews.
+
+### Pre-push review (required)
+Before pushing a feature branch, run the `code-reviewer` agent against the diff. Fix any real issues it finds before pushing. This catches bugs, style violations, and logic errors while the context is fresh.
+
+### Post-PR review (recommended for significant changes)
+After creating the PR, run the `architect-reviewer` agent against the full branch diff. This catches design-level concerns: does the change fit the system architecture, are there integration risks, does it match the design doc.
+
+### Triage rules
+- Fix correctness issues (bugs, security, logic errors) immediately
+- Fix style/consistency issues if they're quick
+- Dismiss low-value suggestions (cosmetic, over-engineering) with a brief rationale
+- Never chase infinite review loops — two review passes maximum, then merge
+
+### Do NOT use GitHub Copilot pull request reviews
+Copilot reviews are stateless, cannot be reasoned with, and produce infinite loops of diminishing-value feedback. We tried it; it doesn't work for our workflow.
+
 ## Code Quality
 
 - Generated code must be immediately runnable

@@ -8,7 +8,8 @@
  */
 
 import { runAgent } from '../src/agent';
-import { initDatabase, createSession } from '../src/session';
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
+import { createSession, initDatabase } from '../src/session';
 
 const prompt = process.argv[2];
 
@@ -51,6 +52,7 @@ try {
     onToolBlocked: (tool, _reason) => {
       toolResults.push({ tool, success: false });
     },
+    safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
   });
 
   if ('type' in result) {

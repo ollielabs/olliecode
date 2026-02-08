@@ -5,7 +5,8 @@
  */
 
 import { runAgent } from '../src/agent';
-import { initDatabase, createSession } from '../src/session';
+import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
+import { createSession, initDatabase } from '../src/session';
 
 const prompt =
   'What is the architecture of this project? Give me a comprehensive overview.';
@@ -54,6 +55,7 @@ try {
         `--- Step complete (${step.actions.length} tool calls) ---\n`,
       );
     },
+    safetyConfig: { ...DEFAULT_SAFETY_CONFIG, projectRoot: process.cwd() },
   });
 
   console.log('\n=== RESULTS ===');

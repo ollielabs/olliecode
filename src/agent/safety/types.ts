@@ -2,7 +2,10 @@
  * Safety layer types for agentic tool execution.
  */
 
-// Risk levels for tools
+// Permission level for a tool
+export type ToolPermission = 'allow' | 'ask' | 'deny';
+
+// Risk levels for confirmation UI display
 export type RiskLevel = 'safe' | 'prompt' | 'dangerous';
 
 // Autonomy levels - how much the agent can do without confirmation
@@ -63,13 +66,9 @@ export type SafetyConfig = {
   maxToolCallsPerTurn: number; // Default 20
   maxToolCallsPerSession: number; // Default 100
 
-  // Per-tool overrides
-  toolOverrides: Record<
-    string,
-    {
-      autonomy?: 'always_allow' | 'always_confirm' | 'always_deny';
-    }
-  >;
+  // Per-tool permission map (resolved from autonomy level + config overrides)
+  // This is the primary mechanism for deciding allow/ask/deny per tool.
+  toolPermissions: Record<string, ToolPermission>;
 
   // Paths
   allowedPaths?: string[]; // If set, only these paths are allowed
@@ -94,15 +93,27 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
   maxToolCallsPerTurn: 20,
   maxToolCallsPerSession: 100,
 
-  toolOverrides: {},
+  // Default cautious permissions: allow reads, ask for writes/commands
+  toolPermissions: {
+    read_file: 'allow',
+    list_dir: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    write_file: 'ask',
+    edit_file: 'ask',
+    run_command: 'ask',
+    task: 'allow',
+    todo_read: 'allow',
+    todo_write: 'allow',
+  },
 
   deniedPaths: [
     '.env',
     '.env.*',
     '*.pem',
     '*.key',
-    'id_rsa',
-    'id_ed25519',
+    'id_rsa*',
+    'id_ed25519*',
     '*.p12',
     '*.pfx',
     'credentials.*',
@@ -116,10 +127,12 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
     'sudo',
     'chmod 777',
     '> /dev/',
+    '>/dev/',
     'mkfs',
     'dd if=',
-    ':(){:|:&};:', // Fork bomb
-    'mv /* ',
+    ':(){:|:&};:', // Fork bomb (compact)
+    ':(){ :|:& };:', // Fork bomb (spaced)
+    'mv /*',
     'cat /etc/passwd',
     'cat /etc/shadow',
   ],
