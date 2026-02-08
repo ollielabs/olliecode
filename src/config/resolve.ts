@@ -8,7 +8,7 @@
 
 import type { CompactionConfig } from '../agent/compaction';
 import type { SafetyConfig } from '../agent/safety/types';
-import type { AgentConfig } from '../agent/types';
+import type { AgentConfig, ToolsConfig } from '../agent/types';
 import type { PermissionValue, ResolvedConfig } from './schema';
 
 // === Autonomy → Permission mapping ===
@@ -146,6 +146,29 @@ export function extractSafetyConfig(
     enableAuditLog: config.safety.auditLog,
     auditLogPath: config.safety.auditLogPath,
     toolPermissions,
+  };
+}
+
+/**
+ * Extract ToolsConfig from resolved config.
+ */
+export function extractToolsConfig(config: ResolvedConfig): ToolsConfig {
+  return {
+    read_file: {
+      defaultLimit: config.tools.read_file.defaultLimit,
+      maxLineLength: config.tools.read_file.maxLineLength,
+    },
+    run_command: {
+      timeout: config.tools.run_command.timeout,
+      maxOutputSize: config.tools.run_command.maxOutputSize,
+    },
+    task: {
+      iterationLimits: {
+        quick: config.tools.task.iterationLimits.quick,
+        medium: config.tools.task.iterationLimits.medium,
+        thorough: config.tools.task.iterationLimits.thorough,
+      },
+    },
   };
 }
 

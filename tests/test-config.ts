@@ -17,7 +17,11 @@ import {
   mergeConfigs,
 } from '../src/config/merge';
 import { deleteAtPath, parseConfigString } from '../src/config/parse';
-import { extractSafetyConfig, resolvePermissions } from '../src/config/resolve';
+import {
+  extractSafetyConfig,
+  extractToolsConfig,
+  resolvePermissions,
+} from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
 
 // === deleteAtPath ===
@@ -477,5 +481,50 @@ describe('path validation patterns', () => {
     const config = makeConfig(['.env']);
     const result = validatePath('config/.env', config, 'write');
     expect(result.valid).toBe(false);
+  });
+});
+
+// === extractToolsConfig ===
+
+describe('extractToolsConfig', () => {
+  test('returns defaults when no tools config specified', () => {
+    const config = ConfigSchema.parse({});
+    const tools = extractToolsConfig(config);
+    expect(tools.read_file.defaultLimit).toBe(2000);
+    expect(tools.read_file.maxLineLength).toBe(2000);
+    expect(tools.run_command.timeout).toBe(30000);
+    expect(tools.run_command.maxOutputSize).toBe(10000);
+    expect(tools.task.iterationLimits.quick).toBe(8);
+    expect(tools.task.iterationLimits.medium).toBe(15);
+    expect(tools.task.iterationLimits.thorough).toBe(25);
+  });
+
+  test('respects custom tool settings', () => {
+    const config = ConfigSchema.parse({
+      tools: {
+        read_file: { defaultLimit: 500, maxLineLength: 1000 },
+        run_command: { timeout: 60000, maxOutputSize: 50000 },
+        task: { iterationLimits: { quick: 4, medium: 10, thorough: 30 } },
+      },
+    });
+    const tools = extractToolsConfig(config);
+    expect(tools.read_file.defaultLimit).toBe(500);
+    expect(tools.read_file.maxLineLength).toBe(1000);
+    expect(tools.run_command.timeout).toBe(60000);
+    expect(tools.run_command.maxOutputSize).toBe(50000);
+    expect(tools.task.iterationLimits.quick).toBe(4);
+    expect(tools.task.iterationLimits.thorough).toBe(30);
+  });
+
+  test('partial overrides keep other defaults', () => {
+    const config = ConfigSchema.parse({
+      tools: {
+        run_command: { timeout: 60000 },
+      },
+    });
+    const tools = extractToolsConfig(config);
+    expect(tools.run_command.timeout).toBe(60000);
+    expect(tools.run_command.maxOutputSize).toBe(10000); // default
+    expect(tools.read_file.defaultLimit).toBe(2000); // default
   });
 });

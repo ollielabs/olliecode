@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolDefinition } from '../types';
+import type { ToolContext, ToolDefinition } from '../types';
 
 const inputSchema = z.object({
   command: z.string().describe('The shell command to execute'),
@@ -33,8 +33,19 @@ export const runCommandTool: ToolDefinition<
   parameters: inputSchema,
   outputSchema,
   risk: 'prompt', // Requires user confirmation in Phase 3
-  execute: async ({ command, cwd, timeout }, signal) => {
-    const timeoutMs = timeout ?? 30000;
+  execute: async (
+    {
+      command,
+      cwd,
+      timeout,
+    }: { command: string; cwd?: string; timeout?: number },
+    signal?: AbortSignal,
+    context?: ToolContext,
+  ) => {
+    const defaultTimeout = context?.toolsConfig?.run_command.timeout ?? 30000;
+    const maxOutputSize =
+      context?.toolsConfig?.run_command.maxOutputSize ?? 10000;
+    const timeoutMs = timeout ?? defaultTimeout;
 
     const proc = Bun.spawn(['sh', '-c', command], {
       cwd: cwd ?? '.',
@@ -63,8 +74,8 @@ export const runCommandTool: ToolDefinition<
       const exitCode = await proc.exited;
 
       return {
-        stdout: stdout.slice(0, 10000), // Limit output size
-        stderr: stderr.slice(0, 10000),
+        stdout: stdout.slice(0, maxOutputSize),
+        stderr: stderr.slice(0, maxOutputSize),
         exitCode,
       };
     } finally {

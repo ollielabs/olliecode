@@ -37,6 +37,7 @@ import type {
   AgentStep,
   ContextUsage,
   ToolResult,
+  ToolsConfig,
 } from './types';
 import { DEFAULT_AGENT_CONFIG } from './types';
 
@@ -73,6 +74,7 @@ export type RunAgentArgs = {
   /** Configuration overrides */
   config?: Partial<AgentConfig>;
   safetyConfig: SafetyConfig;
+  toolsConfig?: ToolsConfig;
 
   /** Chat temperature (default 0.2) */
   temperature?: number;
@@ -327,6 +329,7 @@ export async function runAgent(
             model: args.model,
             host: args.host,
             safetyConfig: args.safetyConfig,
+            toolsConfig: args.toolsConfig,
           },
         },
       );

@@ -26,6 +26,7 @@ export {
   extractAgentConfig,
   extractCompactionConfig,
   extractSafetyConfig,
+  extractToolsConfig,
   resolvePermissions,
 } from './resolve';
 // Re-export schema types
