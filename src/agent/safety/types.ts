@@ -130,7 +130,7 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
     'mkfs',
     'dd if=',
     ':(){:|:&};:', // Fork bomb
-    'mv /* ',
+    'mv /*',
     'cat /etc/passwd',
     'cat /etc/shadow',
   ],

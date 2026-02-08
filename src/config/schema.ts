@@ -81,7 +81,7 @@ const SafetyObjectSchema = z.object({
       'mkfs',
       'dd if=',
       ':(){:|:&};:',
-      'mv /* ',
+      'mv /*',
       'cat /etc/passwd',
       'cat /etc/shadow',
     ]),
