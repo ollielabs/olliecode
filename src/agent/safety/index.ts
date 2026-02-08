@@ -23,6 +23,7 @@ import type {
   ConfirmationPreview,
   ConfirmationRequest,
   ConfirmationResponse,
+  RiskLevel,
   SafetyCheckResult,
   SafetyConfig,
   ToolPermission,
@@ -46,7 +47,7 @@ const COMMAND_TOOLS = ['run_command'];
  * Get the risk level for a tool (used for confirmation UI display only).
  * This does NOT drive permission decisions — toolPermissions does.
  */
-function getToolRiskLevel(tool: string): 'safe' | 'prompt' | 'dangerous' {
+function getToolRiskLevel(tool: string): RiskLevel {
   switch (tool) {
     case 'read_file':
     case 'list_dir':

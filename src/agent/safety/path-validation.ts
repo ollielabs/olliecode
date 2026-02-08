@@ -124,16 +124,24 @@ function matchesPattern(path: string, pattern: string): boolean {
     }
   }
 
-  // Trailing wildcard: "id_rsa*" matches "id_rsa", "id_rsa.pub", "id_rsa_old"
+  // Trailing wildcard: "id_rsa*" matches "id_rsa.pub", "secrets/*" matches "secrets/foo.txt"
   if (
     normalizedPattern.endsWith('*') &&
     !normalizedPattern.endsWith('.*') &&
     !normalizedPattern.startsWith('*')
   ) {
     const prefix = normalizedPattern.slice(0, -1);
-    const fileName = normalizedPath.split('/').pop() ?? '';
-    if (fileName.startsWith(prefix)) {
-      return true;
+    if (normalizedPattern.includes('/')) {
+      // Path-based trailing wildcard: match against full path
+      if (normalizedPath.startsWith(prefix)) {
+        return true;
+      }
+    } else {
+      // Filename-based trailing wildcard: match against basename only
+      const fileName = normalizedPath.split('/').pop() ?? '';
+      if (fileName.startsWith(prefix)) {
+        return true;
+      }
     }
   }
 
