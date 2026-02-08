@@ -7,6 +7,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 
+import { validatePath } from '../src/agent/safety/path-validation';
+import type { SafetyConfig } from '../src/agent/safety/types';
 import { DEFAULT_SAFETY_CONFIG } from '../src/agent/safety/types';
 import { getConfigDirectory } from '../src/config/index';
 import {
@@ -429,5 +431,51 @@ describe('schema safety defaults', () => {
     const config = ConfigSchema.parse({});
     const perms = resolvePermissions(config);
     expect(perms).toEqual(DEFAULT_SAFETY_CONFIG.toolPermissions);
+  });
+});
+
+// === Path validation with trailing wildcard patterns ===
+
+describe('path validation patterns', () => {
+  const makeConfig = (deniedPaths: string[]): SafetyConfig => ({
+    ...DEFAULT_SAFETY_CONFIG,
+    projectRoot: '/project',
+    deniedPaths,
+  });
+
+  test('id_rsa* matches id_rsa.pub', () => {
+    const config = makeConfig(['id_rsa*']);
+    const result = validatePath('.ssh/id_rsa.pub', config, 'write');
+    expect(result.valid).toBe(false);
+  });
+
+  test('id_rsa* matches id_rsa (exact basename)', () => {
+    const config = makeConfig(['id_rsa*']);
+    const result = validatePath('id_rsa', config, 'write');
+    expect(result.valid).toBe(false);
+  });
+
+  test('id_rsa* does not match my_id_rsa.pub (prefix must match)', () => {
+    const config = makeConfig(['id_rsa*']);
+    const result = validatePath('my_id_rsa.pub', config, 'write');
+    expect(result.valid).toBe(true);
+  });
+
+  test('.env.* matches .env.local', () => {
+    const config = makeConfig(['.env.*']);
+    const result = validatePath('.env.local', config, 'write');
+    expect(result.valid).toBe(false);
+  });
+
+  test('*.pem matches server.pem', () => {
+    const config = makeConfig(['*.pem']);
+    const result = validatePath('certs/server.pem', config, 'write');
+    expect(result.valid).toBe(false);
+  });
+
+  test('.env matches nested .env', () => {
+    const config = makeConfig(['.env']);
+    const result = validatePath('config/.env', config, 'write');
+    expect(result.valid).toBe(false);
   });
 });
