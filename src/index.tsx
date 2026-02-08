@@ -50,11 +50,11 @@ program
     const cliOverrides = buildCliOverrides(options, getSource);
 
     // Load and merge all config sources
-    const { config, warnings } = loadMergedConfig(
-      projectPath,
-      customConfigPath,
-      cliOverrides,
-    );
+    const {
+      config,
+      layers: configLayers,
+      warnings,
+    } = loadMergedConfig(projectPath, customConfigPath, cliOverrides);
 
     // Wire debug config to logger (env var takes precedence, config enables)
     if (config.debug) {
@@ -105,6 +105,8 @@ program
     createRoot(renderer).render(
       <App
         config={config}
+        configLayers={configLayers}
+        configWarnings={warnings}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
       />,

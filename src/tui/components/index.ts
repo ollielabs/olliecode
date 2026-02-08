@@ -7,36 +7,33 @@ export {
   AssistantMessage,
   type AssistantMessageProps,
 } from './assistant-message';
-export { UserMessage, type UserMessageProps } from './user-message';
-export { ToolMessage, type ToolMessageProps } from './tool-message';
+// Dialog and modal components
+export { CommandMenu, type SlashCommand } from './command-menu';
+export { ConfigModal, type ConfigModalProps } from './config-modal';
 export {
   ContextInfoNotification,
   type ContextInfoNotificationProps,
 } from './context-info-notification';
-export {
-  ToastNotification,
-  type ToastNotificationProps,
-} from './toast-notification';
-
-// Dialog and modal components
-export { CommandMenu, type SlashCommand } from './command-menu';
+export { ContextStatsModal } from './context-stats-modal';
+// Diff components
+export { DiffView, type DiffViewProps } from './diff-view';
 export {
   FilePicker,
   type FilePickerProps,
   getFilteredFiles,
 } from './file-picker';
-export { ContextStatsModal } from './context-stats-modal';
+// Input components
+export { InputBox, type InputBoxProps } from './input-box';
 export { KeyboardShortcutsModal } from './keyboard-shortcuts-modal';
 export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
-export { ThemePicker } from './theme-picker';
-
-// Input components
-export { InputBox, type InputBoxProps } from './input-box';
-export { StatusBar, type Status } from './status-bar';
-
 // Layout components
 export { SidePanel } from './side-panel';
-
-// Diff components
-export { DiffView, type DiffViewProps } from './diff-view';
+export { type Status, StatusBar } from './status-bar';
+export { ThemePicker } from './theme-picker';
+export {
+  ToastNotification,
+  type ToastNotificationProps,
+} from './toast-notification';
+export { ToolMessage, type ToolMessageProps } from './tool-message';
+export { UserMessage, type UserMessageProps } from './user-message';

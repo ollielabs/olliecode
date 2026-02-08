@@ -10,6 +10,7 @@ import type {
   ConfirmationRequest,
   ConfirmationResponse,
 } from '../agent/safety/types';
+import type { ConfigLayer } from '../config/merge';
 import type { ResolvedConfig } from '../config/schema';
 import type { ContextStats } from '../lib/tokenizer';
 import type { Session } from '../session';
@@ -82,6 +83,10 @@ export type DisplayMessage =
  */
 export type AppProps = {
   config: ResolvedConfig;
+  /** Config layers from merge (for /config command) */
+  configLayers?: ConfigLayer[];
+  /** Config warnings from merge (for /config command) */
+  configWarnings?: string[];
   projectPath: string;
   initialSessionId?: string;
 };
@@ -98,6 +103,7 @@ export type StatusRef = React.RefObject<Status>;
 
 // Re-export commonly used types for convenience
 export type {
+  ConfigLayer,
   Session,
   Todo,
   ContextStats,

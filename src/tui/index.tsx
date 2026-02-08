@@ -12,6 +12,7 @@ import { listSessions } from '../session';
 import {
   AssistantMessage,
   CommandMenu,
+  ConfigModal,
   ContextInfoNotification,
   ContextStatsModal,
   FilePicker,
@@ -45,11 +46,19 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 
 If there's already an AGENTS.md, improve it.`;
 
-export function App({ config, projectPath, initialSessionId }: AppProps) {
+export function App({
+  config,
+  configLayers,
+  configWarnings,
+  projectPath,
+  initialSessionId,
+}: AppProps) {
   return (
     <ThemeProvider initialTheme={config.tui.theme}>
       <AppContent
         config={config}
+        configLayers={configLayers}
+        configWarnings={configWarnings}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
       />
@@ -57,12 +66,19 @@ export function App({ config, projectPath, initialSessionId }: AppProps) {
   );
 }
 
-function AppContent({ config, projectPath, initialSessionId }: AppProps) {
+function AppContent({
+  config,
+  configLayers = [],
+  configWarnings = [],
+  projectPath,
+  initialSessionId,
+}: AppProps) {
   const model = config.model;
   const { tokens } = useTheme();
   const textareaRef = useRef<TextareaRenderable>(null);
   const statusRef = useRef<Status>('idle');
   const [toast, setToast] = useState<string | null>(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
 
   // Extract TUI config once
   const tuiConfig = useMemo(() => extractTuiConfig(config), [config]);
@@ -119,6 +135,7 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
       handleShowContext: context.handleShowContext,
       handleForget: context.handleForget,
       handleInit,
+      handleConfig: () => setShowConfigModal(true),
       setShowSessionPicker: session.setShowSessionPicker,
       setShowThemePicker: session.setShowThemePicker,
     },
@@ -160,6 +177,15 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
             stats={context.contextStats}
             modelName={model}
             onClose={context.handleContextStatsClose}
+          />
+        )}
+
+        {showConfigModal && (
+          <ConfigModal
+            config={config}
+            layers={configLayers}
+            warnings={configWarnings}
+            onClose={() => setShowConfigModal(false)}
           />
         )}
 
@@ -275,6 +301,15 @@ function AppContent({ config, projectPath, initialSessionId }: AppProps) {
           stats={context.contextStats}
           modelName={model}
           onClose={context.handleContextStatsClose}
+        />
+      )}
+
+      {showConfigModal && (
+        <ConfigModal
+          config={config}
+          layers={configLayers}
+          warnings={configWarnings}
+          onClose={() => setShowConfigModal(false)}
         />
       )}
 

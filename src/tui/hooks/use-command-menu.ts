@@ -3,8 +3,8 @@
  * Manages command filtering, selection, and actions.
  */
 
-import { useState } from 'react';
 import { useKeyboard } from '@opentui/react';
+import { useState } from 'react';
 import type { SlashCommand } from '../components/command-menu';
 import type { Status, TextareaRef } from '../types';
 
@@ -23,6 +23,7 @@ export type UseCommandMenuProps = {
     handleShowContext: () => Promise<void>;
     handleForget: (n: number) => void;
     handleInit: (args?: string) => void;
+    handleConfig: () => void;
     setShowSessionPicker: React.Dispatch<React.SetStateAction<boolean>>;
     setShowThemePicker: React.Dispatch<React.SetStateAction<boolean>>;
   };
@@ -132,6 +133,14 @@ export function useCommandMenu({
         // Extract any arguments after "init " from the command filter
         const args = commandFilter.replace(/^init\s*/, '').trim();
         handlers.handleInit(args || undefined);
+        textareaRef.current?.setText('');
+      },
+    },
+    {
+      name: 'config',
+      description: 'Show active configuration and sources',
+      action: () => {
+        handlers.handleConfig();
         textareaRef.current?.setText('');
       },
     },
