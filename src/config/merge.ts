@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseConfigFile } from './parse';
+import { deleteAtPath, parseConfigFile } from './parse';
 import type { ResolvedConfig } from './schema';
 import { ConfigSchema } from './schema';
 
@@ -231,13 +231,39 @@ export function mergeConfigs(
   const result = ConfigSchema.safeParse(merged);
 
   if (!result.success) {
+    // Strip only the invalid fields and re-parse to preserve valid settings
+    const stripped = structuredClone(merged);
     for (const issue of result.error.issues) {
-      const path = issue.path.join('.');
-      warnings.push(`Invalid merged config at "${path}": ${issue.message}`);
+      const path = issue.path.map(String);
+      if (path.length === 0) {
+        // Root-level validation failure — cannot strip a specific field
+        warnings.push(
+          `Invalid merged config at "<root>": ${issue.message}; using default configuration.`,
+        );
+        return {
+          config: ConfigSchema.parse({}),
+          layers,
+          warnings,
+        };
+      }
+      warnings.push(
+        `Invalid merged config at "${path.join('.')}": ${issue.message} (using default for this field)`,
+      );
+      deleteAtPath(stripped, path);
     }
-    // Fall back to defaults for the entire config
+    const strippedResult = ConfigSchema.safeParse(stripped);
+    if (!strippedResult.success) {
+      warnings.push(
+        'Merged config contained unrecoverable validation errors after stripping; using defaults.',
+      );
+      return {
+        config: ConfigSchema.parse({}),
+        layers,
+        warnings,
+      };
+    }
     return {
-      config: ConfigSchema.parse({}),
+      config: strippedResult.data,
       layers,
       warnings,
     };

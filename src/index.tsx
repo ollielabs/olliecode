@@ -56,9 +56,6 @@ program
       cliOverrides,
     );
 
-    // Apply OLLAMA_HOST env var (highest precedence for host)
-    const host = process.env.OLLAMA_HOST ?? config.host;
-
     // Wire debug config to logger (env var takes precedence, config enables)
     if (config.debug) {
       setDebugEnabled(true);
@@ -108,7 +105,6 @@ program
     createRoot(renderer).render(
       <App
         config={config}
-        host={host}
         projectPath={projectPath}
         initialSessionId={initialSessionId}
       />,

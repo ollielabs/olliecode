@@ -33,6 +33,53 @@ export type ParseResult = {
 };
 
 /**
+ * Delete a value at a nested path in an object or array.
+ * Used to strip invalid fields during partial recovery.
+ * Handles both object keys and array indices (Zod paths can include numbers).
+ */
+export function deleteAtPath(
+  container: unknown,
+  path: (string | number)[],
+): void {
+  if (
+    path.length === 0 ||
+    container === null ||
+    typeof container !== 'object'
+  ) {
+    return;
+  }
+
+  const [head, ...rest] = path;
+  const isLast = rest.length === 0;
+
+  if (Array.isArray(container)) {
+    const index = typeof head === 'number' ? head : Number(head);
+    if (!Number.isInteger(index) || index < 0 || index >= container.length) {
+      return;
+    }
+    if (isLast) {
+      container.splice(index, 1);
+      return;
+    }
+    const child = container[index] as unknown;
+    if (child !== null && typeof child === 'object') {
+      deleteAtPath(child, rest);
+    }
+    return;
+  }
+
+  const key = String(head);
+  if (isLast) {
+    delete (container as Record<string, unknown>)[key];
+    return;
+  }
+  const child = (container as Record<string, unknown>)[key];
+  if (child !== null && typeof child === 'object') {
+    deleteAtPath(child, rest);
+  }
+}
+
+/**
  * Parse a JSONC string into a raw object.
  * Returns null if the string is empty or invalid.
  */
@@ -101,14 +148,30 @@ export function parseConfigString(content: string): ParseResult {
   const result = ConfigSchema.safeParse(raw);
 
   if (!result.success) {
-    // Collect validation errors as warnings, fall back to defaults for invalid fields
+    // Strip only the invalid fields and re-parse to preserve valid settings
+    const stripped = structuredClone(raw);
     for (const issue of result.error.issues) {
-      const path = issue.path.join('.');
-      warnings.push(`Invalid config at "${path}": ${issue.message}`);
+      const path = issue.path.map(String);
+      if (path.length === 0) {
+        // Root-level validation failure — cannot strip a specific field
+        warnings.push(
+          `Invalid config at "<root>": ${issue.message}; using default configuration.`,
+        );
+        return { raw, config: ConfigSchema.parse({}), warnings };
+      }
+      warnings.push(
+        `Invalid config at "${path.join('.')}": ${issue.message} (using default for this field)`,
+      );
+      deleteAtPath(stripped, path);
     }
-    // Re-parse with defaults by stripping invalid fields
-    const config = ConfigSchema.parse({});
-    return { raw, config, warnings };
+    const strippedResult = ConfigSchema.safeParse(stripped);
+    if (!strippedResult.success) {
+      warnings.push(
+        'Config contained unrecoverable validation errors after stripping; using defaults.',
+      );
+      return { raw, config: ConfigSchema.parse({}), warnings };
+    }
+    return { raw, config: strippedResult.data, warnings };
   }
 
   return { raw, config: result.data, warnings };

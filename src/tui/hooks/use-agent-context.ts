@@ -17,10 +17,8 @@ import type { ContextStats, DisplayMessage, Message } from '../types';
 export type UseAgentContextProps = {
   /** Current message history */
   history: Message[];
-  /** Resolved config */
+  /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
   config: ResolvedConfig;
-  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
-  host: string;
   /** Setter for history (for compaction and forget) */
   setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
   /** Setter for display messages (for clear and forget) */
@@ -53,11 +51,11 @@ export type UseAgentContextReturn = {
 export function useAgentContext({
   history,
   config,
-  host,
   setHistory,
   setDisplayMessages,
 }: UseAgentContextProps): UseAgentContextReturn {
   const model = config.model;
+  const host = config.host;
   const [contextInfo, setContextInfo] = useState<string | null>(null);
   const [contextStats, setContextStats] = useState<ContextStats | null>(null);
   const [showContextStats, setShowContextStats] = useState(false);

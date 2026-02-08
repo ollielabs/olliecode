@@ -82,7 +82,6 @@ export type DisplayMessage =
  */
 export type AppProps = {
   config: ResolvedConfig;
-  host: string;
   projectPath: string;
   initialSessionId?: string;
 };

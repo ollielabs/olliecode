@@ -27,10 +27,8 @@ import type {
 export type UseSessionProps = {
   /** Project path for session creation */
   projectPath: string;
-  /** Resolved config */
+  /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
   config: ResolvedConfig;
-  /** Ollama host (may differ from config.host due to OLLAMA_HOST env) */
-  host: string;
   /** Initial session ID to load */
   initialSessionId?: string;
   /** Textarea ref for focus management */
@@ -89,11 +87,11 @@ export type UseSessionReturn = {
 export function useSession({
   projectPath,
   config,
-  host,
   initialSessionId,
   textareaRef,
 }: UseSessionProps): UseSessionReturn {
   const model = config.model;
+  const host = config.host;
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [history, setHistory] = useState<Message[]>([]);
   const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([]);
