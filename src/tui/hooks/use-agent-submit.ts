@@ -10,7 +10,11 @@ import type { ToolCall } from 'ollama';
 import { useRef, useState } from 'react';
 import { runAgent } from '../../agent';
 import type { AgentStep, ToolResult } from '../../agent/types';
-import { extractAgentConfig, extractSafetyConfig } from '../../config/resolve';
+import {
+  extractAgentConfig,
+  extractSafetyConfig,
+  extractToolsConfig,
+} from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
 import {
   addMessage,
@@ -187,6 +191,7 @@ export function useAgentSubmit({
       signal: abortControllerRef.current.signal,
       config: extractAgentConfig(config),
       safetyConfig: extractSafetyConfig(config, projectPath),
+      toolsConfig: extractToolsConfig(config),
       temperature: config.temperature,
       compactionTemperature: config.compaction.temperature,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),

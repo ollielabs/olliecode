@@ -11,6 +11,18 @@ export type {
 } from './safety/types';
 
 /**
+ * Tool-specific configuration extracted from ResolvedConfig.tools.
+ * Each tool reads its settings from here with fallback to hardcoded defaults.
+ */
+export type ToolsConfig = {
+  read_file: { defaultLimit: number; maxLineLength: number };
+  run_command: { timeout: number; maxOutputSize: number };
+  task: {
+    iterationLimits: { quick: number; medium: number; thorough: number };
+  };
+};
+
+/**
  * Risk level for a tool
  * - safe: No confirmation needed, can run in parallel
  * - low: Minor risk, no confirmation usually
@@ -33,6 +45,8 @@ export type ToolContext = {
   host?: string;
   /** Safety config for subagent delegation */
   safetyConfig?: SafetyConfig;
+  /** Tool-specific configuration from config file */
+  toolsConfig?: ToolsConfig;
 };
 
 /**

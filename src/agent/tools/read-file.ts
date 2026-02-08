@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolDefinition } from '../types';
+import type { ToolContext, ToolDefinition } from '../types';
 
 const inputSchema = z.object({
   path: z.string().describe('The file path to read'),
@@ -26,7 +26,11 @@ const MAX_LINE_LENGTH = 2000;
  * Add line numbers to content in the format "   42|code"
  * Matches OpenCode's view tool format for consistency.
  */
-function addLineNumbers(content: string, startLine: number): string {
+function addLineNumbers(
+  content: string,
+  startLine: number,
+  maxLineLength: number,
+): string {
   const lines = content.split('\n');
   const maxLineNum = startLine + lines.length;
   const padWidth = Math.max(6, String(maxLineNum).length);
@@ -36,8 +40,8 @@ function addLineNumbers(content: string, startLine: number): string {
       const lineNum = String(startLine + i).padStart(padWidth, ' ');
       // Truncate very long lines
       const truncatedLine =
-        line.length > MAX_LINE_LENGTH
-          ? `${line.slice(0, MAX_LINE_LENGTH)}...`
+        line.length > maxLineLength
+          ? `${line.slice(0, maxLineLength)}...`
           : line;
       return `${lineNum}|${truncatedLine}`;
     })
@@ -62,17 +66,35 @@ Use offset and limit for large files to read specific sections.`,
   parameters: inputSchema,
   outputSchema,
   risk: 'safe',
-  execute: async ({ path, offset = 0, limit = DEFAULT_LIMIT }) => {
+  execute: async (
+    {
+      path,
+      offset = 0,
+      limit,
+    }: { path: string; offset?: number; limit?: number },
+    _signal?: AbortSignal,
+    context?: ToolContext,
+  ) => {
+    const defaultLimit =
+      context?.toolsConfig?.read_file.defaultLimit ?? DEFAULT_LIMIT;
+    const maxLineLength =
+      context?.toolsConfig?.read_file.maxLineLength ?? MAX_LINE_LENGTH;
+    const effectiveLimit = limit ?? defaultLimit;
+
     const content = await Bun.file(path).text();
     const lines = content.split('\n');
 
     // Apply offset and limit
     const startLine = Math.min(offset, lines.length);
-    const endLine = Math.min(startLine + limit, lines.length);
+    const endLine = Math.min(startLine + effectiveLimit, lines.length);
     const selectedLines = lines.slice(startLine, endLine);
 
     // Format with line numbers (1-based for display)
-    const formatted = addLineNumbers(selectedLines.join('\n'), startLine + 1);
+    const formatted = addLineNumbers(
+      selectedLines.join('\n'),
+      startLine + 1,
+      maxLineLength,
+    );
 
     // Add metadata about truncation
     let result = `<file path="${path}">\n${formatted}\n</file>`;

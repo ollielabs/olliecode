@@ -106,6 +106,10 @@ The tasks will run concurrently and you'll receive all results together.`,
       };
     }
 
+    // Use config iteration limits if available, otherwise hardcoded defaults
+    const iterationLimits =
+      context?.toolsConfig?.task.iterationLimits ?? ITERATION_LIMITS;
+
     // Build the explore subagent prompt
     const ctx = getDefaultContext();
     const systemPromptOverride = buildExplorePrompt(ctx, thoroughness);
@@ -138,12 +142,13 @@ The tasks will run concurrently and you'll receive all results together.`,
         signal: signal ?? new AbortController().signal,
 
         config: {
-          maxIterations: ITERATION_LIMITS[thoroughness],
+          maxIterations: iterationLimits[thoroughness],
           loopDetection: true,
           loopThreshold: 2,
         },
 
         safetyConfig: parentSafetyConfig,
+        toolsConfig: context?.toolsConfig,
         systemPromptOverride,
       });
 
