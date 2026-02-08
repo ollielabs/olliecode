@@ -16,10 +16,17 @@ export type ConfigModalProps = {
   onClose: () => void;
 };
 
+/** Home directory for path shortening (resolved once at module load). */
+const HOME_DIR = process.env.HOME ?? process.env.USERPROFILE ?? '';
+
 /**
  * Determine which source layer a top-level config key came from.
  * Walks layers in reverse precedence (highest first) to find the
  * first layer that sets the key.
+ *
+ * NOTE: Only resolves top-level keys in layer.raw. Nested keys like
+ * tui.theme or agent.maxIterations are not individually attributed —
+ * extend with dot-path traversal if needed in the future.
  */
 export function getSource(key: string, layers: ConfigLayer[]): string {
   // Walk layers in reverse (highest precedence first)
@@ -29,10 +36,9 @@ export function getSource(key: string, layers: ConfigLayer[]): string {
       if (layer.source === 'cli') return 'cli';
       if (layer.path) {
         // Shorten the path for display
-        const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
         const display =
-          home && layer.path.startsWith(home)
-            ? `~${layer.path.slice(home.length)}`
+          HOME_DIR && layer.path.startsWith(HOME_DIR)
+            ? `~${layer.path.slice(HOME_DIR.length)}`
             : layer.path;
         return `${layer.source} (${display})`;
       }
@@ -83,11 +89,14 @@ export function ConfigModal({
   const { tokens } = useTheme();
   const permissions = resolvePermissions(config);
 
-  // Determine source for key config values
+  // Determine source for top-level config values.
+  // Nested keys (tui.*, agent.*, compaction.*) don't have individual
+  // attribution yet — getSource only resolves top-level keys.
   const modelSource = getSource('model', layers);
   const hostSource = getSource('host', layers);
   const autonomySource = getSource('autonomy', layers);
   const tempSource = getSource('temperature', layers);
+  const debugSource = getSource('debug', layers);
 
   return (
     <Modal title="Configuration" onClose={onClose} size="large">
@@ -117,7 +126,8 @@ export function ConfigModal({
             );
           })}
 
-          {/* Resolved Values */}
+          {/* Resolved Values
+              NOTE: When adding keys to ConfigSchema, update this section. */}
           <SectionHeader title="Resolved Config" />
           <ConfigRow label="model" value={config.model} source={modelSource} />
           <ConfigRow label="host" value={config.host} source={hostSource} />
@@ -144,7 +154,11 @@ export function ConfigModal({
             label="compaction.auto"
             value={String(config.compaction.auto)}
           />
-          <ConfigRow label="debug" value={String(config.debug)} />
+          <ConfigRow
+            label="debug"
+            value={String(config.debug)}
+            source={debugSource}
+          />
 
           {/* Effective Permissions */}
           <SectionHeader title="Effective Permissions" />
