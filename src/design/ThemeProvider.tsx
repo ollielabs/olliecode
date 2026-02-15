@@ -32,19 +32,22 @@ export function ThemeProvider(props: ThemeProviderProps) {
     props.initialTheme ?? DEFAULT_THEME_ID,
   );
 
-  // Detect color scheme or use override
-  const isDark = props.colorScheme
-    ? props.colorScheme === 'dark'
-    : detectColorScheme() === 'dark';
+  // Detect color scheme or use override (reactive if prop changes)
+  const isDark = createMemo(() =>
+    props.colorScheme
+      ? props.colorScheme === 'dark'
+      : detectColorScheme() === 'dark',
+  );
 
-  // Resolve the current theme (recomputes when themeId signal changes)
+  // Resolve the current theme (recomputes when themeId or isDark changes)
   const resolved = createMemo(() => {
     const id = themeId();
+    const dark = isDark();
     const theme = getTheme(id);
-    const variant = isDark ? theme.dark : theme.light;
-    const tokens = resolveThemeVariant(variant, isDark);
+    const variant = dark ? theme.dark : theme.light;
+    const tokens = resolveThemeVariant(variant, dark);
     const syntaxStyle = createSyntaxStyle(tokens);
-    return { theme, id, tokens, isDark, syntaxStyle };
+    return { theme, id, tokens, isDark: dark, syntaxStyle };
   });
 
   // Build initial context value

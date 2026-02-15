@@ -2,6 +2,7 @@
  * Modal displaying context usage statistics.
  */
 
+import { createMemo } from 'solid-js';
 import { Modal } from './modal';
 import type { ContextStats } from '../../lib/tokenizer';
 import { useTheme } from '../../design';
@@ -18,14 +19,14 @@ function ProgressBar(props: {
   filledColor: string;
   emptyColor: string;
 }) {
-  const barWidth = props.width ?? 30;
-  const filled = Math.round((props.percent / 100) * barWidth);
-  const empty = barWidth - filled;
+  const barWidth = createMemo(() => props.width ?? 30);
+  const filled = createMemo(() => Math.round((props.percent / 100) * barWidth()));
+  const empty = createMemo(() => barWidth() - filled());
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: props.filledColor }}>{'\u2588'.repeat(filled)}</text>
-      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty)}</text>
+      <text style={{ fg: props.filledColor }}>{'\u2588'.repeat(filled())}</text>
+      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty())}</text>
     </box>
   );
 }
@@ -33,22 +34,27 @@ function ProgressBar(props: {
 export function ContextStatsModal(props: ContextStatsModalProps) {
   const { tokens } = useTheme();
 
-  const statusColor = props.stats.isCritical
-    ? tokens.error
-    : props.stats.isNearLimit
-      ? tokens.warning
-      : tokens.success;
-  const statusText = props.stats.isCritical
-    ? 'CRITICAL'
-    : props.stats.isNearLimit
-      ? 'Near Limit'
-      : 'OK';
-  const progressColor =
+  const statusColor = createMemo(() =>
+    props.stats.isCritical
+      ? tokens.error
+      : props.stats.isNearLimit
+        ? tokens.warning
+        : tokens.success,
+  );
+  const statusText = createMemo(() =>
+    props.stats.isCritical
+      ? 'CRITICAL'
+      : props.stats.isNearLimit
+        ? 'Near Limit'
+        : 'OK',
+  );
+  const progressColor = createMemo(() =>
     props.stats.usagePercent >= 90
       ? tokens.error
       : props.stats.usagePercent >= 80
         ? tokens.warning
-        : tokens.success;
+        : tokens.success,
+  );
 
   return (
     <Modal title="Context Usage" onClose={props.onClose} size="medium">
@@ -65,12 +71,12 @@ export function ContextStatsModal(props: ContextStatsModalProps) {
               {props.stats.usagePercent}%
             </text>
             <text style={{ fg: tokens.textMuted }}> </text>
-            <text style={{ fg: statusColor }}>[{statusText}]</text>
+            <text style={{ fg: statusColor() }}>[{statusText()}]</text>
           </box>
           <ProgressBar
             percent={props.stats.usagePercent}
             width={40}
-            filledColor={progressColor}
+            filledColor={progressColor()}
             emptyColor={tokens.borderMuted}
           />
         </box>

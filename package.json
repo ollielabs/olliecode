@@ -27,7 +27,6 @@
   },
   "files": [
     "src",
-
     "bunfig.toml"
   ],
   "engines": {

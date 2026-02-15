@@ -3,7 +3,7 @@
  * Always visible on the right side of the chat interface.
  */
 
-import { For, Show, mergeProps } from 'solid-js';
+import { For, Show, createMemo, mergeProps } from 'solid-js';
 import type { ContextStats } from '../../lib/tokenizer';
 import type { Todo, TodoStatus } from '../../session/todo';
 import type { SemanticTokens } from '../../design';
@@ -44,13 +44,13 @@ function ContextBar(props: {
   emptyColor: string;
 }) {
   const width = 12;
-  const filled = Math.round((props.percent / 100) * width);
-  const empty = width - filled;
+  const filled = createMemo(() => Math.round((props.percent / 100) * width));
+  const empty = createMemo(() => width - filled());
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: props.statusColor }}>{'\u2588'.repeat(filled)}</text>
-      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty)}</text>
+      <text style={{ fg: props.statusColor }}>{'\u2588'.repeat(filled())}</text>
+      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty())}</text>
     </box>
   );
 }
@@ -59,10 +59,8 @@ function ContextSection(props: {
   stats: ContextStats;
   tokens: SemanticTokens;
 }) {
-  const statusColor = getStatusColor(
-    props.tokens,
-    props.stats.isCritical,
-    props.stats.isNearLimit,
+  const statusColor = createMemo(() =>
+    getStatusColor(props.tokens, props.stats.isCritical, props.stats.isNearLimit),
   );
 
   return (
@@ -73,17 +71,17 @@ function ContextSection(props: {
       <box flexDirection="row">
         <ContextBar
           percent={props.stats.usagePercent}
-          statusColor={statusColor}
+          statusColor={statusColor()}
           emptyColor={props.tokens.textSubtle}
         />
-        <text style={{ fg: statusColor }}>{props.stats.usagePercent}%</text>
+        <text style={{ fg: statusColor() }}>{props.stats.usagePercent}%</text>
       </box>
       <text style={{ fg: props.tokens.textMuted }}>
         {formatTokenCount(props.stats.totalTokens)}/
         {formatTokenCount(props.stats.maxTokens)}
       </text>
       <Show when={props.stats.isNearLimit}>
-        <text style={{ fg: statusColor }}>
+          <text style={{ fg: statusColor() }}>
           {props.stats.isCritical ? '! Critical' : '~ Near limit'}
         </text>
       </Show>
@@ -92,18 +90,22 @@ function ContextSection(props: {
 }
 
 function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
-  const completed = props.todos.filter((t) => t.status === 'completed').length;
-  const total = props.todos.length;
-  const activeTodos = props.todos
-    .filter((t) => t.status === 'pending' || t.status === 'in_progress')
-    .slice(0, 5);
+  const completed = createMemo(() =>
+    props.todos.filter((t) => t.status === 'completed').length,
+  );
+  const total = createMemo(() => props.todos.length);
+  const activeTodos = createMemo(() =>
+    props.todos
+      .filter((t) => t.status === 'pending' || t.status === 'in_progress')
+      .slice(0, 5),
+  );
 
-  const statusColors: Record<TodoStatus, string> = {
+  const statusColors = createMemo<Record<TodoStatus, string>>(() => ({
     pending: props.tokens.textMuted,
     in_progress: props.tokens.warning,
     completed: props.tokens.success,
     cancelled: props.tokens.textSubtle,
-  };
+  }));
 
   return (
     <box flexDirection="column">
@@ -112,21 +114,21 @@ function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
           <b>Todos</b>{' '}
         </text>
         <text style={{ fg: props.tokens.textMuted }}>
-          {completed}/{total}
+          {completed()}/{total()}
         </text>
       </box>
 
       <Show
-        when={activeTodos.length > 0}
+        when={activeTodos().length > 0}
         fallback={
           <text style={{ fg: props.tokens.textSubtle }}>No active tasks</text>
         }
       >
         <box flexDirection="column">
-          <For each={activeTodos}>
+          <For each={activeTodos()}>
             {(todo) => (
               <box flexDirection="row">
-                <text style={{ fg: statusColors[todo.status] }}>
+                <text style={{ fg: statusColors()[todo.status] }}>
                   {STATUS_ICONS[todo.status]}{' '}
                 </text>
                 <text style={{ fg: props.tokens.textMuted }}>
@@ -139,7 +141,7 @@ function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
           </For>
           <Show
             when={
-              activeTodos.length <
+              activeTodos().length <
               props.todos.filter(
                 (t) => t.status === 'pending' || t.status === 'in_progress',
               ).length

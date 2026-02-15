@@ -3,6 +3,7 @@
  * Renders markdown content with syntax highlighting.
  */
 
+import { createMemo } from 'solid-js';
 import { useTheme } from '../../design';
 import { createMarkdownSyntaxStyle } from '../utils';
 
@@ -12,7 +13,7 @@ export type AssistantMessageProps = {
 
 export function AssistantMessage(props: AssistantMessageProps) {
   const { tokens } = useTheme();
-  const markdownStyle = createMarkdownSyntaxStyle(tokens);
+  const markdownStyle = createMemo(() => createMarkdownSyntaxStyle(tokens));
 
   return (
     <box flexDirection="column" marginLeft={2}>
@@ -20,7 +21,7 @@ export function AssistantMessage(props: AssistantMessageProps) {
         selectable={true}
         content={props.content}
         filetype="markdown"
-        syntaxStyle={markdownStyle}
+        syntaxStyle={markdownStyle()}
         drawUnstyledText={true}
       />
     </box>

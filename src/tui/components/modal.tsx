@@ -4,7 +4,7 @@
  */
 
 import type { JSX } from 'solid-js';
-import { mergeProps } from 'solid-js';
+import { createMemo, mergeProps } from 'solid-js';
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
 import { RGBA } from '@opentui/core';
 import { useTheme } from '../../design';
@@ -27,13 +27,15 @@ export function Modal(rawProps: ModalProps) {
     }
   });
 
-  const modalWidth =
-    props.size === 'large' ? 80 : props.size === 'small' ? 40 : 60;
-  const leftOffset = Math.max(
-    0,
-    Math.floor((dimensions().width - modalWidth) / 2),
+  const modalWidth = createMemo(() =>
+    props.size === 'large' ? 80 : props.size === 'small' ? 40 : 60,
   );
-  const topOffset = Math.floor(dimensions().height / 4);
+  const leftOffset = createMemo(() =>
+    Math.max(0, Math.floor((dimensions().width - modalWidth()) / 2)),
+  );
+  const topOffset = createMemo(() =>
+    Math.floor(dimensions().height / 4),
+  );
 
   return (
     <>
@@ -52,9 +54,9 @@ export function Modal(rawProps: ModalProps) {
       <box
         style={{
           position: 'absolute',
-          left: leftOffset,
-          top: topOffset,
-          width: modalWidth,
+          left: leftOffset(),
+          top: topOffset(),
+          width: modalWidth(),
           maxWidth: dimensions().width - 2,
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',

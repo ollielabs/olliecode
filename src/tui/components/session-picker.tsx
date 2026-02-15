@@ -4,7 +4,7 @@
  * Supports delete (ctrl+d) and rename (ctrl+r) operations.
  */
 
-import { For, Show, createEffect, createSignal } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
 import type { InputRenderable } from '@opentui/core';
 import { deleteSession, updateSession, type Session } from '../../session';
@@ -96,21 +96,23 @@ export function SessionPicker(props: SessionPickerProps) {
   const dimensions = useTerminalDimensions();
   let inputRef: InputRenderable | undefined;
 
-  const projectSessions = props.sessions.filter(
-    (s) => s.projectPath === props.projectPath,
+  const projectSessions = createMemo(() =>
+    props.sessions.filter((s) => s.projectPath === props.projectPath),
   );
-  const groups = groupSessionsByDate(projectSessions);
-  const flatSessions = flattenSessions(groups);
-  const sessionIndexMap = buildSessionIndexMap(groups);
+  const groups = createMemo(() => groupSessionsByDate(projectSessions()));
+  const flatSessions = createMemo(() => flattenSessions(groups()));
+  const sessionIndexMap = createMemo(() => buildSessionIndexMap(groups()));
 
-  const scrollHeight = Math.min(
-    flatSessions.length + groups.length * 2,
-    Math.floor(dimensions().height / 2) - 6,
+  const scrollHeight = createMemo(() =>
+    Math.min(
+      flatSessions().length + groups().length * 2,
+      Math.floor(dimensions().height / 2) - 6,
+    ),
   );
 
   createEffect(() => {
-    if (selectedIndex() >= flatSessions.length && flatSessions.length > 0) {
-      setSelectedIndex(flatSessions.length - 1);
+    if (selectedIndex() >= flatSessions().length && flatSessions().length > 0) {
+      setSelectedIndex(flatSessions().length - 1);
     }
   });
 
@@ -121,7 +123,7 @@ export function SessionPicker(props: SessionPickerProps) {
   });
 
   const handleDelete = () => {
-    const session = flatSessions[selectedIndex()];
+    const session = flatSessions()[selectedIndex()];
     if (!session) return;
     if (mode() === 'confirm-delete') {
       deleteSession(session.id);
@@ -133,14 +135,14 @@ export function SessionPicker(props: SessionPickerProps) {
   };
 
   const handleRename = () => {
-    const session = flatSessions[selectedIndex()];
+    const session = flatSessions()[selectedIndex()];
     if (!session || mode() === 'rename') return;
     setRenameValue(session.title ?? '');
     setMode('rename');
   };
 
   const handleRenameSubmit = () => {
-    const session = flatSessions[selectedIndex()];
+    const session = flatSessions()[selectedIndex()];
     if (!session || !renameValue().trim()) {
       setMode('browse');
       return;
@@ -178,10 +180,10 @@ export function SessionPicker(props: SessionPickerProps) {
         break;
       case 'down':
       case 'j':
-        setSelectedIndex((prev) => Math.min(flatSessions.length - 1, prev + 1));
+        setSelectedIndex((prev) => Math.min(flatSessions().length - 1, prev + 1));
         break;
       case 'return': {
-        const session = flatSessions[selectedIndex()];
+        const session = flatSessions()[selectedIndex()];
         if (session) props.onSelect(session);
         break;
       }
@@ -212,17 +214,17 @@ export function SessionPicker(props: SessionPickerProps) {
         </box>
       </Show>
 
-      <Show when={mode() !== 'rename' && flatSessions.length === 0}>
+      <Show when={mode() !== 'rename' && flatSessions().length === 0}>
         <text style={{ fg: tokens.textMuted }}>
           No sessions found for this project.
         </text>
       </Show>
 
-      <Show when={mode() !== 'rename' && flatSessions.length > 0}>
+      <Show when={mode() !== 'rename' && flatSessions().length > 0}>
         <box flexDirection="column">
-          <scrollbox maxHeight={scrollHeight} stickyScroll={false}>
+          <scrollbox maxHeight={scrollHeight()} stickyScroll={false}>
             <box flexDirection="column">
-              <For each={groups}>
+              <For each={groups()}>
                 {(group) => (
                   <box flexDirection="column" marginBottom={1}>
                     <text style={{ fg: tokens.primaryBase }}>
@@ -231,7 +233,7 @@ export function SessionPicker(props: SessionPickerProps) {
 
                     <For each={group.sessions}>
                       {(session) => {
-                        const idx = sessionIndexMap.get(session.id) ?? 0;
+                        const idx = sessionIndexMap().get(session.id) ?? 0;
                         const isSelected = idx === selectedIndex();
                         const isConfirmingDelete =
                           isSelected && mode() === 'confirm-delete';

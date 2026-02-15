@@ -337,7 +337,7 @@ function ConfirmingView(props: {
       <Show when={preview}>
         {(p: () => NonNullable<typeof preview>) => (
           <box style={{ marginTop: 1 }}>
-            <Show when={p().type === 'command' && p().type === 'command'}>
+            <Show when={p().type === 'command'}>
               <box
                 style={{
                   backgroundColor: props.tokens.bgBase,

@@ -1,4 +1,4 @@
-import { Show, mergeProps } from 'solid-js';
+import { Show, createMemo, mergeProps } from 'solid-js';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
 
@@ -15,10 +15,10 @@ export function StatusBar(rawProps: StatusBarProps) {
   const props = mergeProps({ mode: 'build' as AgentMode }, rawProps);
   const { tokens } = useTheme();
 
-  const modeColors: Record<AgentMode, string> = {
+  const modeColors = createMemo<Record<AgentMode, string>>(() => ({
     plan: tokens.info,
     build: tokens.success,
-  };
+  }));
 
   return (
     <box
@@ -29,7 +29,7 @@ export function StatusBar(rawProps: StatusBarProps) {
       }}
     >
       <box style={{ flexDirection: 'row' }}>
-        <text style={{ fg: modeColors[props.mode] }}>
+        <text style={{ fg: modeColors()[props.mode] }}>
           [{props.mode.toUpperCase()}]
         </text>
         <text style={{ fg: tokens.textMuted }}> • {props.model}</text>

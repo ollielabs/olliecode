@@ -3,7 +3,7 @@
  * Used in confirmation dialogs and tool result messages for file operations.
  */
 
-import { mergeProps } from 'solid-js';
+import { createMemo, mergeProps } from 'solid-js';
 import { useTheme } from '../../design';
 import { generateDiff, getFiletype } from '../../utils/diff';
 
@@ -27,15 +27,19 @@ export function DiffView(rawProps: DiffViewProps) {
   const { tokens, syntaxStyle } = useTheme();
 
   // Use pre-computed diff if provided, otherwise generate from before/after
-  const diffString =
-    props.diff || generateDiff(props.filePath, props.before, props.after);
-  const filetype = getFiletype(props.filePath);
+  const diffString = createMemo(() =>
+    props.diff || generateDiff(props.filePath, props.before, props.after),
+  );
+  const filetype = createMemo(() => getFiletype(props.filePath));
 
   // Build style object - only include maxHeight if specified
-  const diffStyle: { maxHeight?: number; flexGrow: number } = { flexGrow: 1 };
-  if (props.maxHeight !== undefined) {
-    diffStyle.maxHeight = props.maxHeight;
-  }
+  const diffStyle = createMemo(() => {
+    const style: { maxHeight?: number; flexGrow: number } = { flexGrow: 1 };
+    if (props.maxHeight !== undefined) {
+      style.maxHeight = props.maxHeight;
+    }
+    return style;
+  });
 
   return (
     <box style={{ flexDirection: 'column' }}>
@@ -43,9 +47,9 @@ export function DiffView(rawProps: DiffViewProps) {
         {props.filePath}
       </text>
       <diff
-        diff={diffString}
+        diff={diffString()}
         view={props.view}
-        filetype={filetype}
+        filetype={filetype()}
         syntaxStyle={syntaxStyle}
         showLineNumbers={true}
         wrapMode="none"
@@ -58,7 +62,7 @@ export function DiffView(rawProps: DiffViewProps) {
         lineNumberBg={tokens.bgBase}
         addedLineNumberBg={tokens.diffAddBg}
         removedLineNumberBg={tokens.diffDeleteBg}
-        style={diffStyle}
+        style={diffStyle()}
       />
     </box>
   );
