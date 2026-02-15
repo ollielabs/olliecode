@@ -1,4 +1,4 @@
 # Bun configuration
 
-# Preload the React Compiler plugin
-preload = ["./react-compiler.preload.ts"]
+# Preload the Solid JSX transform plugin
+preload = ["@opentui/solid/preload"]

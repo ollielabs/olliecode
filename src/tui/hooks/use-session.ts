@@ -3,7 +3,7 @@
  * Handles session CRUD, mode, history, display messages, and todos.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { createEffect, createSignal, type Setter } from 'solid-js';
 import type { TuiConfig } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
 import {
@@ -32,43 +32,43 @@ export type UseSessionProps = {
   config: ResolvedConfig;
   /** Initial session ID to load */
   initialSessionId?: string;
-  /** Textarea ref for focus management */
-  textareaRef: TextareaRef;
+  /** Getter for textarea ref */
+  getTextareaRef: () => TextareaRef;
   /** TUI config for session list limit */
   tuiConfig?: TuiConfig;
 };
 
 export type UseSessionReturn = {
   /** Current session or null */
-  currentSession: Session | null;
+  currentSession: () => Session | null;
   /** Set current session */
-  setCurrentSession: React.Dispatch<React.SetStateAction<Session | null>>;
+  setCurrentSession: Setter<Session | null>;
   /** Message history for Ollama */
-  history: Message[];
+  history: () => Message[];
   /** Set history */
-  setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
+  setHistory: Setter<Message[]>;
   /** Display messages for UI */
-  displayMessages: DisplayMessage[];
+  displayMessages: () => DisplayMessage[];
   /** Set display messages */
-  setDisplayMessages: React.Dispatch<React.SetStateAction<DisplayMessage[]>>;
+  setDisplayMessages: Setter<DisplayMessage[]>;
   /** Current agent mode */
-  mode: AgentMode;
+  mode: () => AgentMode;
   /** Set mode */
-  setMode: React.Dispatch<React.SetStateAction<AgentMode>>;
+  setMode: Setter<AgentMode>;
   /** Todos for sidebar */
-  sidebarTodos: Todo[];
+  sidebarTodos: () => Todo[];
   /** Set sidebar todos */
-  setSidebarTodos: React.Dispatch<React.SetStateAction<Todo[]>>;
+  setSidebarTodos: Setter<Todo[]>;
   /** Whether session picker is visible */
-  showSessionPicker: boolean;
+  showSessionPicker: () => boolean;
   /** Set session picker visibility */
-  setShowSessionPicker: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowSessionPicker: Setter<boolean>;
   /** Key for forcing session picker refresh */
-  sessionRefreshKey: number;
+  sessionRefreshKey: () => number;
   /** Whether theme picker is visible */
-  showThemePicker: boolean;
+  showThemePicker: () => boolean;
   /** Set theme picker visibility */
-  setShowThemePicker: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowThemePicker: Setter<boolean>;
   /** List available sessions */
   listAvailableSessions: () => Session[];
   /** Create a new session */
@@ -87,34 +87,31 @@ export type UseSessionReturn = {
   ensureSession: () => Promise<Session>;
 };
 
-export function useSession({
-  projectPath,
-  config,
-  initialSessionId,
-  textareaRef,
-  tuiConfig,
-}: UseSessionProps): UseSessionReturn {
-  const model = config.model;
-  const host = config.host;
-  const sessionListLimit = tuiConfig?.sessionListLimit ?? SESSION_LIST_LIMIT;
-  const [currentSession, setCurrentSession] = useState<Session | null>(null);
-  const [history, setHistory] = useState<Message[]>([]);
-  const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([]);
-  const defaultMode = config.agent.defaultMode;
-  const [mode, setMode] = useState<AgentMode>(defaultMode);
-  const [sidebarTodos, setSidebarTodos] = useState<Todo[]>([]);
-  const [showSessionPicker, setShowSessionPicker] = useState(false);
-  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
-  const [showThemePicker, setShowThemePicker] = useState(false);
+export function useSession(props: UseSessionProps): UseSessionReturn {
+  const model = props.config.model;
+  const host = props.config.host;
+  const sessionListLimit =
+    props.tuiConfig?.sessionListLimit ?? SESSION_LIST_LIMIT;
+  const defaultMode = props.config.agent.defaultMode;
 
-  // Keep a ref to current session for use in callbacks
-  const sessionRef = useRef<Session | null>(null);
-  sessionRef.current = currentSession;
+  const [currentSession, setCurrentSession] = createSignal<Session | null>(
+    null,
+  );
+  const [history, setHistory] = createSignal<Message[]>([]);
+  const [displayMessages, setDisplayMessages] = createSignal<DisplayMessage[]>(
+    [],
+  );
+  const [mode, setMode] = createSignal<AgentMode>(defaultMode);
+  const [sidebarTodos, setSidebarTodos] = createSignal<Todo[]>([]);
+  const [showSessionPicker, setShowSessionPicker] = createSignal(false);
+  const [sessionRefreshKey, setSessionRefreshKey] = createSignal(0);
+  const [showThemePicker, setShowThemePicker] = createSignal(false);
 
   // Load initial session
-  useEffect(() => {
-    if (initialSessionId) {
-      const session = getSession(initialSessionId);
+  createEffect(() => {
+    const id = props.initialSessionId;
+    if (id) {
+      const session = getSession(id);
       if (session) {
         setCurrentSession(session);
         setMode(session.mode);
@@ -125,16 +122,17 @@ export function useSession({
         setDisplayMessages(displayMsgs);
       }
     }
-  }, [initialSessionId]);
+  });
 
   // Load todos when session changes
-  useEffect(() => {
-    if (currentSession) {
-      setSidebarTodos(getTodos(currentSession.id));
+  createEffect(() => {
+    const session = currentSession();
+    if (session) {
+      setSidebarTodos(getTodos(session.id));
     } else {
       setSidebarTodos([]);
     }
-  }, [currentSession]);
+  });
 
   const listAvailableSessions = () => {
     return listSessions({ limit: sessionListLimit });
@@ -154,12 +152,12 @@ export function useSession({
     const storedMessages = getMessages(session.id);
     setHistory(toOllamaMessages(storedMessages));
     setDisplayMessages(toDisplayMessages(storedMessages));
-    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
+    setTimeout(() => props.getTextareaRef()?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleSessionPickerCancel = () => {
     setShowSessionPicker(false);
-    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
+    setTimeout(() => props.getTextareaRef()?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleSessionsChanged = () => {
@@ -172,19 +170,25 @@ export function useSession({
     void import('../../config').then(({ setConfigValue }) => {
       setConfigValue(['tui', 'theme'], themeId);
     });
-    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
+    setTimeout(() => props.getTextareaRef()?.focus(), FOCUS_DELAY_MS);
   };
 
   const handleThemePickerCancel = () => {
     setShowThemePicker(false);
-    setTimeout(() => textareaRef.current?.focus(), FOCUS_DELAY_MS);
+    setTimeout(() => props.getTextareaRef()?.focus(), FOCUS_DELAY_MS);
   };
 
   const ensureSession = async (): Promise<Session> => {
-    if (sessionRef.current) {
-      return sessionRef.current;
+    const existing = currentSession();
+    if (existing) {
+      return existing;
     }
-    const session = await createSession({ projectPath, model, host, mode });
+    const session = await createSession({
+      projectPath: props.projectPath,
+      model,
+      host,
+      mode: mode(),
+    });
     setCurrentSession(session);
     return session;
   };

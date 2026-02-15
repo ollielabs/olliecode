@@ -3,8 +3,9 @@
  * Overlays above the textarea when user types '/'.
  */
 
-import { useKeyboard } from '@opentui/react';
-import { useEffect } from 'react';
+import { Index, Show, createEffect, createMemo, mergeProps } from 'solid-js';
+import type { ScrollBoxRenderable } from '@opentui/core';
+import { useKeyboard } from '@opentui/solid';
 import { useTheme } from '../../design';
 
 export type SlashCommand = {
@@ -33,113 +34,123 @@ export function getFilteredCommands(
   );
 }
 
-export function CommandMenu({
-  commands,
-  filter,
-  selectedIndex,
-  onSelect,
-  onCancel,
-  onIndexChange,
-  bottom = 0,
-  width,
-}: CommandMenuProps) {
+export function CommandMenu(rawProps: CommandMenuProps) {
+  const props = mergeProps({ bottom: 0 }, rawProps);
   const { tokens } = useTheme();
-  const filteredCommands = getFilteredCommands(commands, filter);
+  let scrollRef: ScrollBoxRenderable | undefined;
 
-  useEffect(() => {
-    if (
-      selectedIndex >= filteredCommands.length &&
-      filteredCommands.length > 0
-    ) {
-      onIndexChange(filteredCommands.length - 1);
+  // Must be a memo so it recomputes when props.filter changes
+  const filteredCommands = createMemo(() =>
+    getFilteredCommands(props.commands, props.filter),
+  );
+
+  createEffect(() => {
+    const cmds = filteredCommands();
+    if (props.selectedIndex >= cmds.length && cmds.length > 0) {
+      props.onIndexChange(cmds.length - 1);
     }
-  }, [filteredCommands.length, selectedIndex, onIndexChange]);
+  });
+
+  // Scroll to keep the selected item visible
+  createEffect(() => {
+    const idx = props.selectedIndex;
+    scrollRef?.scrollTo(idx);
+  });
 
   useKeyboard((key: { name?: string }) => {
+    const cmds = filteredCommands();
     switch (key.name) {
       case 'up':
       case 'k':
-        onIndexChange(Math.max(0, selectedIndex - 1));
+        props.onIndexChange(Math.max(0, props.selectedIndex - 1));
         break;
       case 'down':
       case 'j':
-        onIndexChange(Math.min(filteredCommands.length - 1, selectedIndex + 1));
+        props.onIndexChange(
+          Math.min(cmds.length - 1, props.selectedIndex + 1),
+        );
         break;
       case 'return': {
-        const selected = filteredCommands[selectedIndex];
-        if (selected) onSelect(selected);
+        const selected = cmds[props.selectedIndex];
+        if (selected) props.onSelect(selected);
         break;
       }
       case 'escape':
-        onCancel();
+        props.onCancel();
         break;
     }
   });
 
-  if (filteredCommands.length === 0) {
-    return (
+  return (
+    <Show
+      when={filteredCommands().length > 0}
+      fallback={
+        <box
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: props.bottom,
+            width: props.width,
+            zIndex: 100,
+            backgroundColor: tokens.bgSurface,
+            flexDirection: 'column',
+            paddingLeft: 1,
+            paddingRight: 1,
+          }}
+        >
+          <text style={{ fg: tokens.textSubtle }}>No matching commands</text>
+        </box>
+      }
+    >
       <box
         style={{
           position: 'absolute',
           left: 0,
-          bottom,
-          width,
+          bottom: props.bottom,
+          width: props.width,
           zIndex: 100,
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',
-          paddingLeft: 1,
-          paddingRight: 1,
+          maxHeight: 8,
         }}
       >
-        <text style={{ fg: tokens.textSubtle }}>No matching commands</text>
+        <scrollbox ref={scrollRef!} maxHeight={6} stickyScroll={false}>
+          <box flexDirection="column">
+            <Index each={filteredCommands()}>
+              {(cmd, idx) => {
+                const isSelected = () => idx === props.selectedIndex;
+                return (
+                  <box
+                    style={{
+                      flexDirection: 'row',
+                      paddingLeft: 1,
+                      paddingRight: 1,
+                      ...(isSelected() && {
+                        backgroundColor: tokens.selected,
+                      }),
+                    }}
+                  >
+                    <text
+                      style={{
+                        width: 10,
+                        fg: isSelected()
+                          ? tokens.primaryBase
+                          : tokens.textBase,
+                      }}
+                    >
+                      <b>/{cmd().name}</b>
+                    </text>
+                    <text style={{ fg: tokens.textSubtle }}>
+                      {' '}
+                      {cmd().description}
+                    </text>
+                  </box>
+                );
+              }}
+            </Index>
+          </box>
+        </scrollbox>
       </box>
-    );
-  }
-
-  return (
-    <box
-      style={{
-        position: 'absolute',
-        left: 0,
-        bottom,
-        width,
-        zIndex: 100,
-        backgroundColor: tokens.bgSurface,
-        flexDirection: 'column',
-        maxHeight: 8,
-      }}
-    >
-      <scrollbox maxHeight={6} stickyScroll={false}>
-        <box flexDirection="column">
-          {filteredCommands.map((cmd, idx) => {
-            const isSelected = idx === selectedIndex;
-            return (
-              <box
-                key={cmd.name}
-                style={{
-                  flexDirection: 'row',
-                  paddingLeft: 1,
-                  paddingRight: 1,
-                  ...(isSelected && { backgroundColor: tokens.selected }),
-                }}
-              >
-                <text
-                  style={{
-                    width: 10,
-                    fg: isSelected ? tokens.primaryBase : tokens.textBase,
-                  }}
-                >
-                  <b>/{cmd.name}</b>
-                </text>
-                <text style={{ fg: tokens.textSubtle }}>
-                  {' '}
-                  {cmd.description}
-                </text>
-              </box>
-            );
-          })}
-        </box>
-      </scrollbox>
-    </box>
+    </Show>
   );
 }

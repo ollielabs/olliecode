@@ -3,18 +3,18 @@
  * Manages command filtering, selection, and actions.
  */
 
-import { useKeyboard } from '@opentui/react';
-import { useState } from 'react';
+import { useKeyboard } from '@opentui/solid';
+import { createSignal, type Setter } from 'solid-js';
 import type { SlashCommand } from '../components/command-menu';
 import type { Status, TextareaRef } from '../types';
 
 export type UseCommandMenuProps = {
-  /** Textarea ref for clearing text after command */
-  textareaRef: TextareaRef;
-  /** Current status */
-  status: Status;
-  /** Whether session picker is open */
-  showSessionPicker: boolean;
+  /** Getter for textarea ref */
+  getTextareaRef: () => TextareaRef;
+  /** Current status (signal accessor) */
+  status: () => Status;
+  /** Whether session picker is open (signal accessor) */
+  showSessionPicker: () => boolean;
   /** Handlers from other hooks */
   handlers: {
     handleNewSession: () => void;
@@ -24,24 +24,24 @@ export type UseCommandMenuProps = {
     handleForget: (n: number) => void;
     handleInit: (args?: string) => void;
     handleConfig: () => void;
-    setShowSessionPicker: React.Dispatch<React.SetStateAction<boolean>>;
-    setShowThemePicker: React.Dispatch<React.SetStateAction<boolean>>;
+    setShowSessionPicker: Setter<boolean>;
+    setShowThemePicker: Setter<boolean>;
   };
 };
 
 export type UseCommandMenuReturn = {
   /** Whether command menu is visible */
-  showCommandMenu: boolean;
+  showCommandMenu: () => boolean;
   /** Set command menu visibility */
-  setShowCommandMenu: React.Dispatch<React.SetStateAction<boolean>>;
+  setShowCommandMenu: Setter<boolean>;
   /** Current filter text */
-  commandFilter: string;
+  commandFilter: () => string;
   /** Set filter text */
-  setCommandFilter: React.Dispatch<React.SetStateAction<string>>;
+  setCommandFilter: Setter<string>;
   /** Currently selected index */
-  commandSelectedIndex: number;
+  commandSelectedIndex: () => number;
   /** Set selected index */
-  setCommandSelectedIndex: React.Dispatch<React.SetStateAction<number>>;
+  setCommandSelectedIndex: Setter<number>;
   /** Available slash commands */
   slashCommands: SlashCommand[];
   /** Handle command selection */
@@ -52,15 +52,12 @@ export type UseCommandMenuReturn = {
   handleCommandIndexChange: (index: number) => void;
 };
 
-export function useCommandMenu({
-  textareaRef,
-  status,
-  showSessionPicker,
-  handlers,
-}: UseCommandMenuProps): UseCommandMenuReturn {
-  const [showCommandMenu, setShowCommandMenu] = useState(false);
-  const [commandFilter, setCommandFilter] = useState('');
-  const [commandSelectedIndex, setCommandSelectedIndex] = useState(0);
+export function useCommandMenu(
+  props: UseCommandMenuProps,
+): UseCommandMenuReturn {
+  const [showCommandMenu, setShowCommandMenu] = createSignal(false);
+  const [commandFilter, setCommandFilter] = createSignal('');
+  const [commandSelectedIndex, setCommandSelectedIndex] = createSignal(0);
 
   // Define slash commands with their actions
   const slashCommands: SlashCommand[] = [
@@ -68,40 +65,40 @@ export function useCommandMenu({
       name: 'new',
       description: 'Start a new session',
       action: () => {
-        handlers.handleNewSession();
-        textareaRef.current?.setText('');
+        props.handlers.handleNewSession();
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'session',
       description: 'Switch to a different session',
       action: () => {
-        handlers.setShowSessionPicker(true);
-        textareaRef.current?.setText('');
+        props.handlers.setShowSessionPicker(true);
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'clear',
       description: 'Clear context (keep session)',
       action: () => {
-        handlers.handleClearContext();
-        textareaRef.current?.setText('');
+        props.handlers.handleClearContext();
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'compact',
       description: 'Manually compact context',
       action: () => {
-        void handlers.handleCompact();
-        textareaRef.current?.setText('');
+        void props.handlers.handleCompact();
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'context',
       description: 'Show context usage stats',
       action: () => {
-        void handlers.handleShowContext();
-        textareaRef.current?.setText('');
+        void props.handlers.handleShowContext();
+        props.getTextareaRef()?.setText('');
       },
     },
     {
@@ -109,21 +106,21 @@ export function useCommandMenu({
       description: 'Forget last N messages (e.g., /forget 3)',
       action: () => {
         const filterNum = parseInt(
-          commandFilter.replace('forget', '').trim(),
+          commandFilter().replace('forget', '').trim(),
           10,
         );
-        handlers.handleForget(
+        props.handlers.handleForget(
           Number.isNaN(filterNum) || filterNum < 1 ? 1 : filterNum,
         );
-        textareaRef.current?.setText('');
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'theme',
       description: 'Change color theme',
       action: () => {
-        handlers.setShowThemePicker(true);
-        textareaRef.current?.setText('');
+        props.handlers.setShowThemePicker(true);
+        props.getTextareaRef()?.setText('');
       },
     },
     {
@@ -131,17 +128,19 @@ export function useCommandMenu({
       description: 'Create/update AGENTS.md for this project',
       action: () => {
         // Extract any arguments after "init " from the command filter
-        const args = commandFilter.replace(/^init\s*/, '').trim();
-        handlers.handleInit(args || undefined);
-        textareaRef.current?.setText('');
+        const args = commandFilter()
+          .replace(/^init\s*/, '')
+          .trim();
+        props.handlers.handleInit(args || undefined);
+        props.getTextareaRef()?.setText('');
       },
     },
     {
       name: 'config',
       description: 'Show active configuration and sources',
       action: () => {
-        handlers.handleConfig();
-        textareaRef.current?.setText('');
+        props.handlers.handleConfig();
+        props.getTextareaRef()?.setText('');
       },
     },
   ];
@@ -149,14 +148,15 @@ export function useCommandMenu({
   // Detect / in textarea and show command menu
   useKeyboard(() => {
     setTimeout(() => {
-      if (!textareaRef.current || textareaRef.current.isDestroyed) return;
-      const currentText = textareaRef.current.plainText ?? '';
-      if (status === 'idle' && !showSessionPicker) {
+      const ref = props.getTextareaRef();
+      if (!ref || ref.isDestroyed) return;
+      const currentText = ref.plainText ?? '';
+      if (props.status() === 'idle' && !props.showSessionPicker()) {
         if (currentText.startsWith('/')) {
           const newFilter = currentText.slice(1);
-          if (!showCommandMenu) setShowCommandMenu(true);
+          if (!showCommandMenu()) setShowCommandMenu(true);
           setCommandFilter(newFilter);
-        } else if (showCommandMenu) {
+        } else if (showCommandMenu()) {
           setShowCommandMenu(false);
           setCommandFilter('');
           setCommandSelectedIndex(0);

@@ -70,7 +70,9 @@ async function runTests(): Promise<void> {
 
     // First line number in offset result should be 6 (1-based)
     const firstLineMatch = offsetResult.match(/^\s*(\d+)\|/m);
-    const firstLineNum = firstLineMatch ? parseInt(firstLineMatch[1] ?? '0', 10) : 0;
+    const firstLineNum = firstLineMatch
+      ? parseInt(firstLineMatch[1] ?? '0', 10)
+      : 0;
 
     if (firstLineNum === 6) {
       console.log('  ✅ PASS: Offset correctly starts at line 6');
@@ -152,14 +154,14 @@ async function runTests(): Promise<void> {
 
   // Test 7: Error handling for missing file
   console.log('\nTest 7: Error handling for missing file');
-    try {
-      await readFileTool.execute({ path: 'nonexistent-file-12345.txt' });
-      console.log('  ❌ FAIL: Should have thrown an error');
-      failed++;
-    } catch {
-      console.log('  ✅ PASS: Throws error for missing file');
-      passed++;
-    }
+  try {
+    await readFileTool.execute({ path: 'nonexistent-file-12345.txt' });
+    console.log('  ❌ FAIL: Should have thrown an error');
+    failed++;
+  } catch {
+    console.log('  ✅ PASS: Throws error for missing file');
+    passed++;
+  }
 
   // Test 8: Line number padding is consistent
   console.log('\nTest 8: Line number padding is consistent');

@@ -1,8 +1,8 @@
 /**
- * Theme resolver and React context for the Ollie design system.
+ * Theme resolver and context for the Ollie design system.
  */
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext } from 'solid-js';
 import { SyntaxStyle, RGBA } from '@opentui/core';
 
 import type { Theme, ThemeVariant, SemanticTokens, HexColor } from './tokens';
@@ -164,7 +164,7 @@ export type ThemeContextValue = {
 };
 
 /**
- * React context for theme access
+ * Context for theme access
  */
 export const ThemeContext = createContext<ThemeContextValue | null>(null);
 

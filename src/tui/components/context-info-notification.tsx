@@ -9,14 +9,12 @@ export type ContextInfoNotificationProps = {
   message: string;
 };
 
-export function ContextInfoNotification({
-  message,
-}: ContextInfoNotificationProps) {
+export function ContextInfoNotification(props: ContextInfoNotificationProps) {
   const { tokens } = useTheme();
 
   return (
     <box style={{ paddingLeft: 1 }}>
-      <text style={{ fg: tokens.textMuted }}>{message}</text>
+      <text style={{ fg: tokens.textMuted }}>{props.message}</text>
     </box>
   );
 }

@@ -122,6 +122,14 @@ After creating the PR, run the `architect-reviewer` agent against the full branc
 ### Do NOT use GitHub Copilot pull request reviews
 Copilot reviews are stateless, cannot be reasoned with, and produce infinite loops of diminishing-value feedback. We tried it; it doesn't work for our workflow.
 
+## Active Migration: React → Solid
+
+The TUI layer is being migrated from `@opentui/react` to `@opentui/solid`.
+See `SOLID_MIGRATION.md` for the complete migration guide including API mappings,
+file inventory, build setup changes, and known gotchas.
+
+Tracking issues: #50 (deps), #51 (features), #52 (migration).
+
 ## Code Quality
 
 - Generated code must be immediately runnable

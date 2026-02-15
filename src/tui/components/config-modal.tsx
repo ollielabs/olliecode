@@ -3,6 +3,7 @@
  * Shows resolved config values, source attribution, and effective permissions.
  */
 
+import { For, Show } from 'solid-js';
 import type { ConfigLayer } from '../../config/merge';
 import { resolvePermissions } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
@@ -25,7 +26,7 @@ const HOME_DIR = process.env.HOME ?? process.env.USERPROFILE ?? '';
  * first layer that sets the key.
  *
  * NOTE: Only resolves top-level keys in layer.raw. Nested keys like
- * tui.theme or agent.maxIterations are not individually attributed —
+ * tui.theme or agent.maxIterations are not individually attributed --
  * extend with dot-path traversal if needed in the future.
  */
 export function getSource(key: string, layers: ConfigLayer[]): string {
@@ -49,148 +50,140 @@ export function getSource(key: string, layers: ConfigLayer[]): string {
 }
 
 /** A labeled row: label (muted) + value (base) + optional source (subtle) */
-function ConfigRow({
-  label,
-  value,
-  source,
-}: {
-  label: string;
-  value: string;
-  source?: string;
-}) {
+function ConfigRow(props: { label: string; value: string; source?: string }) {
   const { tokens } = useTheme();
   return (
     <box flexDirection="row" paddingLeft={2}>
-      <text style={{ fg: tokens.textMuted, width: 22 }}>{label}</text>
-      <text style={{ fg: tokens.textBase }}>{value}</text>
-      {source && source !== 'default' && (
-        <text style={{ fg: tokens.textSubtle }}> ({source})</text>
-      )}
+      <text style={{ fg: tokens.textMuted, width: 22 }}>{props.label}</text>
+      <text style={{ fg: tokens.textBase }}>{props.value}</text>
+      <Show when={props.source && props.source !== 'default'}>
+        <text style={{ fg: tokens.textSubtle }}> ({props.source})</text>
+      </Show>
     </box>
   );
 }
 
 /** A section header */
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader(props: { title: string }) {
   const { tokens } = useTheme();
   return (
     <text style={{ fg: tokens.textBase }} marginTop={1}>
-      <b>{title}</b>
+      <b>{props.title}</b>
     </text>
   );
 }
 
-export function ConfigModal({
-  config,
-  layers,
-  warnings,
-  onClose,
-}: ConfigModalProps) {
+export function ConfigModal(props: ConfigModalProps) {
   const { tokens } = useTheme();
-  const permissions = resolvePermissions(config);
+  const permissions = resolvePermissions(props.config);
 
   // Determine source for top-level config values.
-  // Nested keys (tui.*, agent.*, compaction.*) don't have individual
-  // attribution yet — getSource only resolves top-level keys.
-  const modelSource = getSource('model', layers);
-  const hostSource = getSource('host', layers);
-  const autonomySource = getSource('autonomy', layers);
-  const tempSource = getSource('temperature', layers);
-  const debugSource = getSource('debug', layers);
+  const modelSource = getSource('model', props.layers);
+  const hostSource = getSource('host', props.layers);
+  const autonomySource = getSource('autonomy', props.layers);
+  const tempSource = getSource('temperature', props.layers);
+  const debugSource = getSource('debug', props.layers);
 
   return (
-    <Modal title="Configuration" onClose={onClose} size="large">
+    <Modal title="Configuration" onClose={props.onClose} size="large">
       <scrollbox maxHeight={20} stickyScroll={false}>
         <box flexDirection="column">
           {/* Config Sources */}
           <SectionHeader title="Sources" />
-          {layers.map((layer) => {
-            const keyCount = Object.keys(layer.raw).length;
-            return (
-              <box
-                key={`layer-${layer.source}-${layer.path ?? 'flags'}`}
-                flexDirection="row"
-                paddingLeft={2}
-              >
-                <text style={{ fg: tokens.textMuted, width: 10 }}>
-                  {layer.source}:
-                </text>
-                <text style={{ fg: tokens.textBase }}>
-                  {layer.path ?? '(flags)'}
-                </text>
-                <text style={{ fg: tokens.textSubtle }}>
-                  {' '}
-                  ({keyCount} key{keyCount === 1 ? '' : 's'})
-                </text>
-              </box>
-            );
-          })}
+          <For each={props.layers}>
+            {(layer) => {
+              const keyCount = Object.keys(layer.raw).length;
+              return (
+                <box flexDirection="row" paddingLeft={2}>
+                  <text style={{ fg: tokens.textMuted, width: 10 }}>
+                    {layer.source}:
+                  </text>
+                  <text style={{ fg: tokens.textBase }}>
+                    {layer.path ?? '(flags)'}
+                  </text>
+                  <text style={{ fg: tokens.textSubtle }}>
+                    {' '}
+                    ({keyCount} key{keyCount === 1 ? '' : 's'})
+                  </text>
+                </box>
+              );
+            }}
+          </For>
 
-          {/* Resolved Values
-              NOTE: When adding keys to ConfigSchema, update this section. */}
+          {/* Resolved Values */}
           <SectionHeader title="Resolved Config" />
-          <ConfigRow label="model" value={config.model} source={modelSource} />
-          <ConfigRow label="host" value={config.host} source={hostSource} />
+          <ConfigRow
+            label="model"
+            value={props.config.model}
+            source={modelSource}
+          />
+          <ConfigRow
+            label="host"
+            value={props.config.host}
+            source={hostSource}
+          />
           <ConfigRow
             label="autonomy"
-            value={config.autonomy}
+            value={props.config.autonomy}
             source={autonomySource}
           />
           <ConfigRow
             label="temperature"
-            value={String(config.temperature)}
+            value={String(props.config.temperature)}
             source={tempSource}
           />
-          <ConfigRow label="theme" value={config.tui.theme} />
+          <ConfigRow label="theme" value={props.config.tui.theme} />
           <ConfigRow
             label="agent.maxIterations"
-            value={String(config.agent.maxIterations)}
+            value={String(props.config.agent.maxIterations)}
           />
           <ConfigRow
             label="agent.defaultMode"
-            value={config.agent.defaultMode}
+            value={props.config.agent.defaultMode}
           />
           <ConfigRow
             label="compaction.auto"
-            value={String(config.compaction.auto)}
+            value={String(props.config.compaction.auto)}
           />
           <ConfigRow
             label="debug"
-            value={String(config.debug)}
+            value={String(props.config.debug)}
             source={debugSource}
           />
 
           {/* Effective Permissions */}
           <SectionHeader title="Effective Permissions" />
-          {Object.entries(permissions).map(([tool, perm]) => (
-            <box key={tool} flexDirection="row" paddingLeft={2}>
-              <text style={{ fg: tokens.textMuted, width: 22 }}>{tool}</text>
-              <text
-                style={{
-                  fg:
-                    perm === 'allow'
-                      ? tokens.success
-                      : perm === 'deny'
-                        ? tokens.error
-                        : tokens.warning,
-                }}
-              >
-                {perm}
-              </text>
-            </box>
-          ))}
+          <For each={Object.entries(permissions)}>
+            {([tool, perm]) => (
+              <box flexDirection="row" paddingLeft={2}>
+                <text style={{ fg: tokens.textMuted, width: 22 }}>{tool}</text>
+                <text
+                  style={{
+                    fg:
+                      perm === 'allow'
+                        ? tokens.success
+                        : perm === 'deny'
+                          ? tokens.error
+                          : tokens.warning,
+                  }}
+                >
+                  {perm}
+                </text>
+              </box>
+            )}
+          </For>
 
           {/* Warnings */}
-          {warnings.length > 0 && (
-            <>
-              <SectionHeader title="Warnings" />
-              {warnings.map((warning) => (
-                <box key={warning} paddingLeft={2}>
+          <Show when={props.warnings.length > 0}>
+            <SectionHeader title="Warnings" />
+            <For each={props.warnings}>
+              {(warning) => (
+                <box paddingLeft={2}>
                   <text style={{ fg: tokens.warning }}>{warning}</text>
                 </box>
-              ))}
-            </>
-          )}
+              )}
+            </For>
+          </Show>
 
           <box marginTop={1}>
             <text style={{ fg: tokens.textSubtle }}>

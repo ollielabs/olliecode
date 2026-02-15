@@ -3,9 +3,9 @@
  * Displays a brief message in the top-right corner that auto-dismisses.
  */
 
-import { useEffect } from "react";
-import { useTheme } from "../../design";
-import { TOAST_DURATION_MS } from "../constants";
+import { onCleanup, onMount } from 'solid-js';
+import { useTheme } from '../../design';
+import { TOAST_DURATION_MS } from '../constants';
 
 export type ToastNotificationProps = {
   /** The message to display */
@@ -16,27 +16,26 @@ export type ToastNotificationProps = {
   onDismiss: () => void;
 };
 
-export function ToastNotification({
-  message,
-  duration = TOAST_DURATION_MS,
-  onDismiss,
-}: ToastNotificationProps) {
+export function ToastNotification(props: ToastNotificationProps) {
   const { tokens } = useTheme();
 
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, duration);
-    return () => clearTimeout(timer);
-  }, [duration, onDismiss]);
+  onMount(() => {
+    const timer = setTimeout(
+      props.onDismiss,
+      props.duration ?? TOAST_DURATION_MS,
+    );
+    onCleanup(() => clearTimeout(timer));
+  });
 
   return (
     <box
       style={{
-        position: "absolute",
+        position: 'absolute',
         top: 1,
         right: 2,
         backgroundColor: tokens.bgSurface,
-        border: ["left", "right"],
-        borderStyle: "single",
+        border: ['left', 'right'],
+        borderStyle: 'single',
         borderColor: tokens.success,
         padding: 1,
         paddingLeft: 2,
@@ -44,7 +43,7 @@ export function ToastNotification({
         zIndex: 100,
       }}
     >
-      <text style={{ fg: tokens.textBase }}>{message}</text>
+      <text style={{ fg: tokens.textBase }}>{props.message}</text>
     </box>
   );
 }

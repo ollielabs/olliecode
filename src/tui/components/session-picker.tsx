@@ -4,8 +4,8 @@
  * Supports delete (ctrl+d) and rename (ctrl+r) operations.
  */
 
-import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import { useState, useEffect, useRef } from 'react';
+import { For, Show, createEffect, createSignal } from 'solid-js';
+import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
 import type { InputRenderable } from '@opentui/core';
 import { deleteSession, updateSession, type Session } from '../../session';
 import { Modal } from './modal';
@@ -71,73 +71,87 @@ function flattenSessions(groups: SessionGroup[]): Session[] {
   return groups.flatMap((g) => g.sessions);
 }
 
+/**
+ * Precompute a map from session.id to its flat index across all groups.
+ * This replaces the mutable `globalIndex` counter in the render phase.
+ */
+function buildSessionIndexMap(groups: SessionGroup[]): Map<string, number> {
+  const map = new Map<string, number>();
+  let idx = 0;
+  for (const group of groups) {
+    for (const session of group.sessions) {
+      map.set(session.id, idx++);
+    }
+  }
+  return map;
+}
+
 type PickerMode = 'browse' | 'confirm-delete' | 'rename';
 
-export function SessionPicker({
-  sessions,
-  projectPath,
-  onSelect,
-  onCancel,
-  onSessionsChanged,
-}: SessionPickerProps) {
+export function SessionPicker(props: SessionPickerProps) {
   const { tokens } = useTheme();
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [mode, setMode] = useState<PickerMode>('browse');
-  const [renameValue, setRenameValue] = useState('');
-  const { height: termHeight } = useTerminalDimensions();
-  const inputRef = useRef<InputRenderable>(null);
+  const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [mode, setMode] = createSignal<PickerMode>('browse');
+  const [renameValue, setRenameValue] = createSignal('');
+  const dimensions = useTerminalDimensions();
+  let inputRef: InputRenderable | undefined;
 
-  const projectSessions = sessions.filter((s) => s.projectPath === projectPath);
+  const projectSessions = props.sessions.filter(
+    (s) => s.projectPath === props.projectPath,
+  );
   const groups = groupSessionsByDate(projectSessions);
   const flatSessions = flattenSessions(groups);
-  const selectedSession = flatSessions[selectedIndex];
+  const sessionIndexMap = buildSessionIndexMap(groups);
 
   const scrollHeight = Math.min(
     flatSessions.length + groups.length * 2,
-    Math.floor(termHeight / 2) - 6,
+    Math.floor(dimensions().height / 2) - 6,
   );
 
-  useEffect(() => {
-    if (selectedIndex >= flatSessions.length && flatSessions.length > 0) {
+  createEffect(() => {
+    if (selectedIndex() >= flatSessions.length && flatSessions.length > 0) {
       setSelectedIndex(flatSessions.length - 1);
     }
-  }, [flatSessions.length, selectedIndex]);
+  });
 
-  useEffect(() => {
-    if (mode === 'rename' && inputRef.current) {
-      inputRef.current.focus();
+  createEffect(() => {
+    if (mode() === 'rename' && inputRef) {
+      inputRef.focus();
     }
-  }, [mode]);
+  });
 
   const handleDelete = () => {
-    if (!selectedSession) return;
-    if (mode === 'confirm-delete') {
-      deleteSession(selectedSession.id);
+    const session = flatSessions[selectedIndex()];
+    if (!session) return;
+    if (mode() === 'confirm-delete') {
+      deleteSession(session.id);
       setMode('browse');
-      onSessionsChanged();
+      props.onSessionsChanged();
     } else {
       setMode('confirm-delete');
     }
   };
 
   const handleRename = () => {
-    if (!selectedSession || mode === 'rename') return;
-    setRenameValue(selectedSession.title ?? '');
+    const session = flatSessions[selectedIndex()];
+    if (!session || mode() === 'rename') return;
+    setRenameValue(session.title ?? '');
     setMode('rename');
   };
 
   const handleRenameSubmit = () => {
-    if (!selectedSession || !renameValue.trim()) {
+    const session = flatSessions[selectedIndex()];
+    if (!session || !renameValue().trim()) {
       setMode('browse');
       return;
     }
-    updateSession(selectedSession.id, { title: renameValue.trim() });
+    updateSession(session.id, { title: renameValue().trim() });
     setMode('browse');
-    onSessionsChanged();
+    props.onSessionsChanged();
   };
 
   useKeyboard((key: { name?: string; ctrl?: boolean }) => {
-    if (mode === 'rename') {
+    if (mode() === 'rename') {
       if (key.name === 'escape') setMode('browse');
       else if (key.name === 'return') handleRenameSubmit();
       return;
@@ -152,7 +166,7 @@ export function SessionPicker({
       return;
     }
 
-    if (mode === 'confirm-delete') {
+    if (mode() === 'confirm-delete') {
       setMode('browse');
       return;
     }
@@ -166,24 +180,24 @@ export function SessionPicker({
       case 'j':
         setSelectedIndex((prev) => Math.min(flatSessions.length - 1, prev + 1));
         break;
-      case 'return':
-        if (selectedSession) onSelect(selectedSession);
+      case 'return': {
+        const session = flatSessions[selectedIndex()];
+        if (session) props.onSelect(session);
         break;
+      }
     }
   });
 
-  let globalIndex = 0;
-
   return (
     <Modal
-      title={mode === 'rename' ? 'Rename Session' : 'Sessions'}
-      onClose={mode === 'rename' ? () => setMode('browse') : onCancel}
+      title={mode() === 'rename' ? 'Rename Session' : 'Sessions'}
+      onClose={mode() === 'rename' ? () => setMode('browse') : props.onCancel}
     >
-      {mode === 'rename' ? (
+      <Show when={mode() === 'rename'}>
         <box flexDirection="column">
           <input
-            ref={inputRef}
-            value={renameValue}
+            ref={inputRef!}
+            value={renameValue()}
             onInput={(value) => setRenameValue(value)}
             placeholder="Enter new title"
             backgroundColor={tokens.bgSurfaceHover}
@@ -196,46 +210,56 @@ export function SessionPicker({
             </text>
           </box>
         </box>
-      ) : flatSessions.length === 0 ? (
+      </Show>
+
+      <Show when={mode() !== 'rename' && flatSessions.length === 0}>
         <text style={{ fg: tokens.textMuted }}>
           No sessions found for this project.
         </text>
-      ) : (
+      </Show>
+
+      <Show when={mode() !== 'rename' && flatSessions.length > 0}>
         <box flexDirection="column">
           <scrollbox maxHeight={scrollHeight} stickyScroll={false}>
             <box flexDirection="column">
-              {groups.map((group) => (
-                <box key={group.label} flexDirection="column" marginBottom={1}>
-                  <text style={{ fg: tokens.primaryBase }}>{group.label}</text>
+              <For each={groups}>
+                {(group) => (
+                  <box flexDirection="column" marginBottom={1}>
+                    <text style={{ fg: tokens.primaryBase }}>
+                      {group.label}
+                    </text>
 
-                  {group.sessions.map((session) => {
-                    const idx = globalIndex++;
-                    const isSelected = idx === selectedIndex;
-                    const isConfirmingDelete =
-                      isSelected && mode === 'confirm-delete';
-                    const prefix = isSelected ? '> ' : '  ';
-                    const title = isConfirmingDelete
-                      ? 'Press ctrl+d again to confirm delete'
-                      : (session.title ?? session.id.slice(0, 8));
-                    const time = formatTime(session.updatedAt);
+                    <For each={group.sessions}>
+                      {(session) => {
+                        const idx = sessionIndexMap.get(session.id) ?? 0;
+                        const isSelected = idx === selectedIndex();
+                        const isConfirmingDelete =
+                          isSelected && mode() === 'confirm-delete';
+                        const prefix = isSelected ? '> ' : '  ';
+                        const title = isConfirmingDelete
+                          ? 'Press ctrl+d again to confirm delete'
+                          : (session.title ?? session.id.slice(0, 8));
+                        const time = formatTime(session.updatedAt);
 
-                    const fg = isConfirmingDelete
-                      ? tokens.error
-                      : isSelected
-                        ? tokens.success
-                        : tokens.textMuted;
+                        const fg = isConfirmingDelete
+                          ? tokens.error
+                          : isSelected
+                            ? tokens.success
+                            : tokens.textMuted;
 
-                    return (
-                      <box key={session.id} flexDirection="row">
-                        <text style={{ fg }}>
-                          {prefix}
-                          {time} - {title}
-                        </text>
-                      </box>
-                    );
-                  })}
-                </box>
-              ))}
+                        return (
+                          <box flexDirection="row">
+                            <text style={{ fg }}>
+                              {prefix}
+                              {time} - {title}
+                            </text>
+                          </box>
+                        );
+                      }}
+                    </For>
+                  </box>
+                )}
+              </For>
             </box>
           </scrollbox>
 
@@ -248,7 +272,7 @@ export function SessionPicker({
             </text>
           </box>
         </box>
-      )}
+      </Show>
     </Modal>
   );
 }

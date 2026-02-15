@@ -1,7 +1,8 @@
-import type { AgentMode } from "../../agent/modes";
-import { useTheme } from "../../design";
+import { Show, mergeProps } from 'solid-js';
+import type { AgentMode } from '../../agent/modes';
+import { useTheme } from '../../design';
 
-export type Status = "idle" | "thinking" | "error";
+export type Status = 'idle' | 'thinking' | 'error';
 
 export type StatusBarProps = {
   model: string;
@@ -10,12 +11,8 @@ export type StatusBarProps = {
   mode?: AgentMode;
 };
 
-export function StatusBar({
-  model,
-  status,
-  error,
-  mode = "build",
-}: StatusBarProps) {
+export function StatusBar(rawProps: StatusBarProps) {
+  const props = mergeProps({ mode: 'build' as AgentMode }, rawProps);
   const { tokens } = useTheme();
 
   const modeColors: Record<AgentMode, string> = {
@@ -24,21 +21,33 @@ export function StatusBar({
   };
 
   return (
-    <box style={{ flexDirection: "row", marginTop: 1, justifyContent: "space-between" }}>
-      <box style={{ flexDirection: "row" }}>
-        <text style={{ fg: modeColors[mode] }}>[{mode.toUpperCase()}]</text>
-        <text style={{ fg: tokens.textMuted }}> • {model}</text>
-        {status === "thinking" && (
+    <box
+      style={{
+        flexDirection: 'row',
+        marginTop: 1,
+        justifyContent: 'space-between',
+      }}
+    >
+      <box style={{ flexDirection: 'row' }}>
+        <text style={{ fg: modeColors[props.mode] }}>
+          [{props.mode.toUpperCase()}]
+        </text>
+        <text style={{ fg: tokens.textMuted }}> • {props.model}</text>
+        <Show when={props.status === 'thinking'}>
           <text style={{ fg: tokens.primaryBase }}> • Thinking...</text>
-        )}
-        {status === "error" && (
-          <text style={{ fg: tokens.error }}> • Error: {error}</text>
-        )}
+        </Show>
+        <Show when={props.status === 'error'}>
+          <text style={{ fg: tokens.error }}> • Error: {props.error}</text>
+        </Show>
       </box>
-      <box style={{ flexDirection: "row" }}>
-        <text style={{ fg: tokens.textBase }}><b>tab</b></text>
-        <text style={{ fg: tokens.textMuted }}> switch mode  </text>
-        <text style={{ fg: tokens.textBase }}><b>ctrl+p</b></text>
+      <box style={{ flexDirection: 'row' }}>
+        <text style={{ fg: tokens.textBase }}>
+          <b>tab</b>
+        </text>
+        <text style={{ fg: tokens.textMuted }}> switch mode </text>
+        <text style={{ fg: tokens.textBase }}>
+          <b>ctrl+p</b>
+        </text>
         <text style={{ fg: tokens.textMuted }}> commands</text>
       </box>
     </box>

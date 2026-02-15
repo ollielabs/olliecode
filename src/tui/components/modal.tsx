@@ -3,35 +3,37 @@
  * Overlays content with horizontally centered dialog.
  */
 
-import { useKeyboard, useTerminalDimensions } from '@opentui/react';
+import type { JSX } from 'solid-js';
+import { mergeProps } from 'solid-js';
+import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
 import { RGBA } from '@opentui/core';
 import { useTheme } from '../../design';
 
 export type ModalProps = {
   title: string;
-  children: React.ReactNode;
+  children: JSX.Element;
   onClose: () => void;
   size?: 'small' | 'medium' | 'large';
 };
 
-export function Modal({
-  title,
-  children,
-  onClose,
-  size = 'medium',
-}: ModalProps) {
+export function Modal(rawProps: ModalProps) {
+  const props = mergeProps({ size: 'medium' as const }, rawProps);
   const { tokens } = useTheme();
-  const { width: termWidth, height: termHeight } = useTerminalDimensions();
+  const dimensions = useTerminalDimensions();
 
   useKeyboard((key: { name?: string }) => {
     if (key.name === 'escape' || key.name === 'q') {
-      onClose();
+      props.onClose();
     }
   });
 
-  const modalWidth = size === 'large' ? 80 : size === 'small' ? 40 : 60;
-  const leftOffset = Math.max(0, Math.floor((termWidth - modalWidth) / 2));
-  const topOffset = Math.floor(termHeight / 4);
+  const modalWidth =
+    props.size === 'large' ? 80 : props.size === 'small' ? 40 : 60;
+  const leftOffset = Math.max(
+    0,
+    Math.floor((dimensions().width - modalWidth) / 2),
+  );
+  const topOffset = Math.floor(dimensions().height / 4);
 
   return (
     <>
@@ -40,8 +42,8 @@ export function Modal({
           position: 'absolute',
           left: 0,
           top: 0,
-          width: termWidth,
-          height: termHeight,
+          width: dimensions().width,
+          height: dimensions().height,
           zIndex: 100,
           backgroundColor: RGBA.fromInts(0, 0, 0, 200),
         }}
@@ -53,7 +55,7 @@ export function Modal({
           left: leftOffset,
           top: topOffset,
           width: modalWidth,
-          maxWidth: termWidth - 2,
+          maxWidth: dimensions().width - 2,
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',
           paddingTop: 1,
@@ -71,12 +73,12 @@ export function Modal({
           }}
         >
           <text style={{ fg: tokens.textBase }}>
-            <b>{title}</b>
+            <b>{props.title}</b>
           </text>
           <text style={{ fg: tokens.textSubtle }}>esc</text>
         </box>
 
-        {children}
+        {props.children}
       </box>
     </>
   );

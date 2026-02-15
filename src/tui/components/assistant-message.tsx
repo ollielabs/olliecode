@@ -10,7 +10,7 @@ export type AssistantMessageProps = {
   content: string;
 };
 
-export function AssistantMessage({ content }: AssistantMessageProps) {
+export function AssistantMessage(props: AssistantMessageProps) {
   const { tokens } = useTheme();
   const markdownStyle = createMarkdownSyntaxStyle(tokens);
 
@@ -18,7 +18,7 @@ export function AssistantMessage({ content }: AssistantMessageProps) {
     <box flexDirection="column" marginLeft={2}>
       <code
         selectable={true}
-        content={content}
+        content={props.content}
         filetype="markdown"
         syntaxStyle={markdownStyle}
         drawUnstyledText={true}

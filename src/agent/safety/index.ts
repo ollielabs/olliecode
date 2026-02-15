@@ -454,11 +454,30 @@ function extractContext(
     charCount += lineWithNewline.length;
   }
 
-  // Extract context lines
-  const start = Math.max(0, lineIndex - contextLines);
-  const end = Math.min(lines.length, lineIndex + contextLines + 1);
+  // Extract context lines around the match
+  // Also account for multi-line oldString: find the last line it touches
+  const searchEndIndex = searchIndex + search.length;
+  let endLineIndex = lineIndex;
+  let endCharCount = charCount;
+  for (let i = lineIndex; i < lines.length; i++) {
+    const lineWithNewline = `${lines[i] ?? ''}\n`;
+    endCharCount += lineWithNewline.length;
+    endLineIndex = i;
+    if (endCharCount >= searchEndIndex) break;
+  }
 
-  return lines.slice(start, end).join('\n');
+  const start = Math.max(0, lineIndex - contextLines);
+  const end = Math.min(lines.length, endLineIndex + contextLines + 1);
+
+  const result = lines.slice(start, end).join('\n');
+
+  // Safety check: if the search string isn't in the result (edge case with
+  // trailing newlines stripped by split/join), fall back to the raw search string
+  if (!result.includes(search)) {
+    return search;
+  }
+
+  return result;
 }
 
 // Export types

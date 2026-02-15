@@ -4,8 +4,10 @@
  * Matches the UI pattern of CommandMenu.
  */
 
-import { useKeyboard } from '@opentui/react';
-import { useEffect } from 'react';
+import type { JSX } from 'solid-js';
+import { Index, Show, createEffect, createMemo, mergeProps } from 'solid-js';
+import type { ScrollBoxRenderable } from '@opentui/core';
+import { useKeyboard } from '@opentui/solid';
 import { useTheme } from '../../design';
 import { fuzzySearch, type FuzzyMatch } from '../../lib/fuzzy';
 
@@ -43,109 +45,114 @@ export function getFilteredFiles(
 
 const VISIBLE_ITEMS = 10;
 
-export function FilePicker({
-  files,
-  filter,
-  selectedIndex,
-  onSelect,
-  onCancel,
-  onIndexChange,
-  bottom = 0,
-  width,
-}: FilePickerProps) {
+export function FilePicker(rawProps: FilePickerProps) {
+  const props = mergeProps({ bottom: 0 }, rawProps);
   const { tokens } = useTheme();
+  let scrollRef: ScrollBoxRenderable | undefined;
 
-  // Get filtered results
-  const results = fuzzySearch(filter, files, MAX_RESULTS);
+  // Must be a memo so it recomputes when props.filter/props.files change
+  const results = createMemo(() =>
+    fuzzySearch(props.filter, props.files, MAX_RESULTS),
+  );
 
   // Clamp selection when results change
-  useEffect(() => {
-    if (selectedIndex >= results.length && results.length > 0) {
-      onIndexChange(results.length - 1);
+  createEffect(() => {
+    const r = results();
+    if (props.selectedIndex >= r.length && r.length > 0) {
+      props.onIndexChange(r.length - 1);
     }
-  }, [results.length, selectedIndex, onIndexChange]);
+  });
+
+  // Scroll to keep the selected item visible
+  createEffect(() => {
+    const idx = props.selectedIndex;
+    scrollRef?.scrollTo(idx);
+  });
 
   useKeyboard((key: { name?: string }) => {
+    const r = results();
     switch (key.name) {
       case 'up':
-        onIndexChange(Math.max(0, selectedIndex - 1));
+        props.onIndexChange(Math.max(0, props.selectedIndex - 1));
         break;
       case 'down':
-        onIndexChange(Math.min(results.length - 1, selectedIndex + 1));
+        props.onIndexChange(Math.min(r.length - 1, props.selectedIndex + 1));
         break;
       case 'return': {
-        const selected = results[selectedIndex];
-        if (selected) onSelect(selected.item);
+        const selected = r[props.selectedIndex];
+        if (selected) props.onSelect(selected.item);
         break;
       }
       case 'escape':
-        onCancel();
+        props.onCancel();
         break;
     }
   });
 
-  if (results.length === 0) {
-    return (
+  return (
+    <Show
+      when={results().length > 0}
+      fallback={
+        <box
+          style={{
+            position: 'absolute',
+            left: 0,
+            bottom: props.bottom,
+            width: props.width,
+            zIndex: 100,
+            backgroundColor: tokens.bgSurface,
+            flexDirection: 'column',
+            paddingLeft: 1,
+            paddingRight: 1,
+          }}
+        >
+          <text style={{ fg: tokens.textSubtle }}>No matching files</text>
+        </box>
+      }
+    >
       <box
         style={{
           position: 'absolute',
           left: 0,
-          bottom,
-          width,
+          bottom: props.bottom,
+          width: props.width,
           zIndex: 100,
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',
-          paddingLeft: 1,
-          paddingRight: 1,
+          maxHeight: VISIBLE_ITEMS + 2,
         }}
       >
-        <text style={{ fg: tokens.textSubtle }}>No matching files</text>
+        <scrollbox ref={scrollRef!} maxHeight={VISIBLE_ITEMS} stickyScroll={false}>
+          <box flexDirection="column">
+            <Index each={results()}>
+              {(match, idx) => {
+                const isSelected = () => idx === props.selectedIndex;
+                return (
+                  <box
+                    style={{
+                      flexDirection: 'row',
+                      paddingLeft: 1,
+                      paddingRight: 1,
+                      ...(isSelected() && {
+                        backgroundColor: tokens.selected,
+                      }),
+                    }}
+                  >
+                    <HighlightedPath
+                      path={match().item}
+                      indices={match().indices}
+                      isSelected={isSelected()}
+                      isDirectory={match().item.endsWith('/')}
+                      tokens={tokens}
+                    />
+                  </box>
+                );
+              }}
+            </Index>
+          </box>
+        </scrollbox>
       </box>
-    );
-  }
-
-  return (
-    <box
-      style={{
-        position: 'absolute',
-        left: 0,
-        bottom,
-        width,
-        zIndex: 100,
-        backgroundColor: tokens.bgSurface,
-        flexDirection: 'column',
-        maxHeight: VISIBLE_ITEMS + 2,
-      }}
-    >
-      <scrollbox maxHeight={VISIBLE_ITEMS} stickyScroll={false}>
-        <box flexDirection="column">
-          {results.map((match, idx) => {
-            const isSelected = idx === selectedIndex;
-            const isDirectory = match.item.endsWith('/');
-
-            return (
-              <box
-                key={match.item}
-                style={{
-                  flexDirection: 'row',
-                  paddingLeft: 1,
-                  paddingRight: 1,
-                  ...(isSelected && { backgroundColor: tokens.selected }),
-                }}
-              >
-                <HighlightedPath
-                  path={match.item}
-                  indices={match.indices}
-                  isSelected={isSelected}
-                  isDirectory={isDirectory}
-                  tokens={tokens}
-                />
-              </box>
-            );
-          })}
-        </box>
-      </scrollbox>
-    </box>
+    </Show>
   );
 }
 
@@ -160,96 +167,89 @@ type HighlightedPathProps = {
 /**
  * Render file path with fuzzy match highlighting.
  */
-function HighlightedPath({
-  path,
-  indices,
-  isSelected,
-  isDirectory,
-  tokens,
-}: HighlightedPathProps) {
+function HighlightedPath(props: HighlightedPathProps) {
   // No highlighting needed if no matches
-  if (indices.length === 0) {
-    const fg = isSelected
-      ? tokens.primaryBase
-      : isDirectory
-        ? tokens.primaryBase
-        : tokens.textBase;
+  if (props.indices.length === 0) {
+    const fg = props.isSelected
+      ? props.tokens.primaryBase
+      : props.isDirectory
+        ? props.tokens.primaryBase
+        : props.tokens.textBase;
     return (
       <text style={{ fg }}>
-        <b>{isDirectory ? path : `@${path}`}</b>
+        <b>{props.isDirectory ? props.path : `@${props.path}`}</b>
       </text>
     );
   }
 
   // Convert ranges to set of highlighted indices
   const highlightedSet = new Set<number>();
-  for (const [start, end] of indices) {
+  for (const [start, end] of props.indices) {
     for (let i = start; i <= end; i++) {
       highlightedSet.add(i);
     }
   }
 
   // Build segments with alternating highlight
-  const segments: React.ReactNode[] = [];
+  const segments: JSX.Element[] = [];
   let currentText = '';
   let currentHighlighted = highlightedSet.has(0);
 
   // Add @ prefix for files
-  if (!isDirectory) {
+  if (!props.isDirectory) {
     segments.push(
       <text
-        key="prefix"
-        style={{ fg: isSelected ? tokens.primaryBase : tokens.textBase }}
+        style={{
+          fg: props.isSelected
+            ? props.tokens.primaryBase
+            : props.tokens.textBase,
+        }}
       >
         @
       </text>,
     );
   }
 
-  for (let i = 0; i < path.length; i++) {
+  for (let i = 0; i < props.path.length; i++) {
     const isHighlighted = highlightedSet.has(i);
     if (isHighlighted !== currentHighlighted) {
       if (currentText) {
         const fg = currentHighlighted
-          ? tokens.warning
-          : isSelected
-            ? tokens.primaryBase
-            : tokens.textBase;
+          ? props.tokens.warning
+          : props.isSelected
+            ? props.tokens.primaryBase
+            : props.tokens.textBase;
         segments.push(
           currentHighlighted ? (
-            <text key={segments.length} style={{ fg }}>
+            <text style={{ fg }}>
               <b>{currentText}</b>
             </text>
           ) : (
-            <text key={segments.length} style={{ fg }}>
-              {currentText}
-            </text>
+            <text style={{ fg }}>{currentText}</text>
           ),
         );
       }
-      currentText = path[i] ?? '';
+      currentText = props.path[i] ?? '';
       currentHighlighted = isHighlighted;
     } else {
-      currentText += path[i];
+      currentText += props.path[i];
     }
   }
 
   // Final segment
   if (currentText) {
     const fg = currentHighlighted
-      ? tokens.warning
-      : isSelected
-        ? tokens.primaryBase
-        : tokens.textBase;
+      ? props.tokens.warning
+      : props.isSelected
+        ? props.tokens.primaryBase
+        : props.tokens.textBase;
     segments.push(
       currentHighlighted ? (
-        <text key={segments.length} style={{ fg }}>
+        <text style={{ fg }}>
           <b>{currentText}</b>
         </text>
       ) : (
-        <text key={segments.length} style={{ fg }}>
-          {currentText}
-        </text>
+        <text style={{ fg }}>{currentText}</text>
       ),
     );
   }

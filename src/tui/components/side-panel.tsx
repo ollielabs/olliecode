@@ -3,6 +3,7 @@
  * Always visible on the right side of the chat interface.
  */
 
+import { For, Show, mergeProps } from 'solid-js';
 import type { ContextStats } from '../../lib/tokenizer';
 import type { Todo, TodoStatus } from '../../session/todo';
 import type { SemanticTokens } from '../../design';
@@ -15,10 +16,10 @@ export type SidePanelProps = {
 };
 
 const STATUS_ICONS: Record<TodoStatus, string> = {
-  pending: '○',
-  in_progress: '◐',
-  completed: '●',
-  cancelled: '⊘',
+  pending: '\u25CB',
+  in_progress: '\u25D0',
+  completed: '\u25CF',
+  cancelled: '\u2298',
 };
 
 function getStatusColor(
@@ -37,128 +38,125 @@ function formatTokenCount(count: number): string {
   return count.toString();
 }
 
-function ContextBar({
-  percent,
-  statusColor,
-  emptyColor,
-}: {
+function ContextBar(props: {
   percent: number;
   statusColor: string;
   emptyColor: string;
 }) {
   const width = 12;
-  const filled = Math.round((percent / 100) * width);
+  const filled = Math.round((props.percent / 100) * width);
   const empty = width - filled;
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: statusColor }}>{'█'.repeat(filled)}</text>
-      <text style={{ fg: emptyColor }}>{'░'.repeat(empty)}</text>
+      <text style={{ fg: props.statusColor }}>{'\u2588'.repeat(filled)}</text>
+      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty)}</text>
     </box>
   );
 }
 
-function ContextSection({
-  stats,
-  tokens,
-}: {
+function ContextSection(props: {
   stats: ContextStats;
   tokens: SemanticTokens;
 }) {
   const statusColor = getStatusColor(
-    tokens,
-    stats.isCritical,
-    stats.isNearLimit,
+    props.tokens,
+    props.stats.isCritical,
+    props.stats.isNearLimit,
   );
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: tokens.textBase }}>
+      <text style={{ fg: props.tokens.textBase }}>
         <b>Context</b>
       </text>
       <box flexDirection="row">
         <ContextBar
-          percent={stats.usagePercent}
+          percent={props.stats.usagePercent}
           statusColor={statusColor}
-          emptyColor={tokens.textSubtle}
+          emptyColor={props.tokens.textSubtle}
         />
-        <text style={{ fg: statusColor }}>{stats.usagePercent}%</text>
+        <text style={{ fg: statusColor }}>{props.stats.usagePercent}%</text>
       </box>
-      <text style={{ fg: tokens.textMuted }}>
-        {formatTokenCount(stats.totalTokens)}/
-        {formatTokenCount(stats.maxTokens)}
+      <text style={{ fg: props.tokens.textMuted }}>
+        {formatTokenCount(props.stats.totalTokens)}/
+        {formatTokenCount(props.stats.maxTokens)}
       </text>
-      {stats.isNearLimit && (
+      <Show when={props.stats.isNearLimit}>
         <text style={{ fg: statusColor }}>
-          {stats.isCritical ? '! Critical' : '~ Near limit'}
+          {props.stats.isCritical ? '! Critical' : '~ Near limit'}
         </text>
-      )}
+      </Show>
     </box>
   );
 }
 
-function TodoSection({
-  todos,
-  tokens,
-}: {
-  todos: Todo[];
-  tokens: SemanticTokens;
-}) {
-  const completed = todos.filter((t) => t.status === 'completed').length;
-  const total = todos.length;
-  const activeTodos = todos
+function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
+  const completed = props.todos.filter((t) => t.status === 'completed').length;
+  const total = props.todos.length;
+  const activeTodos = props.todos
     .filter((t) => t.status === 'pending' || t.status === 'in_progress')
     .slice(0, 5);
 
   const statusColors: Record<TodoStatus, string> = {
-    pending: tokens.textMuted,
-    in_progress: tokens.warning,
-    completed: tokens.success,
-    cancelled: tokens.textSubtle,
+    pending: props.tokens.textMuted,
+    in_progress: props.tokens.warning,
+    completed: props.tokens.success,
+    cancelled: props.tokens.textSubtle,
   };
 
   return (
     <box flexDirection="column">
       <box flexDirection="row">
-        <text style={{ fg: tokens.textBase }}>
+        <text style={{ fg: props.tokens.textBase }}>
           <b>Todos</b>{' '}
         </text>
-        <text style={{ fg: tokens.textMuted }}>
+        <text style={{ fg: props.tokens.textMuted }}>
           {completed}/{total}
         </text>
       </box>
 
-      {activeTodos.length === 0 ? (
-        <text style={{ fg: tokens.textSubtle }}>No active tasks</text>
-      ) : (
+      <Show
+        when={activeTodos.length > 0}
+        fallback={
+          <text style={{ fg: props.tokens.textSubtle }}>No active tasks</text>
+        }
+      >
         <box flexDirection="column">
-          {activeTodos.map((todo) => (
-            <box key={todo.id} flexDirection="row">
-              <text style={{ fg: statusColors[todo.status] }}>
-                {STATUS_ICONS[todo.status]}{' '}
-              </text>
-              <text style={{ fg: tokens.textMuted }}>
-                {todo.content.length > 20
-                  ? `${todo.content.slice(0, 18)}..`
-                  : todo.content}
-              </text>
-            </box>
-          ))}
-          {activeTodos.length <
-            todos.filter(
-              (t) => t.status === 'pending' || t.status === 'in_progress',
-            ).length && (
-            <text style={{ fg: tokens.textSubtle }}>
-              +{todos.length - 5} more
+          <For each={activeTodos}>
+            {(todo) => (
+              <box flexDirection="row">
+                <text style={{ fg: statusColors[todo.status] }}>
+                  {STATUS_ICONS[todo.status]}{' '}
+                </text>
+                <text style={{ fg: props.tokens.textMuted }}>
+                  {todo.content.length > 20
+                    ? `${todo.content.slice(0, 18)}..`
+                    : todo.content}
+                </text>
+              </box>
+            )}
+          </For>
+          <Show
+            when={
+              activeTodos.length <
+              props.todos.filter(
+                (t) => t.status === 'pending' || t.status === 'in_progress',
+              ).length
+            }
+          >
+            <text style={{ fg: props.tokens.textSubtle }}>
+              +{props.todos.length - 5} more
             </text>
-          )}
+          </Show>
         </box>
-      )}
+      </Show>
     </box>
   );
 }
 
-export function SidePanel({ contextStats, todos, width = 20 }: SidePanelProps) {
+export function SidePanel(rawProps: SidePanelProps) {
+  const props = mergeProps({ width: 20 }, rawProps);
   const { tokens } = useTheme();
 
   return (
@@ -171,19 +169,23 @@ export function SidePanel({ contextStats, todos, width = 20 }: SidePanelProps) {
         paddingLeft: 2,
         paddingRight: 2,
       }}
-      width={width}
+      width={props.width}
     >
-      {contextStats && (
-        <box style={{ marginBottom: 1 }}>
-          <ContextSection stats={contextStats} tokens={tokens} />
-        </box>
-      )}
+      <Show when={props.contextStats}>
+        {(stats: () => ContextStats) => (
+          <box style={{ marginBottom: 1 }}>
+            <ContextSection stats={stats()} tokens={tokens} />
+          </box>
+        )}
+      </Show>
 
-      {todos.length > 0 && <TodoSection todos={todos} tokens={tokens} />}
+      <Show when={props.todos.length > 0}>
+        <TodoSection todos={props.todos} tokens={tokens} />
+      </Show>
 
-      {!contextStats && todos.length === 0 && (
+      <Show when={!props.contextStats && props.todos.length === 0}>
         <text style={{ fg: tokens.textSubtle }}>-</text>
-      )}
+      </Show>
     </box>
   );
 }
