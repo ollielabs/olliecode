@@ -315,7 +315,22 @@ export function useAgentSubmit(
       },
     });
 
+    // Sort tool parts by original call order (parallel tools may complete out of order)
+    completedToolParts.sort((a, b) => {
+      const indexA = indexByToolId.get(a.id) ?? 0;
+      const indexB = indexByToolId.get(b.id) ?? 0;
+      return indexA - indexB;
+    });
+
     if ('type' in result) {
+      // Error/abort path — persist partial history so it survives restart
+      props.setHistory(result.messages);
+      addMessage(
+        session.id,
+        'assistant',
+        fromAssistantResponse('', completedToolParts),
+      );
+
       switch (result.type) {
         case 'aborted':
           setStatus('idle');
@@ -359,13 +374,6 @@ export function useAgentSubmit(
       setStatus('idle');
 
       props.setSidebarTodos(getTodos(session.id));
-
-      // Sort tool parts by original call order (parallel tools may complete out of order)
-      completedToolParts.sort((a, b) => {
-        const indexA = indexByToolId.get(a.id) ?? 0;
-        const indexB = indexByToolId.get(b.id) ?? 0;
-        return indexA - indexB;
-      });
 
       // Store the assistant message with all tool parts
       addMessage(

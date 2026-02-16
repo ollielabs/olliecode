@@ -387,10 +387,6 @@ function AppContent(props: AppProps) {
                         }
                         onConfirmationResponse={(response) => {
                           agent.handleToolConfirmation(response);
-                          // Abort the agent run if user denies
-                          if (response.action === 'deny') {
-                            agent.abort();
-                          }
                         }}
                         expanded={toolsExpanded()}
                         isModalOpen={() =>

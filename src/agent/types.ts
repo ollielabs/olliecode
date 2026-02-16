@@ -123,11 +123,11 @@ export type AgentResult = {
  * Error types for agent failures
  */
 export type AgentError =
-  | { type: 'aborted' }
-  | { type: 'model_error'; message: string }
-  | { type: 'loop_detected'; action: string; attempts: number }
-  | { type: 'max_iterations'; iterations: number; lastThought: string }
-  | { type: 'tool_error'; tool: string; message: string };
+  | { type: 'aborted'; messages: Message[] }
+  | { type: 'model_error'; message: string; messages: Message[] }
+  | { type: 'loop_detected'; action: string; attempts: number; messages: Message[] }
+  | { type: 'max_iterations'; iterations: number; lastThought: string; messages: Message[] }
+  | { type: 'tool_error'; tool: string; message: string; messages: Message[] };
 
 /**
  * Configuration for the agent
