@@ -4,12 +4,12 @@
  * Supports delete (ctrl+d) and rename (ctrl+r) operations.
  */
 
-import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
-import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
 import type { InputRenderable } from '@opentui/core';
-import { deleteSession, updateSession, type Session } from '../../session';
-import { Modal } from './modal';
+import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { deleteSession, type Session, updateSession } from '../../session';
+import { Modal } from './modal';
 
 export type SessionPickerProps = {
   sessions: Session[];
@@ -180,7 +180,9 @@ export function SessionPicker(props: SessionPickerProps) {
         break;
       case 'down':
       case 'j':
-        setSelectedIndex((prev) => Math.min(flatSessions().length - 1, prev + 1));
+        setSelectedIndex((prev) =>
+          Math.min(flatSessions().length - 1, prev + 1),
+        );
         break;
       case 'return': {
         const session = flatSessions()[selectedIndex()];
@@ -233,27 +235,34 @@ export function SessionPicker(props: SessionPickerProps) {
 
                     <For each={group.sessions}>
                       {(session) => {
-                        const idx = sessionIndexMap().get(session.id) ?? 0;
-                        const isSelected = idx === selectedIndex();
-                        const isConfirmingDelete =
-                          isSelected && mode() === 'confirm-delete';
-                        const prefix = isSelected ? '> ' : '  ';
-                        const title = isConfirmingDelete
-                          ? 'Press ctrl+d again to confirm delete'
-                          : (session.title ?? session.id.slice(0, 8));
+                        const idx = createMemo(
+                          () => sessionIndexMap().get(session.id) ?? 0,
+                        );
+                        const isSelected = createMemo(
+                          () => idx() === selectedIndex(),
+                        );
+                        const isConfirmingDelete = createMemo(
+                          () => isSelected() && mode() === 'confirm-delete',
+                        );
+                        const prefix = () => (isSelected() ? '> ' : '  ');
+                        const title = () =>
+                          isConfirmingDelete()
+                            ? 'Press ctrl+d again to confirm delete'
+                            : (session.title ?? session.id.slice(0, 8));
                         const time = formatTime(session.updatedAt);
 
-                        const fg = isConfirmingDelete
-                          ? tokens.error
-                          : isSelected
-                            ? tokens.success
-                            : tokens.textMuted;
+                        const fg = () =>
+                          isConfirmingDelete()
+                            ? tokens.error
+                            : isSelected()
+                              ? tokens.success
+                              : tokens.textMuted;
 
                         return (
                           <box flexDirection="row">
-                            <text style={{ fg }}>
-                              {prefix}
-                              {time} - {title}
+                            <text style={{ fg: fg() }}>
+                              {prefix()}
+                              {time} - {title()}
                             </text>
                           </box>
                         );
