@@ -393,6 +393,10 @@ function AppContent(props: AppProps) {
                           }
                         }}
                         expanded={toolsExpanded()}
+                        isModalOpen={() =>
+                          session.showSessionPicker() ||
+                          commands.showCommandMenu()
+                        }
                       />
                     </Show>
                   </box>
