@@ -3,10 +3,11 @@
  * Overlays above the textarea when user types '/'.
  */
 
-import { Index, Show, createEffect, createMemo, mergeProps } from 'solid-js';
 import type { ScrollBoxRenderable } from '@opentui/core';
 import { useKeyboard } from '@opentui/solid';
+import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { getScrollChildBounds, scrollIntoView } from '../utils';
 
 export type SlashCommand = {
   name: string;
@@ -51,10 +52,12 @@ export function CommandMenu(rawProps: CommandMenuProps) {
     }
   });
 
-  // Scroll to keep the selected item visible
+  // Scroll-into-view: only adjust when selected item is outside the viewport
   createEffect(() => {
     const idx = props.selectedIndex;
-    scrollRef?.scrollTo(idx);
+    if (!scrollRef) return;
+    const bounds = getScrollChildBounds(scrollRef, idx);
+    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
   useKeyboard((key: { name?: string }) => {
@@ -66,9 +69,7 @@ export function CommandMenu(rawProps: CommandMenuProps) {
         break;
       case 'down':
       case 'j':
-        props.onIndexChange(
-          Math.min(cmds.length - 1, props.selectedIndex + 1),
-        );
+        props.onIndexChange(Math.min(cmds.length - 1, props.selectedIndex + 1));
         break;
       case 'return': {
         const selected = cmds[props.selectedIndex];
@@ -125,17 +126,15 @@ export function CommandMenu(rawProps: CommandMenuProps) {
                       flexDirection: 'row',
                       paddingLeft: 1,
                       paddingRight: 1,
-                      ...(isSelected() && {
-                        backgroundColor: tokens.selected,
-                      }),
+                      backgroundColor: isSelected()
+                        ? tokens.selected
+                        : 'transparent',
                     }}
                   >
                     <text
                       style={{
                         width: 10,
-                        fg: isSelected()
-                          ? tokens.primaryBase
-                          : tokens.textBase,
+                        fg: isSelected() ? tokens.primaryBase : tokens.textBase,
                       }}
                     >
                       <b>/{cmd().name}</b>
