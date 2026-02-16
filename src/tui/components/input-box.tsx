@@ -1,8 +1,8 @@
+import { RGBA, SyntaxStyle, type TextareaRenderable } from '@opentui/core';
 import { createEffect } from 'solid-js';
-import { SyntaxStyle, RGBA, type TextareaRenderable } from '@opentui/core';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
-import { StatusBar, type Status } from './status-bar';
+import { type Status, StatusBar } from './status-bar';
 
 const TEXTAREA_KEY_BINDINGS: {
   name: string;
@@ -76,12 +76,17 @@ export function InputBox(props: InputBoxProps) {
     }
   };
 
-  // Blur/focus textarea based on disabled state
+  // Blur/focus textarea based on disabled state.
+  // Also toggle focusable to prevent mouse clicks from re-focusing
+  // the textarea while a confirmation dialog is active.
   createEffect(() => {
+    if (!textareaRef) return;
     if (props.disabled) {
-      textareaRef?.blur();
+      textareaRef.focusable = false;
+      textareaRef.blur();
     } else {
-      textareaRef?.focus();
+      textareaRef.focusable = true;
+      textareaRef.focus();
     }
   });
 
