@@ -2,8 +2,63 @@
  * TUI utility functions.
  */
 
-import { RGBA, SyntaxStyle, type ScrollAcceleration } from '@opentui/core';
+import {
+  RGBA,
+  type ScrollAcceleration,
+  type ScrollBoxRenderable,
+  SyntaxStyle,
+} from '@opentui/core';
 import type { SemanticTokens } from '../design';
+
+/**
+ * Scroll the viewport just enough to keep an item visible (scroll-into-view).
+ * Does nothing if the item is already fully within the viewport.
+ *
+ * @param scrollRef - The scrollbox renderable
+ * @param itemTop - Top edge of the item in content coordinates
+ * @param itemBottom - Bottom edge of the item in content coordinates
+ */
+export function scrollIntoView(
+  scrollRef: ScrollBoxRenderable,
+  itemTop: number,
+  itemBottom: number,
+): void {
+  const viewportHeight = scrollRef.viewport.height;
+  const currentTop = scrollRef.scrollTop;
+
+  if (itemTop < currentTop) {
+    scrollRef.scrollTop = itemTop;
+  } else if (itemBottom > currentTop + viewportHeight) {
+    scrollRef.scrollTop = itemBottom - viewportHeight;
+  }
+}
+
+/**
+ * Get the content-relative bounds of a child in a flat scrollbox list.
+ *
+ * Expects the structure: scrollbox > content > innerBox > children[index].
+ * Uses yoga layout nodes for positions that are stable across scroll changes.
+ *
+ * @param scrollRef - The scrollbox renderable
+ * @param childIndex - Index of the child item within the inner box
+ * @returns { top, bottom } in content-relative coordinates, or null if not found
+ */
+export function getScrollChildBounds(
+  scrollRef: ScrollBoxRenderable,
+  childIndex: number,
+): { top: number; bottom: number } | null {
+  const innerBox = scrollRef.content.getChildren()[0];
+  if (!innerBox) return null;
+
+  const child = innerBox.getChildren()[childIndex];
+  if (!child) return null;
+
+  const layout = child.getLayoutNode();
+  const top = layout.getComputedTop();
+  const bottom = top + layout.getComputedHeight();
+
+  return { top, bottom };
+}
 
 /**
  * Fast scroll acceleration for scrollbox components.

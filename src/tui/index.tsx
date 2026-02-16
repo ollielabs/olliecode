@@ -5,7 +5,7 @@
 
 import type { TextareaRenderable } from '@opentui/core';
 import { RGBA } from '@opentui/core';
-import { For, Show, createMemo, createSignal } from 'solid-js';
+import { createMemo, createSignal, For, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider, useTheme } from '../design';
 import { listSessions } from '../session';
@@ -272,6 +272,9 @@ function AppContent(props: AppProps) {
               onRef={(el) => {
                 textareaRef = el;
               }}
+              disabled={
+                session.showSessionPicker() || session.showThemePicker()
+              }
               suppressSubmit={filePicker.showFilePicker()}
             />
           </box>
@@ -450,7 +453,11 @@ function AppContent(props: AppProps) {
               onRef={(el) => {
                 textareaRef = el;
               }}
-              disabled={!!agent.confirmingToolId()}
+              disabled={
+                !!agent.confirmingToolId() ||
+                session.showSessionPicker() ||
+                session.showThemePicker()
+              }
               suppressSubmit={filePicker.showFilePicker()}
             />
           </box>
