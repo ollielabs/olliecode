@@ -387,6 +387,8 @@ function ConfirmingView(props: {
                 filePath={(p() as { type: 'diff'; filePath: string }).filePath}
                 before={(p() as { type: 'diff'; before: string }).before}
                 after={(p() as { type: 'diff'; after: string }).after}
+                maxHeight={15}
+                view="split"
               />
             </Show>
           </box>
@@ -449,6 +451,7 @@ function EditCompleted(props: {
           before={diff ? '' : String(props.message.args.oldString ?? '')}
           after={diff ? '' : String(props.message.args.newString ?? '')}
           diff={diff}
+          view="split"
         />
       </Show>
     </BlockTool>
