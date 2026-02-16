@@ -43,9 +43,7 @@ export const catppuccinTheme: Theme = {
       syntaxVariable: '#cdd6f4',
       // Diff colors
       diffAdd: '#a6e3a1',
-      diffAddBg: '#2d4a2d',
       diffDelete: '#f38ba8',
-      diffDeleteBg: '#4a2d3a',
     },
   },
   light: {

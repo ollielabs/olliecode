@@ -75,9 +75,9 @@ export function resolveThemeVariant(
 
     // Diff
     diffAdd: s(success, isDark ? 9 : 8),
-    diffAddBg: s(success, isDark ? 1 : 2),
+    diffAddBg: s(neutral, isDark ? 2 : 1),
     diffDelete: s(error, isDark ? 9 : 8),
-    diffDeleteBg: s(error, isDark ? 1 : 2),
+    diffDeleteBg: s(neutral, isDark ? 2 : 1),
 
     // Syntax highlighting
     syntaxKeyword: s(primary, isDark ? 8 : 7),
