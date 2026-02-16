@@ -186,7 +186,7 @@ export function SidePanel(rawProps: SidePanelProps) {
       </Show>
 
       <Show when={!props.contextStats && props.todos.length === 0}>
-        <text style={{ fg: tokens.textSubtle }}>-</text>
+        <text style={{ fg: tokens.textSubtle }}>No activity</text>
       </Show>
     </box>
   );
