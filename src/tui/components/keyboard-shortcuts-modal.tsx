@@ -3,6 +3,7 @@
  * Displays all available keyboard shortcuts and slash commands.
  */
 
+import { For } from 'solid-js';
 import { useTheme } from '../../design';
 import { Modal } from './modal';
 
@@ -56,35 +57,36 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
   },
 ];
 
-export function KeyboardShortcutsModal({
-  onClose,
-}: KeyboardShortcutsModalProps) {
+export function KeyboardShortcutsModal(props: KeyboardShortcutsModalProps) {
   const { tokens } = useTheme();
 
   return (
-    <Modal title="Keyboard Shortcuts" onClose={onClose} size="medium">
+    <Modal title="Keyboard Shortcuts" onClose={props.onClose} size="medium">
       <box flexDirection="column">
-        {SHORTCUT_CATEGORIES.map((category, catIdx) => (
-          <box
-            key={category.title}
-            flexDirection="column"
-            marginBottom={catIdx < SHORTCUT_CATEGORIES.length - 1 ? 1 : 0}
-          >
-            <text style={{ fg: tokens.primaryBase }}>
-              <b>{category.title}</b>
-            </text>
-            {category.shortcuts.map((shortcut) => (
-              <box key={shortcut.keys} flexDirection="row" marginLeft={1}>
-                <text style={{ fg: tokens.textBase, width: 14 }}>
-                  {shortcut.keys}
-                </text>
-                <text style={{ fg: tokens.textMuted }}>
-                  {shortcut.description}
-                </text>
-              </box>
-            ))}
-          </box>
-        ))}
+        <For each={SHORTCUT_CATEGORIES}>
+          {(category, catIdx) => (
+            <box
+              flexDirection="column"
+              marginBottom={catIdx() < SHORTCUT_CATEGORIES.length - 1 ? 1 : 0}
+            >
+              <text style={{ fg: tokens.primaryBase }}>
+                <b>{category.title}</b>
+              </text>
+              <For each={category.shortcuts}>
+                {(shortcut) => (
+                  <box flexDirection="row" marginLeft={1}>
+                    <text style={{ fg: tokens.textBase, width: 14 }}>
+                      {shortcut.keys}
+                    </text>
+                    <text style={{ fg: tokens.textMuted }}>
+                      {shortcut.description}
+                    </text>
+                  </box>
+                )}
+              </For>
+            </box>
+          )}
+        </For>
         <box marginTop={1}>
           <text style={{ fg: tokens.textSubtle }}>
             Press Ctrl+P or Esc to close

@@ -1,5 +1,5 @@
 import { createCliRenderer } from '@opentui/core';
-import { createRoot } from '@opentui/react';
+import { render } from '@opentui/solid';
 import { Command } from 'commander';
 import { setDebugEnabled } from './agent/logger';
 import { buildCliOverrides, loadMergedConfig } from './config';
@@ -102,14 +102,17 @@ program
       exitOnCtrlC: true,
     });
 
-    createRoot(renderer).render(
-      <App
-        config={config}
-        configLayers={configLayers}
-        configWarnings={warnings}
-        projectPath={projectPath}
-        initialSessionId={initialSessionId}
-      />,
+    void render(
+      () => (
+        <App
+          config={config}
+          configLayers={configLayers}
+          configWarnings={warnings}
+          projectPath={projectPath}
+          initialSessionId={initialSessionId}
+        />
+      ),
+      renderer,
     );
 
     // Cleanup on exit

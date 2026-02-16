@@ -93,13 +93,16 @@ export type AppProps = {
 
 /**
  * Ref type for textarea access.
+ * In Solid, refs are plain variables — no .current wrapper.
  */
-export type TextareaRef = React.RefObject<TextareaRenderable | null>;
+export type TextareaRef = TextareaRenderable | undefined;
 
 /**
  * Ref type for status access in callbacks.
+ * In Solid, signals always return current values — this type is kept
+ * for compatibility but refs are no longer needed for status.
  */
-export type StatusRef = React.RefObject<Status>;
+export type StatusRef = Status;
 
 // Re-export commonly used types for convenience
 export type {

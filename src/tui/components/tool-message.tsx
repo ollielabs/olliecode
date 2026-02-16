@@ -1,13 +1,14 @@
 /**
  * Tool message component.
  * Displays a unified tool operation that evolves through states:
- * pending → confirming → executing → completed/error/denied/blocked
+ * pending -> confirming -> executing -> completed/error/denied/blocked
  *
  * This replaces the old separate tool_call + tool_result + ConfirmationDialog pattern.
  */
 
-import { useRef, useEffect } from 'react';
-import { useKeyboard } from '@opentui/react';
+import type { JSX } from 'solid-js';
+import { Show } from 'solid-js';
+import { useKeyboard } from '@opentui/solid';
 import { useTheme } from '../../design';
 import type { SemanticTokens } from '../../design/tokens';
 import { DiffView } from './diff-view';
@@ -70,16 +71,16 @@ function getStatusIcon(state: ToolState): string {
   switch (state.status) {
     case 'pending':
     case 'executing':
-      return '◐'; // Half circle - in progress
+      return '\u25D0'; // Half circle - in progress
     case 'confirming':
-      return '△'; // Triangle - needs attention
+      return '\u25B3'; // Triangle - needs attention
     case 'completed':
-      return '✓'; // Checkmark - success
+      return '\u2713'; // Checkmark - success
     case 'error':
     case 'blocked':
-      return '✗'; // X - failure
+      return '\u2717'; // X - failure
     case 'denied':
-      return '⊘'; // Circled slash - denied
+      return '\u2298'; // Circled slash - denied
   }
 }
 
@@ -197,15 +198,7 @@ function formatCompletedOutput(
 /**
  * Inline tool display - single line for simple operations.
  */
-function InlineTool({
-  icon,
-  iconColor,
-  name,
-  header,
-  suffix,
-  dimmed,
-  tokens,
-}: {
+function InlineTool(props: {
   icon: string;
   iconColor: string;
   name: string;
@@ -216,24 +209,30 @@ function InlineTool({
   tokens: SemanticTokens;
 }) {
   // Use muted color for dimmed (denied/blocked) items
-  const textColor = dimmed ? tokens.textMuted : tokens.primaryBase;
-  const headerColor = tokens.textMuted;
+  const textColor = props.dimmed
+    ? props.tokens.textMuted
+    : props.tokens.primaryBase;
+  const headerColor = props.tokens.textMuted;
 
   return (
     <box
       style={{
-        backgroundColor: tokens.bgSurface,
+        backgroundColor: props.tokens.bgSurface,
         padding: 1,
         border: ['left'],
         borderStyle: 'heavy',
-        borderColor: iconColor,
+        borderColor: props.iconColor,
       }}
     >
       <box style={{ flexDirection: 'row' }}>
-        <text style={{ fg: iconColor }}>{icon} </text>
-        <text style={{ fg: textColor }}>{name}</text>
-        {header && <text style={{ fg: headerColor }}> {header}</text>}
-        {suffix && <text style={{ fg: tokens.textMuted }}> {suffix}</text>}
+        <text style={{ fg: props.iconColor }}>{props.icon} </text>
+        <text style={{ fg: textColor }}>{props.name}</text>
+        <Show when={props.header}>
+          <text style={{ fg: headerColor }}> {props.header}</text>
+        </Show>
+        <Show when={props.suffix}>
+          <text style={{ fg: props.tokens.textMuted }}> {props.suffix}</text>
+        </Show>
       </box>
     </box>
   );
@@ -242,37 +241,32 @@ function InlineTool({
 /**
  * Block tool display - multi-line with content area.
  */
-function BlockTool({
-  icon,
-  iconColor,
-  name,
-  header,
-  children,
-  tokens,
-}: {
+function BlockTool(props: {
   icon: string;
   iconColor: string;
   name: string;
   header: string;
-  children: React.ReactNode;
+  children: JSX.Element;
   tokens: SemanticTokens;
 }) {
   return (
     <box
       style={{
-        backgroundColor: tokens.bgSurface,
+        backgroundColor: props.tokens.bgSurface,
         padding: 1,
         border: ['left'],
         borderStyle: 'heavy',
-        borderColor: iconColor,
+        borderColor: props.iconColor,
       }}
     >
       <box style={{ flexDirection: 'row' }}>
-        <text style={{ fg: iconColor }}>{icon} </text>
-        <text style={{ fg: tokens.primaryBase }}>{name}</text>
-        {header && <text style={{ fg: tokens.textMuted }}> {header}</text>}
+        <text style={{ fg: props.iconColor }}>{props.icon} </text>
+        <text style={{ fg: props.tokens.primaryBase }}>{props.name}</text>
+        <Show when={props.header}>
+          <text style={{ fg: props.tokens.textMuted }}> {props.header}</text>
+        </Show>
       </box>
-      <box style={{ marginTop: 1 }}>{children}</box>
+      <box style={{ marginTop: 1 }}>{props.children}</box>
     </box>
   );
 }
@@ -280,129 +274,137 @@ function BlockTool({
 /**
  * Confirmation view - shows preview and action buttons.
  */
-function ConfirmingView({
-  message,
-  onResponse,
-  isActive,
-  tokens,
-}: {
+function ConfirmingView(props: {
   message: ToolDisplayMessage;
   onResponse?: (response: ConfirmationResponse) => void;
   isActive?: boolean;
   tokens: SemanticTokens;
 }) {
-  const { state, name, args } = message;
-  const respondedRef = useRef(false);
-  const onResponseRef = useRef(onResponse);
-
-  useEffect(() => {
-    onResponseRef.current = onResponse;
-    respondedRef.current = false;
-  }, [onResponse]);
+  let responded = false;
 
   useKeyboard((key: { name?: string }) => {
-    if (state.status !== 'confirming') return;
-    if (!isActive || respondedRef.current || !onResponseRef.current) return;
+    if (props.message.state.status !== 'confirming') return;
+    if (!props.isActive || responded || !props.onResponse) return;
 
     switch (key.name?.toLowerCase()) {
       case 'y':
-        respondedRef.current = true;
-        onResponseRef.current({ action: 'allow' });
+        responded = true;
+        props.onResponse({ action: 'allow' });
         break;
       case 'n':
       case 'escape':
       case 'q':
-        respondedRef.current = true;
-        onResponseRef.current({ action: 'deny' });
+        responded = true;
+        props.onResponse({ action: 'deny' });
         break;
       case 'a':
-        respondedRef.current = true;
-        onResponseRef.current({ action: 'allow_always', forTool: name });
+        responded = true;
+        props.onResponse({
+          action: 'allow_always',
+          forTool: props.message.name,
+        });
         break;
     }
   });
 
-  if (state.status !== 'confirming') return null;
+  if (props.message.state.status !== 'confirming') return <></>;
 
-  const preview = state.preview;
-  const header = formatToolHeader(name, args);
+  const preview = props.message.state.preview;
+  const header = formatToolHeader(props.message.name, props.message.args);
 
   return (
     <box
       style={{
-        backgroundColor: tokens.bgSurface,
+        backgroundColor: props.tokens.bgSurface,
         padding: 1,
         border: ['left'],
         borderStyle: 'heavy',
-        borderColor: tokens.warning,
+        borderColor: props.tokens.warning,
       }}
     >
       {/* Header */}
       <box style={{ flexDirection: 'row' }}>
-        <text style={{ fg: tokens.warning }}>△ </text>
-        <text style={{ fg: tokens.primaryBase }}>{name}</text>
-        {header && <text style={{ fg: tokens.textMuted }}> {header}</text>}
+        <text style={{ fg: props.tokens.warning }}>{'\u25B3'} </text>
+        <text style={{ fg: props.tokens.primaryBase }}>
+          {props.message.name}
+        </text>
+        <Show when={header}>
+          <text style={{ fg: props.tokens.textMuted }}> {header}</text>
+        </Show>
       </box>
 
       {/* Preview content */}
-      {preview && (
-        <box style={{ marginTop: 1 }}>
-          {preview.type === 'command' && (
-            <box
-              style={{
-                backgroundColor: tokens.bgBase,
-                padding: 1,
-                border: ['left'],
-                borderStyle: 'single',
-                borderColor: tokens.borderMuted,
-              }}
-            >
-              <text style={{ fg: tokens.success }}>$ {preview.command}</text>
-              <text style={{ fg: tokens.textMuted, marginTop: 1 }}>
-                cwd: {preview.cwd}
-              </text>
-            </box>
-          )}
+      <Show when={preview}>
+        {(p: () => NonNullable<typeof preview>) => (
+          <box style={{ marginTop: 1 }}>
+            <Show when={p().type === 'command'}>
+              <box
+                style={{
+                  backgroundColor: props.tokens.bgBase,
+                  padding: 1,
+                  border: ['left'],
+                  borderStyle: 'single',
+                  borderColor: props.tokens.borderMuted,
+                }}
+              >
+                <text style={{ fg: props.tokens.success }}>
+                  $ {(p() as { type: 'command'; command: string }).command}
+                </text>
+                <text style={{ fg: props.tokens.textMuted, marginTop: 1 }}>
+                  cwd: {(p() as { type: 'command'; cwd: string }).cwd}
+                </text>
+              </box>
+            </Show>
 
-          {preview.type === 'content' && (
-            <box
-              style={{
-                backgroundColor: tokens.bgBase,
-                padding: 1,
-                border: ['left'],
-                borderStyle: 'single',
-                borderColor: tokens.borderMuted,
-              }}
-            >
-              <text style={{ fg: tokens.textBase }}>
-                {preview.content}
-                {preview.truncated && '\n[truncated...]'}
-              </text>
-            </box>
-          )}
+            <Show when={p().type === 'content'}>
+              <box
+                style={{
+                  backgroundColor: props.tokens.bgBase,
+                  padding: 1,
+                  border: ['left'],
+                  borderStyle: 'single',
+                  borderColor: props.tokens.borderMuted,
+                }}
+              >
+                <text style={{ fg: props.tokens.textBase }}>
+                  {
+                    (
+                      p() as {
+                        type: 'content';
+                        content: string;
+                        truncated?: boolean;
+                      }
+                    ).content
+                  }
+                  {(p() as { type: 'content'; truncated?: boolean })
+                    .truncated && '\n[truncated...]'}
+                </text>
+              </box>
+            </Show>
 
-          {preview.type === 'diff' && (
-            <DiffView
-              filePath={preview.filePath}
-              before={preview.before}
-              after={preview.after}
-              maxHeight={15}
-              view="split"
-            />
-          )}
-        </box>
-      )}
+            <Show when={p().type === 'diff'}>
+              <DiffView
+                filePath={(p() as { type: 'diff'; filePath: string }).filePath}
+                before={(p() as { type: 'diff'; before: string }).before}
+                after={(p() as { type: 'diff'; after: string }).after}
+                maxHeight={15}
+                view="split"
+              />
+            </Show>
+          </box>
+        )}
+      </Show>
 
       {/* Action buttons */}
       <box style={{ flexDirection: 'row', marginTop: 1 }}>
         <text>
-          <span style={{ fg: tokens.textMuted }}>[</span>
-          <u style={{ fg: tokens.success }}>Y</u>
-          <span style={{ fg: tokens.textMuted }}>]es [</span>
-          <u style={{ fg: tokens.error }}>N</u>
-          <span style={{ fg: tokens.textMuted }}>/Esc]o [</span>
-          <u style={{ fg: tokens.primaryBase }}>A</u>
-          <span style={{ fg: tokens.textMuted }}>]lways</span>
+          <span style={{ fg: props.tokens.textMuted }}>[</span>
+          <u style={{ fg: props.tokens.success }}>Y</u>
+          <span style={{ fg: props.tokens.textMuted }}>]es [</span>
+          <u style={{ fg: props.tokens.error }}>N</u>
+          <span style={{ fg: props.tokens.textMuted }}>/Esc]o [</span>
+          <u style={{ fg: props.tokens.primaryBase }}>A</u>
+          <span style={{ fg: props.tokens.textMuted }}>]lways</span>
         </text>
       </box>
     </box>
@@ -412,42 +414,46 @@ function ConfirmingView({
 /**
  * Completed view for edit_file - shows persistent diff.
  */
-function EditCompleted({
-  message,
-  tokens,
-}: {
+function EditCompleted(props: {
   message: ToolDisplayMessage;
   tokens: SemanticTokens;
 }) {
-  const { state, name, args } = message;
-  if (state.status !== 'completed') return null;
+  if (props.message.state.status !== 'completed') return <></>;
 
-  const filePath = state.metadata?.filePath ?? String(args.path ?? '');
-  const diff = state.metadata?.diff;
+  const filePath =
+    props.message.state.metadata?.filePath ??
+    String(props.message.args.path ?? '');
+  const diff = props.message.state.metadata?.diff;
 
   // If we have a stored diff from confirmation, use it
   // Otherwise, try to construct from args (for backward compatibility)
-  const hasDiff = diff || (args.oldString && args.newString);
+  const hasDiff =
+    diff || (props.message.args.oldString && props.message.args.newString);
 
   return (
     <BlockTool
-      icon="✓"
-      iconColor={tokens.success}
-      name={name}
+      icon={'\u2713'}
+      iconColor={props.tokens.success}
+      name={props.message.name}
       header={filePath}
-      tokens={tokens}
+      tokens={props.tokens}
     >
-      {hasDiff ? (
+      <Show
+        when={hasDiff}
+        fallback={
+          <text style={{ fg: props.tokens.textMuted }}>
+            {props.message.state.output}
+          </text>
+        }
+      >
         <DiffView
           filePath={filePath}
-          before={diff ? '' : String(args.oldString ?? '')}
-          after={diff ? '' : String(args.newString ?? '')}
+          before={diff ? '' : String(props.message.args.oldString ?? '')}
+          after={diff ? '' : String(props.message.args.newString ?? '')}
           diff={diff}
           view="split"
         />
-      ) : (
-        <text style={{ fg: tokens.textMuted }}>{state.output}</text>
-      )}
+      </Show>
     </BlockTool>
   );
 }
@@ -455,41 +461,42 @@ function EditCompleted({
 /**
  * Completed view for write_file - shows content or diff for new files.
  */
-function WriteCompleted({
-  message,
-  tokens,
-}: {
+function WriteCompleted(props: {
   message: ToolDisplayMessage;
   tokens: SemanticTokens;
 }) {
-  const { state, name, args } = message;
-  if (state.status !== 'completed') return null;
+  if (props.message.state.status !== 'completed') return <></>;
 
-  const filePath = state.metadata?.filePath ?? String(args.path ?? '');
-  const isNewFile = state.metadata?.isNewFile ?? true;
-  const content = String(args.content ?? '');
+  const filePath =
+    props.message.state.metadata?.filePath ??
+    String(props.message.args.path ?? '');
+  const isNewFile = props.message.state.metadata?.isNewFile ?? true;
+  const content = String(props.message.args.content ?? '');
 
   return (
     <BlockTool
-      icon="✓"
-      iconColor={tokens.success}
-      name={name}
+      icon={'\u2713'}
+      iconColor={props.tokens.success}
+      name={props.message.name}
       header={filePath}
-      tokens={tokens}
+      tokens={props.tokens}
     >
-      {isNewFile ? (
-        // New file: show unified diff (all additions)
+      <Show
+        when={isNewFile}
+        fallback={
+          <text style={{ fg: props.tokens.textMuted }}>
+            {props.message.state.output}
+          </text>
+        }
+      >
+        {/* New file: show unified diff (all additions) */}
         <DiffView
           filePath={filePath}
           before=""
           after={content}
           view="unified"
         />
-      ) : (
-        // Overwrite: would need before content for proper diff
-        // For now just show the output message
-        <text style={{ fg: tokens.textMuted }}>{state.output}</text>
-      )}
+      </Show>
     </BlockTool>
   );
 }
@@ -497,25 +504,21 @@ function WriteCompleted({
 /**
  * Completed view for run_command - shows output.
  */
-function CommandCompleted({
-  message,
-  tokens,
-}: {
+function CommandCompleted(props: {
   message: ToolDisplayMessage;
   tokens: SemanticTokens;
 }) {
-  const { state, args } = message;
-  if (state.status !== 'completed') return null;
+  if (props.message.state.status !== 'completed') return <></>;
 
-  const description = String(args.description ?? 'Shell');
-  const command = String(args.command ?? '');
+  const description = String(props.message.args.description ?? 'Shell');
+  const command = String(props.message.args.command ?? '');
 
   let stdout = '';
   let stderr = '';
-  let exitCode = state.metadata?.exitCode ?? 0;
+  let exitCode = props.message.state.metadata?.exitCode ?? 0;
 
   try {
-    const result = JSON.parse(state.output) as {
+    const result = JSON.parse(props.message.state.output) as {
       exitCode: number;
       stdout: string;
       stderr: string;
@@ -524,12 +527,12 @@ function CommandCompleted({
     stderr = result.stderr;
     exitCode = result.exitCode;
   } catch {
-    stdout = state.output;
+    stdout = props.message.state.output;
   }
 
   const output = stdout || stderr;
-  const icon = exitCode === 0 ? '✓' : '✗';
-  const iconColor = exitCode === 0 ? tokens.success : tokens.error;
+  const icon = exitCode === 0 ? '\u2713' : '\u2717';
+  const iconColor = exitCode === 0 ? props.tokens.success : props.tokens.error;
 
   return (
     <BlockTool
@@ -537,45 +540,110 @@ function CommandCompleted({
       iconColor={iconColor}
       name={`# ${description}`}
       header=""
-      tokens={tokens}
+      tokens={props.tokens}
     >
-      <text style={{ fg: tokens.textBase }}>$ {command}</text>
-      {output && (
+      <text style={{ fg: props.tokens.textBase }}>$ {command}</text>
+      <Show when={output}>
         <box style={{ marginTop: 1 }}>
-          <text style={{ fg: tokens.textBase }}>{output}</text>
+          <text style={{ fg: props.tokens.textBase }}>{output}</text>
         </box>
-      )}
+      </Show>
     </BlockTool>
+  );
+}
+
+/**
+ * Completed tool view for read-only/expandable tools.
+ * Extracted so that props.expanded is reactive inside <Show>.
+ */
+function ExpandableTool(props: {
+  message: ToolDisplayMessage;
+  expanded?: boolean;
+  tokens: SemanticTokens;
+}) {
+  if (props.message.state.status !== 'completed') return <></>;
+
+  const icon = getStatusIcon(props.message.state);
+  const iconColor = getStatusColor(props.message.state, props.tokens);
+  const header = formatToolHeader(props.message.name, props.message.args);
+  const isExpandable = EXPANDABLE_TOOLS.includes(props.message.name);
+
+  const outputSummary = formatCompletedOutput(
+    props.message.name,
+    props.message.state.output,
+    props.message.state.metadata,
+  );
+
+  return (
+    <Show
+      when={
+        props.expanded &&
+        isExpandable &&
+        props.message.state.status === 'completed' &&
+        props.message.state.output
+      }
+      fallback={
+        <InlineTool
+          icon={icon}
+          iconColor={iconColor}
+          name={props.message.name}
+          header={header}
+          suffix={
+            outputSummary
+              ? `(${outputSummary})${isExpandable ? ' [ctrl+e to expand]' : ''}`
+              : isExpandable
+                ? '[ctrl+e to expand]'
+                : undefined
+          }
+          tokens={props.tokens}
+        />
+      }
+    >
+      <BlockTool
+        icon={icon}
+        iconColor={iconColor}
+        name={props.message.name}
+        header={header}
+        tokens={props.tokens}
+      >
+        <text style={{ fg: props.tokens.textBase }}>
+          {props.message.state.status === 'completed'
+            ? props.message.state.output
+            : ''}
+        </text>
+      </BlockTool>
+    </Show>
   );
 }
 
 /**
  * Main ToolMessage component.
  */
-export function ToolMessage({
-  message,
-  onConfirmationResponse,
-  isActiveConfirmation,
-  expanded,
-}: ToolMessageProps) {
+export function ToolMessage(props: ToolMessageProps) {
   const { tokens } = useTheme();
-  const { state, name, args } = message;
 
-  const icon = getStatusIcon(state);
-  const iconColor = getStatusColor(state, tokens);
-  const header = formatToolHeader(name, args);
+  const icon = getStatusIcon(props.message.state);
+  const iconColor = getStatusColor(props.message.state, tokens);
+  const header = formatToolHeader(props.message.name, props.message.args);
 
   // State-based rendering
-  switch (state.status) {
+  // NOTE: The switch runs once per ToolMessage creation. This is fine because
+  // displayMessages is a signal — when a tool's state changes, the signal
+  // updates and <For> recreates the component with the new state.
+  // The exception is `expanded` which changes independently via Ctrl+E,
+  // so the expand/collapse uses <Show> inside ExpandableTool for reactivity.
+  switch (props.message.state.status) {
     case 'pending':
     case 'executing':
       return (
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={name}
+          name={props.message.name}
           header={header}
-          suffix={state.status === 'executing' ? '(running...)' : ''}
+          suffix={
+            props.message.state.status === 'executing' ? '(running...)' : ''
+          }
           tokens={tokens}
         />
       );
@@ -583,64 +651,30 @@ export function ToolMessage({
     case 'confirming':
       return (
         <ConfirmingView
-          message={message}
-          onResponse={onConfirmationResponse}
-          isActive={isActiveConfirmation}
+          message={props.message}
+          onResponse={props.onConfirmationResponse}
+          isActive={props.isActiveConfirmation}
           tokens={tokens}
         />
       );
 
     case 'completed': {
       // Tool-specific completed views (write tools - always show full output)
-      if (name === 'edit_file') {
-        return <EditCompleted message={message} tokens={tokens} />;
+      if (props.message.name === 'edit_file') {
+        return <EditCompleted message={props.message} tokens={tokens} />;
       }
-      if (name === 'write_file') {
-        return <WriteCompleted message={message} tokens={tokens} />;
+      if (props.message.name === 'write_file') {
+        return <WriteCompleted message={props.message} tokens={tokens} />;
       }
-      if (name === 'run_command') {
-        return <CommandCompleted message={message} tokens={tokens} />;
-      }
-
-      // Read-only tools: support expand/collapse
-      const outputSummary = formatCompletedOutput(
-        name,
-        state.output,
-        state.metadata,
-      );
-
-      // Show expanded view for expandable tools when expanded is true
-      if (expanded && EXPANDABLE_TOOLS.includes(name) && state.output) {
-        return (
-          <BlockTool
-            icon={icon}
-            iconColor={iconColor}
-            name={name}
-            header={header}
-            tokens={tokens}
-          >
-            <text style={{ fg: tokens.textBase }}>{state.output}</text>
-          </BlockTool>
-        );
+      if (props.message.name === 'run_command') {
+        return <CommandCompleted message={props.message} tokens={tokens} />;
       }
 
-      // Default: inline with summary
-      // Show expand hint for expandable tools when collapsed
-      const isExpandable = EXPANDABLE_TOOLS.includes(name);
-      const expandHint = isExpandable ? ' [ctrl+e to expand]' : '';
-      const suffix = outputSummary
-        ? `(${outputSummary})${expandHint}`
-        : isExpandable
-          ? '[ctrl+e to expand]'
-          : undefined;
-
+      // Read-only tools: support expand/collapse via reactive <Show>
       return (
-        <InlineTool
-          icon={icon}
-          iconColor={iconColor}
-          name={name}
-          header={header}
-          suffix={suffix}
+        <ExpandableTool
+          message={props.message}
+          expanded={props.expanded}
           tokens={tokens}
         />
       );
@@ -651,11 +685,11 @@ export function ToolMessage({
         <BlockTool
           icon={icon}
           iconColor={iconColor}
-          name={name}
+          name={props.message.name}
           header={header}
           tokens={tokens}
         >
-          <text style={{ fg: tokens.error }}>{state.error}</text>
+          <text style={{ fg: tokens.error }}>{props.message.state.error}</text>
         </BlockTool>
       );
 
@@ -664,9 +698,13 @@ export function ToolMessage({
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={name}
+          name={props.message.name}
           header={header}
-          suffix={state.reason ? `(denied: ${state.reason})` : '(denied)'}
+          suffix={
+            props.message.state.reason
+              ? `(denied: ${props.message.state.reason})`
+              : '(denied)'
+          }
           dimmed
           tokens={tokens}
         />
@@ -677,9 +715,9 @@ export function ToolMessage({
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={name}
+          name={props.message.name}
           header={header}
-          suffix={`(blocked: ${state.reason})`}
+          suffix={`(blocked: ${props.message.state.reason})`}
           dimmed
           tokens={tokens}
         />

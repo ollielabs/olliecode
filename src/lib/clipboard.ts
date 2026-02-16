@@ -5,9 +5,9 @@
  * Following OpenCode's proven pattern for clipboard operations.
  */
 
-import { $ } from "bun";
-import { platform } from "os";
-import clipboard from "clipboardy";
+import { $ } from 'bun';
+import { platform } from 'os';
+import clipboard from 'clipboardy';
 
 /**
  * Simple lazy initialization helper.
@@ -33,10 +33,10 @@ const getCopyMethod = lazy(() => {
   const os = platform();
 
   // macOS: Use osascript (AppleScript)
-  if (os === "darwin" && Bun.which("osascript")) {
+  if (os === 'darwin' && Bun.which('osascript')) {
     return async (text: string) => {
       // Escape backslashes and quotes for AppleScript string
-      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       await $`osascript -e 'set the clipboard to "${escaped}"'`
         .nothrow()
         .quiet();
@@ -44,14 +44,14 @@ const getCopyMethod = lazy(() => {
   }
 
   // Linux: Try Wayland first, then X11 tools
-  if (os === "linux") {
+  if (os === 'linux') {
     // Wayland: wl-copy
-    if (process.env["WAYLAND_DISPLAY"] && Bun.which("wl-copy")) {
+    if (process.env['WAYLAND_DISPLAY'] && Bun.which('wl-copy')) {
       return async (text: string) => {
-        const proc = Bun.spawn(["wl-copy"], {
-          stdin: "pipe",
-          stdout: "ignore",
-          stderr: "ignore",
+        const proc = Bun.spawn(['wl-copy'], {
+          stdin: 'pipe',
+          stdout: 'ignore',
+          stderr: 'ignore',
         });
         proc.stdin.write(text);
         proc.stdin.end();
@@ -60,12 +60,12 @@ const getCopyMethod = lazy(() => {
     }
 
     // X11: xclip
-    if (Bun.which("xclip")) {
+    if (Bun.which('xclip')) {
       return async (text: string) => {
-        const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
-          stdin: "pipe",
-          stdout: "ignore",
-          stderr: "ignore",
+        const proc = Bun.spawn(['xclip', '-selection', 'clipboard'], {
+          stdin: 'pipe',
+          stdout: 'ignore',
+          stderr: 'ignore',
         });
         proc.stdin.write(text);
         proc.stdin.end();
@@ -74,12 +74,12 @@ const getCopyMethod = lazy(() => {
     }
 
     // X11: xsel (fallback)
-    if (Bun.which("xsel")) {
+    if (Bun.which('xsel')) {
       return async (text: string) => {
-        const proc = Bun.spawn(["xsel", "--clipboard", "--input"], {
-          stdin: "pipe",
-          stdout: "ignore",
-          stderr: "ignore",
+        const proc = Bun.spawn(['xsel', '--clipboard', '--input'], {
+          stdin: 'pipe',
+          stdout: 'ignore',
+          stderr: 'ignore',
         });
         proc.stdin.write(text);
         proc.stdin.end();
@@ -89,7 +89,7 @@ const getCopyMethod = lazy(() => {
   }
 
   // Windows: PowerShell Set-Clipboard
-  if (os === "win32") {
+  if (os === 'win32') {
     return async (text: string) => {
       // Escape double quotes for PowerShell
       const escaped = text.replace(/"/g, '""');

@@ -3,6 +3,7 @@
  * Used in confirmation dialogs and tool result messages for file operations.
  */
 
+import { createMemo, mergeProps } from 'solid-js';
 import { useTheme } from '../../design';
 import { generateDiff, getFiletype } from '../../utils/diff';
 
@@ -21,33 +22,34 @@ export type DiffViewProps = {
   view?: 'unified' | 'split';
 };
 
-export function DiffView({
-  filePath,
-  before,
-  after,
-  diff,
-  maxHeight,
-  view = 'split',
-}: DiffViewProps) {
+export function DiffView(rawProps: DiffViewProps) {
+  const props = mergeProps({ view: 'split' as const }, rawProps);
   const { tokens, syntaxStyle } = useTheme();
 
   // Use pre-computed diff if provided, otherwise generate from before/after
-  const diffString = diff || generateDiff(filePath, before, after);
-  const filetype = getFiletype(filePath);
+  const diffString = createMemo(() =>
+    props.diff || generateDiff(props.filePath, props.before, props.after),
+  );
+  const filetype = createMemo(() => getFiletype(props.filePath));
 
   // Build style object - only include maxHeight if specified
-  const diffStyle: { maxHeight?: number; flexGrow: number } = { flexGrow: 1 };
-  if (maxHeight !== undefined) {
-    diffStyle.maxHeight = maxHeight;
-  }
+  const diffStyle = createMemo(() => {
+    const style: { maxHeight?: number; flexGrow: number } = { flexGrow: 1 };
+    if (props.maxHeight !== undefined) {
+      style.maxHeight = props.maxHeight;
+    }
+    return style;
+  });
 
   return (
     <box style={{ flexDirection: 'column' }}>
-      <text style={{ fg: tokens.textMuted, marginBottom: 1 }}>{filePath}</text>
+      <text style={{ fg: tokens.textMuted, marginBottom: 1 }}>
+        {props.filePath}
+      </text>
       <diff
-        diff={diffString}
-        view={view}
-        filetype={filetype}
+        diff={diffString()}
+        view={props.view}
+        filetype={filetype()}
         syntaxStyle={syntaxStyle}
         showLineNumbers={true}
         wrapMode="none"
@@ -60,7 +62,7 @@ export function DiffView({
         lineNumberBg={tokens.bgBase}
         addedLineNumberBg={tokens.diffAddBg}
         removedLineNumberBg={tokens.diffDeleteBg}
-        style={diffStyle}
+        style={diffStyle()}
       />
     </box>
   );

@@ -2,10 +2,12 @@
  * Hook for global keyboard shortcuts.
  * Handles Tab (mode toggle), double-Escape (abort), Ctrl+K (debug), Ctrl+E (expand tools),
  * and Ctrl+Y (copy selected text).
+ *
+ * In Solid, signal accessors always return current values — no ref-mirror pattern needed.
  */
 
-import { useKeyboard, useRenderer } from '@opentui/react';
-import { useRef, useState } from 'react';
+import { useKeyboard, useRenderer } from '@opentui/solid';
+import { createSignal } from 'solid-js';
 import { toggleMode } from '../../agent/modes';
 import type { TuiConfig } from '../../config/resolve';
 import { Clipboard } from '../../lib/clipboard';
@@ -14,20 +16,20 @@ import { DOUBLE_ESCAPE_THRESHOLD_MS } from '../constants';
 import type { AgentMode, Session, Status } from '../types';
 
 export type UseKeyboardShortcutsProps = {
-  /** Current status */
-  status: Status;
-  /** Current mode */
-  mode: AgentMode;
+  /** Current status (signal accessor) */
+  status: () => Status;
+  /** Current mode (signal accessor) */
+  mode: () => AgentMode;
   /** Setter for mode */
   setMode: (mode: AgentMode) => void;
   /** Abort function */
   abort: () => void;
-  /** Whether command menu is open */
-  showCommandMenu: boolean;
-  /** Whether session picker is open */
-  showSessionPicker: boolean;
-  /** Current session for persisting mode changes */
-  currentSession: Session | null;
+  /** Whether command menu is open (signal accessor) */
+  showCommandMenu: () => boolean;
+  /** Whether session picker is open (signal accessor) */
+  showSessionPicker: () => boolean;
+  /** Current session for persisting mode changes (signal accessor) */
+  currentSession: () => Session | null;
   /** Callback when copy succeeds (shows toast) */
   onCopySuccess: (message: string) => void;
   /** TUI config for double-escape threshold */
@@ -36,41 +38,24 @@ export type UseKeyboardShortcutsProps = {
 
 export type UseKeyboardShortcutsReturn = {
   /** Whether tool outputs are expanded */
-  toolsExpanded: boolean;
+  toolsExpanded: () => boolean;
   /** Whether keyboard shortcuts help is shown */
-  showHelp: boolean;
+  showHelp: () => boolean;
   /** Toggle help visibility */
   setShowHelp: (show: boolean) => void;
 };
 
-export function useKeyboardShortcuts({
-  status,
-  mode,
-  setMode,
-  abort,
-  showCommandMenu,
-  showSessionPicker,
-  currentSession,
-  onCopySuccess,
-  tuiConfig,
-}: UseKeyboardShortcutsProps): UseKeyboardShortcutsReturn {
+export function useKeyboardShortcuts(
+  props: UseKeyboardShortcutsProps,
+): UseKeyboardShortcutsReturn {
   const doubleEscapeThreshold =
-    tuiConfig?.doubleEscapeThreshold ?? DOUBLE_ESCAPE_THRESHOLD_MS;
+    props.tuiConfig?.doubleEscapeThreshold ?? DOUBLE_ESCAPE_THRESHOLD_MS;
   const renderer = useRenderer();
-  const lastEscapeRef = useRef<number>(0);
-  const [toolsExpanded, setToolsExpanded] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
+  let lastEscape = 0;
+  const [toolsExpanded, setToolsExpanded] = createSignal(false);
+  const [showHelp, setShowHelp] = createSignal(false);
 
-  // Use refs for values accessed in keyboard handler to avoid stale closures
-  const statusRef = useRef(status);
-  statusRef.current = status;
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-  const sessionRef = useRef(currentSession);
-  sessionRef.current = currentSession;
-  const onCopySuccessRef = useRef(onCopySuccess);
-  onCopySuccessRef.current = onCopySuccess;
-
+  // No ref-mirror pattern needed — signal accessors return current values
   useKeyboard((key: { ctrl?: boolean; name?: string }) => {
     // Ctrl+P: Toggle keyboard shortcuts help
     if (key.ctrl && key.name === 'p') {
@@ -85,7 +70,7 @@ export function useKeyboardShortcuts({
         const selectedText = selection.getSelectedText();
         if (selectedText) {
           void Clipboard.copy(selectedText).then(() => {
-            onCopySuccessRef.current('Copied to clipboard');
+            props.onCopySuccess('Copied to clipboard');
           });
         }
       }
@@ -102,32 +87,33 @@ export function useKeyboardShortcuts({
     // Tab: Toggle mode (only when idle and no modals open)
     if (
       key.name === 'tab' &&
-      statusRef.current === 'idle' &&
-      !showCommandMenu &&
-      !showSessionPicker
+      props.status() === 'idle' &&
+      !props.showCommandMenu() &&
+      !props.showSessionPicker()
     ) {
-      const newMode = toggleMode(modeRef.current);
-      setMode(newMode);
-      if (sessionRef.current) {
-        updateSession(sessionRef.current.id, { mode: newMode });
+      const newMode = toggleMode(props.mode());
+      props.setMode(newMode);
+      const session = props.currentSession();
+      if (session) {
+        updateSession(session.id, { mode: newMode });
       }
       return;
     }
 
     // Double-Escape: Abort agent (only when thinking)
-    if (key.name === 'escape' && statusRef.current === 'thinking') {
+    if (key.name === 'escape' && props.status() === 'thinking') {
       const now = Date.now();
-      if (now - lastEscapeRef.current < doubleEscapeThreshold) {
-        abort();
-        lastEscapeRef.current = 0;
+      if (now - lastEscape < doubleEscapeThreshold) {
+        props.abort();
+        lastEscape = 0;
       } else {
-        lastEscapeRef.current = now;
+        lastEscape = now;
       }
       return;
     }
 
-    // Ctrl+E: Toggle tool output expansion (only when idle)
-    if (key.ctrl && key.name === 'e' && statusRef.current === 'idle') {
+    // Ctrl+E: Toggle tool output expansion (works in any status)
+    if (key.ctrl && key.name === 'e') {
       setToolsExpanded((prev) => !prev);
     }
   });

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { createEffect } from 'solid-js';
 import type { TextareaRenderable } from '@opentui/core';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
@@ -19,9 +19,11 @@ export type InputBoxProps = {
   status: Status;
   error: string;
   mode: AgentMode;
-  textareaRef: React.RefObject<TextareaRenderable | null>;
-  statusRef: React.RefObject<Status>;
+  getTextareaRef: () => TextareaRenderable | undefined;
+  getStatus: () => Status;
   onSubmit: (text: string) => void;
+  /** Callback to forward the textarea ref to the parent */
+  onRef?: (el: TextareaRenderable) => void;
   centered?: boolean;
   /** When true, blurs textarea to prevent key capture (e.g., during confirmation dialogs) */
   disabled?: boolean;
@@ -29,41 +31,26 @@ export type InputBoxProps = {
   suppressSubmit?: boolean;
 };
 
-export function InputBox({
-  id,
-  model,
-  status,
-  error,
-  mode,
-  textareaRef,
-  statusRef,
-  onSubmit,
-  centered,
-  disabled,
-  suppressSubmit,
-}: InputBoxProps) {
+export function InputBox(props: InputBoxProps) {
   const { tokens } = useTheme();
-
-  // Use ref for suppressSubmit to get current value at call time
-  const suppressSubmitRef = useRef(suppressSubmit);
-  suppressSubmitRef.current = suppressSubmit;
+  let textareaRef: TextareaRenderable | undefined;
 
   // Blur/focus textarea based on disabled state
-  useEffect(() => {
-    if (disabled) {
-      textareaRef.current?.blur();
+  createEffect(() => {
+    if (props.disabled) {
+      textareaRef?.blur();
     } else {
-      textareaRef.current?.focus();
+      textareaRef?.focus();
     }
-  }, [disabled, textareaRef]);
+  });
 
   const handleSubmit = () => {
-    if (suppressSubmitRef.current) return;
-    if (statusRef.current === 'thinking') return;
-    const text = textareaRef.current?.plainText?.trim();
+    if (props.suppressSubmit) return;
+    if (props.getStatus() === 'thinking') return;
+    const text = textareaRef?.plainText?.trim();
     if (!text) return;
-    onSubmit(text);
-    textareaRef.current?.setText('');
+    props.onSubmit(text);
+    textareaRef?.setText('');
   };
 
   return (
@@ -76,19 +63,27 @@ export function InputBox({
         padding: 1,
         paddingLeft: 2,
         paddingRight: 2,
-        ...(centered && { marginTop: 2, width: 60 }),
+        ...(props.centered && { marginTop: 2, width: 60 }),
       }}
     >
       <textarea
-        id={id}
-        focused
-        ref={textareaRef}
+        id={props.id}
+        focused={!props.disabled}
+        ref={(el) => {
+          textareaRef = el;
+          props.onRef?.(el);
+        }}
         maxHeight={2}
         wrapMode="word"
         keyBindings={TEXTAREA_KEY_BINDINGS}
         onSubmit={handleSubmit}
       />
-      <StatusBar model={model} status={status} error={error} mode={mode} />
+      <StatusBar
+        model={props.model}
+        status={props.status}
+        error={props.error}
+        mode={props.mode}
+      />
     </box>
   );
 }

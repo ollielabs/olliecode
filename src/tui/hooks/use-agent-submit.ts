@@ -7,7 +7,7 @@
  */
 
 import type { ToolCall } from 'ollama';
-import { useRef, useState } from 'react';
+import { createSignal, type Setter } from 'solid-js';
 import { runAgent } from '../../agent';
 import type { AgentStep, ToolResult } from '../../agent/types';
 import {
@@ -51,37 +51,37 @@ export type UseAgentSubmitProps = {
   projectPath: string;
   /** Function to ensure a session exists and return it */
   ensureSession: () => Promise<Session>;
-  /** Current mode */
-  mode: AgentMode;
-  /** Current history */
-  history: Message[];
+  /** Current mode (signal accessor) */
+  mode: () => AgentMode;
+  /** Current history (signal accessor) */
+  history: () => Message[];
   /** Setter for display messages */
-  setDisplayMessages: React.Dispatch<React.SetStateAction<DisplayMessage[]>>;
+  setDisplayMessages: Setter<DisplayMessage[]>;
   /** Setter for history */
-  setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
+  setHistory: Setter<Message[]>;
   /** Setter for sidebar todos */
-  setSidebarTodos: React.Dispatch<React.SetStateAction<Todo[]>>;
+  setSidebarTodos: Setter<Todo[]>;
 };
 
 export type UseAgentSubmitReturn = {
   /** Current status */
-  status: Status;
+  status: () => Status;
   /** Set status */
-  setStatus: React.Dispatch<React.SetStateAction<Status>>;
+  setStatus: Setter<Status>;
   /** Error message */
-  error: string;
+  error: () => string;
   /** Set error */
-  setError: React.Dispatch<React.SetStateAction<string>>;
+  setError: Setter<string>;
   /** Streaming content during response */
-  streamingContent: string;
+  streamingContent: () => string;
   /** Set streaming content */
-  setStreamingContent: React.Dispatch<React.SetStateAction<string>>;
+  setStreamingContent: Setter<string>;
   /** Submit a prompt to the agent */
   handleSubmit: (prompt: string) => Promise<void>;
   /** Abort the current request */
   abort: () => void;
   /** ID of tool currently awaiting confirmation, or null */
-  confirmingToolId: string | null;
+  confirmingToolId: () => string | null;
   /** Handle confirmation response for the active tool */
   handleToolConfirmation: (response: ConfirmationResponse) => void;
 };
@@ -91,43 +91,32 @@ function generateToolId(): string {
   return `tool_${Date.now()}_${Math.random().toString(TOOL_ID_RADIX).slice(TOOL_ID_SLICE_START, TOOL_ID_SLICE_END)}`;
 }
 
-export function useAgentSubmit({
-  config,
-  projectPath,
-  ensureSession,
-  mode,
-  history,
-  setDisplayMessages,
-  setHistory,
-  setSidebarTodos,
-}: UseAgentSubmitProps): UseAgentSubmitReturn {
-  const model = config.model;
-  const host = config.host;
-  const [status, setStatus] = useState<Status>('idle');
-  const [error, setError] = useState('');
-  const [streamingContent, setStreamingContent] = useState('');
-  const [confirmingToolId, setConfirmingToolId] = useState<string | null>(null);
+export function useAgentSubmit(
+  props: UseAgentSubmitProps,
+): UseAgentSubmitReturn {
+  const model = props.config.model;
+  const host = props.config.host;
+  const [status, setStatus] = createSignal<Status>('idle');
+  const [error, setError] = createSignal('');
+  const [streamingContent, setStreamingContent] = createSignal('');
+  const [confirmingToolId, setConfirmingToolId] = createSignal<string | null>(
+    null,
+  );
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const confirmationResolverRef = useRef<
-    ((response: ConfirmationResponse) => void) | null
-  >(null);
-
-  // Keep refs for values accessed in callbacks
-  const historyRef = useRef(history);
-  historyRef.current = history;
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
+  // Plain variables replace useRef — no .current wrapper needed
+  let abortController: AbortController | null = null;
+  let confirmationResolver: ((response: ConfirmationResponse) => void) | null =
+    null;
 
   const abort = () => {
-    abortControllerRef.current?.abort();
+    abortController?.abort();
   };
 
   /**
    * Update a tool message's state by ID.
    */
   const updateToolState = (toolId: string, newState: ToolState) => {
-    setDisplayMessages((prev) =>
+    props.setDisplayMessages((prev) =>
       prev.map((msg) =>
         msg.type === 'tool' && msg.id === toolId
           ? { ...msg, state: newState }
@@ -140,11 +129,14 @@ export function useAgentSubmit({
    * Handle confirmation response from the ToolMessage component.
    */
   const handleToolConfirmation = (response: ConfirmationResponse) => {
-    if (confirmationResolverRef.current) {
-      confirmationResolverRef.current(response);
-      confirmationResolverRef.current = null;
+    if (confirmationResolver) {
+      confirmationResolver(response);
+      confirmationResolver = null;
     }
-    setConfirmingToolId(null);
+    // Defer clearing confirmingToolId so the textarea doesn't re-focus
+    // in the same tick as the 'y'/'n' keypress that triggered confirmation.
+    // Without this, the keypress leaks into the textarea.
+    queueMicrotask(() => setConfirmingToolId(null));
   };
 
   const handleSubmit = async (prompt: string) => {
@@ -152,14 +144,14 @@ export function useAgentSubmit({
     setError('');
     setStreamingContent('');
 
-    const session = await ensureSession();
+    const session = await props.ensureSession();
 
     // Augment message with @ mentioned file contents
     const { content: augmentedPrompt, attachedFiles } =
       await augmentMessageWithFiles(prompt);
 
     addMessage(session.id, 'user', fromUserInput(prompt));
-    setDisplayMessages((prev) => [
+    props.setDisplayMessages((prev) => [
       ...prev,
       {
         type: 'user',
@@ -168,7 +160,7 @@ export function useAgentSubmit({
       },
     ]);
 
-    abortControllerRef.current = new AbortController();
+    abortController = new AbortController();
 
     // Primary: index → toolId (for parallel-safe result correlation)
     const toolIdsByIndex = new Map<number, string>();
@@ -181,20 +173,21 @@ export function useAgentSubmit({
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
 
+    // Read current signal values directly — no stale closure risk in Solid
     const result = await runAgent({
       model,
       host,
       userMessage: augmentedPrompt,
-      history: historyRef.current,
-      mode: modeRef.current,
+      history: props.history(),
+      mode: props.mode(),
       sessionId: session.id,
-      signal: abortControllerRef.current.signal,
-      config: extractAgentConfig(config),
-      safetyConfig: extractSafetyConfig(config, projectPath),
-      toolsConfig: extractToolsConfig(config),
-      configInstructions: config.instructions,
-      temperature: config.temperature,
-      compactionTemperature: config.compaction.temperature,
+      signal: abortController.signal,
+      config: extractAgentConfig(props.config),
+      safetyConfig: extractSafetyConfig(props.config, props.projectPath),
+      toolsConfig: extractToolsConfig(props.config),
+      configInstructions: props.config.instructions,
+      temperature: props.config.temperature,
+      compactionTemperature: props.config.compaction.temperature,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
@@ -216,7 +209,7 @@ export function useAgentSubmit({
           state: { status: 'pending' },
         };
 
-        setDisplayMessages((prev) => [...prev, toolMessage]);
+        props.setDisplayMessages((prev) => [...prev, toolMessage]);
       },
       onToolResult: (result: ToolResult, index: number) => {
         // Use index for lookup (handles parallel calls to same tool)
@@ -262,7 +255,7 @@ export function useAgentSubmit({
         updateToolState(toolId, finalState);
 
         // Get the current tool message to build the ToolPart for storage
-        setDisplayMessages((prev) => {
+        props.setDisplayMessages((prev) => {
           const toolMsg = prev.find(
             (m): m is ToolDisplayMessage =>
               m.type === 'tool' && m.id === toolId,
@@ -300,7 +293,7 @@ export function useAgentSubmit({
 
         // Wait for user response via handleToolConfirmation
         return new Promise<ConfirmationResponse>((resolve) => {
-          confirmationResolverRef.current = (response) => {
+          confirmationResolver = (response) => {
             // Update tool state based on response
             if (toolId) {
               if (response.action === 'deny') {
@@ -328,7 +321,7 @@ export function useAgentSubmit({
           setStatus('idle');
           setStreamingContent((prev) => {
             if (prev.trim()) {
-              setDisplayMessages((msgs) => [
+              props.setDisplayMessages((msgs) => [
                 ...msgs,
                 { type: 'assistant', content: `${prev}\n\n[interrupted]` },
               ]);
@@ -358,14 +351,14 @@ export function useAgentSubmit({
           break;
       }
     } else {
-      setDisplayMessages((prev) => [
+      props.setDisplayMessages((prev) => [
         ...prev,
         { type: 'assistant', content: result.finalAnswer },
       ]);
-      setHistory(result.messages);
+      props.setHistory(result.messages);
       setStatus('idle');
 
-      setSidebarTodos(getTodos(session.id));
+      props.setSidebarTodos(getTodos(session.id));
 
       // Sort tool parts by original call order (parallel tools may complete out of order)
       completedToolParts.sort((a, b) => {

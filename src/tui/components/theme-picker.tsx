@@ -3,8 +3,8 @@
  * Displays available themes with live preview as user navigates.
  */
 
-import { useKeyboard } from '@opentui/react';
-import { useState, useEffect } from 'react';
+import { Index, createEffect, createSignal } from 'solid-js';
+import { useKeyboard } from '@opentui/solid';
 import { Modal } from './modal';
 import { useTheme, getThemeList } from '../../design';
 
@@ -13,26 +13,27 @@ export type ThemePickerProps = {
   onCancel: () => void;
 };
 
-export function ThemePicker({ onSelect, onCancel }: ThemePickerProps) {
+export function ThemePicker(props: ThemePickerProps) {
   const { themeId: currentThemeId, setTheme, tokens } = useTheme();
 
   const themes = getThemeList();
   const currentIndex = themes.findIndex((t) => t.id === currentThemeId);
-  const [selectedIndex, setSelectedIndex] = useState(
+  const [selectedIndex, setSelectedIndex] = createSignal(
     currentIndex >= 0 ? currentIndex : 0,
   );
-  const [originalThemeId] = useState(currentThemeId);
+  const originalThemeId = currentThemeId;
 
-  useEffect(() => {
-    const theme = themes[selectedIndex];
-    if (theme && theme.id !== currentThemeId) {
+  // Live-preview: apply theme whenever selection changes
+  createEffect(() => {
+    const theme = themes[selectedIndex()];
+    if (theme) {
       setTheme(theme.id);
     }
-  }, [selectedIndex, themes, currentThemeId, setTheme]);
+  });
 
   const handleCancel = () => {
     setTheme(originalThemeId);
-    onCancel();
+    props.onCancel();
   };
 
   useKeyboard((key: { name?: string }) => {
@@ -46,8 +47,8 @@ export function ThemePicker({ onSelect, onCancel }: ThemePickerProps) {
         setSelectedIndex((prev) => Math.min(themes.length - 1, prev + 1));
         break;
       case 'return': {
-        const theme = themes[selectedIndex];
-        if (theme) onSelect(theme.id);
+        const theme = themes[selectedIndex()];
+        if (theme) props.onSelect(theme.id);
         break;
       }
       case 'escape':
@@ -61,27 +62,31 @@ export function ThemePicker({ onSelect, onCancel }: ThemePickerProps) {
     <Modal title="Select Theme" onClose={handleCancel} size="small">
       <box flexDirection="column">
         <box flexDirection="column" marginBottom={1}>
-          {themes.map((theme, idx) => {
-            const isSelected = idx === selectedIndex;
-            const isCurrent = theme.id === originalThemeId;
-            const prefix = isSelected ? '> ' : '  ';
+          <Index each={themes}>
+            {(theme, idx) => {
+              // All derivations must read signals inline for reactivity
+              const isSelected = () => idx === selectedIndex();
+              const isCurrent = theme().id === originalThemeId;
 
-            const fg = isSelected
-              ? tokens.success
-              : isCurrent
-                ? tokens.primaryBase
-                : tokens.textMuted;
-
-            return (
-              <box key={theme.id} flexDirection="row">
-                <text style={{ fg }}>
-                  {prefix}
-                  {theme.name}
-                  {isCurrent ? ' (current)' : ''}
-                </text>
-              </box>
-            );
-          })}
+              return (
+                <box flexDirection="row">
+                  <text
+                    style={{
+                      fg: isSelected()
+                        ? tokens.success
+                        : isCurrent
+                          ? tokens.primaryBase
+                          : tokens.textMuted,
+                    }}
+                  >
+                    {isSelected() ? '> ' : '  '}
+                    {theme().name}
+                    {isCurrent ? ' (current)' : ''}
+                  </text>
+                </box>
+              );
+            }}
+          </Index>
         </box>
 
         <box flexDirection="row" gap={2}>

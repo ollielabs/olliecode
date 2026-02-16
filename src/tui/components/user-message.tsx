@@ -3,6 +3,7 @@
  * Displays user input with a blue left border.
  */
 
+import { Show } from 'solid-js';
 import { useTheme } from '../../design';
 
 export type UserMessageProps = {
@@ -10,7 +11,7 @@ export type UserMessageProps = {
   attachedFiles?: string[];
 };
 
-export function UserMessage({ content, attachedFiles }: UserMessageProps) {
+export function UserMessage(props: UserMessageProps) {
   const { tokens } = useTheme();
 
   return (
@@ -24,15 +25,15 @@ export function UserMessage({ content, attachedFiles }: UserMessageProps) {
       }}
       flexDirection="column"
     >
-      <text>{content}</text>
-      {attachedFiles && attachedFiles.length > 0 && (
+      <text>{props.content}</text>
+      <Show when={props.attachedFiles && props.attachedFiles.length > 0}>
         <box marginTop={1}>
           <text style={{ fg: tokens.textSubtle }}>
-            [{attachedFiles.length} file{attachedFiles.length !== 1 ? 's' : ''}{' '}
-            attached]
+            [{props.attachedFiles?.length} file
+            {props.attachedFiles?.length !== 1 ? 's' : ''} attached]
           </text>
         </box>
-      )}
+      </Show>
     </box>
   );
 }

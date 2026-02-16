@@ -3,29 +3,29 @@
  * Manages file filtering, selection, and path insertion.
  */
 
-import { useState, useEffect } from 'react';
-import { useKeyboard } from '@opentui/react';
+import { createSignal, onMount } from 'solid-js';
+import { useKeyboard } from '@opentui/solid';
 import { getFilesAndDirectories } from '../../utils/file-list';
 import type { Status, TextareaRef } from '../types';
 
 export type UseFilePickerProps = {
-  /** Textarea ref for detecting @ and inserting paths */
-  textareaRef: TextareaRef;
-  /** Current status */
-  status: Status;
-  /** Whether other modals are open (session picker, command menu, etc.) */
-  isModalOpen: boolean;
+  /** Getter for textarea ref */
+  getTextareaRef: () => TextareaRef;
+  /** Current status (signal accessor) */
+  status: () => Status;
+  /** Whether other modals are open (signal accessor) */
+  isModalOpen: () => boolean;
 };
 
 export type UseFilePickerReturn = {
   /** Whether file picker is visible */
-  showFilePicker: boolean;
+  showFilePicker: () => boolean;
   /** Current filter text (characters after @) */
-  fileFilter: string;
+  fileFilter: () => string;
   /** Currently selected index */
-  fileSelectedIndex: number;
+  fileSelectedIndex: () => number;
   /** Available files list */
-  files: string[];
+  files: () => string[];
   /** Handle file selection */
   handleFileSelect: (path: string) => void;
   /** Handle file picker cancel */
@@ -34,29 +34,26 @@ export type UseFilePickerReturn = {
   handleFileIndexChange: (index: number) => void;
 };
 
-export function useFilePicker({
-  textareaRef,
-  status,
-  isModalOpen,
-}: UseFilePickerProps): UseFilePickerReturn {
-  const [showFilePicker, setShowFilePicker] = useState(false);
-  const [fileFilter, setFileFilter] = useState('');
-  const [fileSelectedIndex, setFileSelectedIndex] = useState(0);
-  const [files, setFiles] = useState<string[]>([]);
-  const [atPosition, setAtPosition] = useState<number | null>(null);
+export function useFilePicker(props: UseFilePickerProps): UseFilePickerReturn {
+  const [showFilePicker, setShowFilePicker] = createSignal(false);
+  const [fileFilter, setFileFilter] = createSignal('');
+  const [fileSelectedIndex, setFileSelectedIndex] = createSignal(0);
+  const [files, setFiles] = createSignal<string[]>([]);
+  const [atPosition, setAtPosition] = createSignal<number | null>(null);
 
   // Load files on mount
-  useEffect(() => {
+  onMount(() => {
     void getFilesAndDirectories().then(setFiles);
-  }, []);
+  });
 
   // Detect @ in textarea and show file picker
   useKeyboard(() => {
     setTimeout(() => {
-      if (!textareaRef.current || textareaRef.current.isDestroyed) return;
-      if (status !== 'idle' || isModalOpen) return;
+      const ref = props.getTextareaRef();
+      if (!ref || ref.isDestroyed) return;
+      if (props.status() !== 'idle' || props.isModalOpen()) return;
 
-      const currentText = textareaRef.current.plainText ?? '';
+      const currentText = ref.plainText ?? '';
 
       // Find the last @ that could be triggering the picker
       // Look for @ that's either at start or preceded by whitespace
@@ -68,12 +65,12 @@ export function useFilePicker({
         const filterEnd = afterAt.search(/\s/);
         const filter = filterEnd === -1 ? afterAt : afterAt.slice(0, filterEnd);
 
-        if (!showFilePicker) {
+        if (!showFilePicker()) {
           setShowFilePicker(true);
           setAtPosition(lastAtIndex);
         }
         setFileFilter(filter);
-      } else if (showFilePicker) {
+      } else if (showFilePicker()) {
         // No valid @ trigger, close picker
         setShowFilePicker(false);
         setFileFilter('');
@@ -84,24 +81,26 @@ export function useFilePicker({
   });
 
   const handleFileSelect = (path: string) => {
-    if (!textareaRef.current || atPosition === null) return;
+    const ref = props.getTextareaRef();
+    const pos = atPosition();
+    if (!ref || pos === null) return;
 
-    const currentText = textareaRef.current.plainText ?? '';
+    const currentText = ref.plainText ?? '';
 
     // Replace @filter with @path
-    const beforeAt = currentText.slice(0, atPosition);
-    const afterAt = currentText.slice(atPosition + 1);
+    const beforeAt = currentText.slice(0, pos);
+    const afterAt = currentText.slice(pos + 1);
 
     // Find end of current filter (until whitespace or end)
     const filterEnd = afterAt.search(/\s/);
     const afterFilter = filterEnd === -1 ? '' : afterAt.slice(filterEnd);
 
     const newText = `${beforeAt}@${path}${afterFilter}`;
-    textareaRef.current.setText(newText);
+    ref.setText(newText);
 
     // Move cursor to end of inserted path (after @path)
     const cursorPosition = beforeAt.length + 1 + path.length; // +1 for @
-    textareaRef.current.cursorOffset = cursorPosition;
+    ref.cursorOffset = cursorPosition;
 
     setShowFilePicker(false);
     setFileFilter('');

@@ -2,6 +2,7 @@
  * Modal displaying context usage statistics.
  */
 
+import { createMemo } from 'solid-js';
 import { Modal } from './modal';
 import type { ContextStats } from '../../lib/tokenizer';
 import { useTheme } from '../../design';
@@ -12,71 +13,70 @@ export type ContextStatsModalProps = {
   onClose: () => void;
 };
 
-function ProgressBar({
-  percent,
-  width = 30,
-  filledColor,
-  emptyColor,
-}: {
+function ProgressBar(props: {
   percent: number;
   width?: number;
   filledColor: string;
   emptyColor: string;
 }) {
-  const filled = Math.round((percent / 100) * width);
-  const empty = width - filled;
+  const barWidth = createMemo(() => props.width ?? 30);
+  const filled = createMemo(() => Math.round((props.percent / 100) * barWidth()));
+  const empty = createMemo(() => barWidth() - filled());
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: filledColor }}>{'█'.repeat(filled)}</text>
-      <text style={{ fg: emptyColor }}>{'░'.repeat(empty)}</text>
+      <text style={{ fg: props.filledColor }}>{'\u2588'.repeat(filled())}</text>
+      <text style={{ fg: props.emptyColor }}>{'\u2591'.repeat(empty())}</text>
     </box>
   );
 }
 
-export function ContextStatsModal({
-  stats,
-  modelName,
-  onClose,
-}: ContextStatsModalProps) {
+export function ContextStatsModal(props: ContextStatsModalProps) {
   const { tokens } = useTheme();
 
-  const statusColor = stats.isCritical
-    ? tokens.error
-    : stats.isNearLimit
-      ? tokens.warning
-      : tokens.success;
-  const statusText = stats.isCritical
-    ? 'CRITICAL'
-    : stats.isNearLimit
-      ? 'Near Limit'
-      : 'OK';
-  const progressColor =
-    stats.usagePercent >= 90
+  const statusColor = createMemo(() =>
+    props.stats.isCritical
       ? tokens.error
-      : stats.usagePercent >= 80
+      : props.stats.isNearLimit
         ? tokens.warning
-        : tokens.success;
+        : tokens.success,
+  );
+  const statusText = createMemo(() =>
+    props.stats.isCritical
+      ? 'CRITICAL'
+      : props.stats.isNearLimit
+        ? 'Near Limit'
+        : 'OK',
+  );
+  const progressColor = createMemo(() =>
+    props.stats.usagePercent >= 90
+      ? tokens.error
+      : props.stats.usagePercent >= 80
+        ? tokens.warning
+        : tokens.success,
+  );
 
   return (
-    <Modal title="Context Usage" onClose={onClose} size="medium">
+    <Modal title="Context Usage" onClose={props.onClose} size="medium">
       <box flexDirection="column">
         <box flexDirection="row" marginBottom={1}>
           <text style={{ fg: tokens.textMuted }}>Model: </text>
-          <text style={{ fg: tokens.textBase }}>{modelName}</text>
+          <text style={{ fg: tokens.textBase }}>{props.modelName}</text>
         </box>
 
         <box flexDirection="column" marginBottom={1}>
           <box flexDirection="row" marginBottom={0}>
             <text style={{ fg: tokens.textMuted }}>Usage: </text>
-            <text style={{ fg: tokens.textBase }}>{stats.usagePercent}%</text>
+            <text style={{ fg: tokens.textBase }}>
+              {props.stats.usagePercent}%
+            </text>
             <text style={{ fg: tokens.textMuted }}> </text>
-            <text style={{ fg: statusColor }}>[{statusText}]</text>
+            <text style={{ fg: statusColor() }}>[{statusText()}]</text>
           </box>
           <ProgressBar
-            percent={stats.usagePercent}
+            percent={props.stats.usagePercent}
             width={40}
-            filledColor={progressColor}
+            filledColor={progressColor()}
             emptyColor={tokens.borderMuted}
           />
         </box>
@@ -84,11 +84,11 @@ export function ContextStatsModal({
         <box flexDirection="row" marginBottom={1}>
           <text style={{ fg: tokens.textMuted }}>Tokens: </text>
           <text style={{ fg: tokens.textBase }}>
-            {stats.totalTokens.toLocaleString()}
+            {props.stats.totalTokens.toLocaleString()}
           </text>
           <text style={{ fg: tokens.textMuted }}> / </text>
           <text style={{ fg: tokens.textBase }}>
-            {stats.maxTokens.toLocaleString()}
+            {props.stats.maxTokens.toLocaleString()}
           </text>
         </box>
 
@@ -99,25 +99,25 @@ export function ContextStatsModal({
           <box flexDirection="row" paddingLeft={2}>
             <text style={{ fg: tokens.textMuted }}>System: </text>
             <text style={{ fg: tokens.textBase }}>
-              {stats.byRole.system.toLocaleString()}
+              {props.stats.byRole.system.toLocaleString()}
             </text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
             <text style={{ fg: tokens.textMuted }}>User: </text>
             <text style={{ fg: tokens.textBase }}>
-              {stats.byRole.user.toLocaleString()}
+              {props.stats.byRole.user.toLocaleString()}
             </text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
             <text style={{ fg: tokens.textMuted }}>Assistant: </text>
             <text style={{ fg: tokens.textBase }}>
-              {stats.byRole.assistant.toLocaleString()}
+              {props.stats.byRole.assistant.toLocaleString()}
             </text>
           </box>
           <box flexDirection="row" paddingLeft={2}>
             <text style={{ fg: tokens.textMuted }}>Tools: </text>
             <text style={{ fg: tokens.textBase }}>
-              {stats.byRole.tool.toLocaleString()}
+              {props.stats.byRole.tool.toLocaleString()}
             </text>
           </box>
         </box>

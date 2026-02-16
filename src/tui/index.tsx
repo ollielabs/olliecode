@@ -5,7 +5,7 @@
 
 import type { TextareaRenderable } from '@opentui/core';
 import { RGBA } from '@opentui/core';
-import { useMemo, useRef, useState } from 'react';
+import { For, Show, createMemo, createSignal } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider, useTheme } from '../design';
 import { listSessions } from '../session';
@@ -33,7 +33,7 @@ import {
   useKeyboardShortcuts,
   useSession,
 } from './hooks';
-import type { AppProps, Status } from './types';
+import type { AppProps, DisplayMessage, Status } from './types';
 import { fastScrollAccel } from './utils';
 
 /** Prompt template for /init command - creates/updates AGENTS.md */
@@ -46,64 +46,56 @@ If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (
 
 If there's already an AGENTS.md, improve it.`;
 
-export function App({
-  config,
-  configLayers,
-  configWarnings,
-  projectPath,
-  initialSessionId,
-}: AppProps) {
+export function App(props: AppProps) {
   return (
-    <ThemeProvider initialTheme={config.tui.theme}>
+    <ThemeProvider initialTheme={props.config.tui.theme}>
       <AppContent
-        config={config}
-        configLayers={configLayers}
-        configWarnings={configWarnings}
-        projectPath={projectPath}
-        initialSessionId={initialSessionId}
+        config={props.config}
+        configLayers={props.configLayers}
+        configWarnings={props.configWarnings}
+        projectPath={props.projectPath}
+        initialSessionId={props.initialSessionId}
       />
     </ThemeProvider>
   );
 }
 
-function AppContent({
-  config,
-  configLayers = [],
-  configWarnings = [],
-  projectPath,
-  initialSessionId,
-}: AppProps) {
-  const model = config.model;
+function AppContent(props: AppProps) {
+  const configLayers = props.configLayers ?? [];
+  const configWarnings = props.configWarnings ?? [];
+  const model = props.config.model;
   const { tokens } = useTheme();
-  const textareaRef = useRef<TextareaRenderable>(null);
-  const statusRef = useRef<Status>('idle');
-  const [toast, setToast] = useState<string | null>(null);
-  const [showConfigModal, setShowConfigModal] = useState(false);
+  let textareaRef: TextareaRenderable | undefined;
+  const [toast, setToast] = createSignal<string | null>(null);
+  const [showConfigModal, setShowConfigModal] = createSignal(false);
+
+  // Getter for textarea ref
+  const getTextareaRef = () => textareaRef;
 
   // Extract TUI config once
-  const tuiConfig = useMemo(() => extractTuiConfig(config), [config]);
+  const tuiConfig = createMemo(() => extractTuiConfig(props.config));
 
   // Initialize session hook first as other hooks depend on it
   const session = useSession({
-    projectPath,
-    config,
-    initialSessionId,
-    textareaRef,
-    tuiConfig,
+    projectPath: props.projectPath,
+    config: props.config,
+    initialSessionId: props.initialSessionId,
+    getTextareaRef,
+    tuiConfig: tuiConfig(),
   });
 
   // Context hook for stats, compaction, and related operations
   const context = useAgentContext({
     history: session.history,
-    config,
+    config: props.config,
     setHistory: session.setHistory,
     setDisplayMessages: session.setDisplayMessages,
   });
 
   // Agent submission hook (includes confirmation handling)
   const agent = useAgentSubmit({
-    config,
-    projectPath,
+    config: props.config,
+    projectPath: props.projectPath,
     ensureSession: session.ensureSession,
     mode: session.mode,
     history: session.history,
@@ -112,8 +104,8 @@ function AppContent({
     setSidebarTodos: session.setSidebarTodos,
   });
 
-  // Keep statusRef in sync
-  statusRef.current = agent.status;
+  // Status getter for InputBox
+  const getStatus = (): Status => agent.status();
 
   // Handler for /init command - submits prompt to agent to create/update AGENTS.md
   const handleInit = (args?: string) => {
@@ -125,7 +117,7 @@ function AppContent({
 
   // Command menu hook
   const commands = useCommandMenu({
-    textareaRef,
+    getTextareaRef,
     status: agent.status,
     showSessionPicker: session.showSessionPicker,
     handlers: {
@@ -143,9 +135,10 @@ function AppContent({
 
   // File picker hook for @ mentions
   const filePicker = useFilePicker({
-    textareaRef,
+    getTextareaRef,
     status: agent.status,
-    isModalOpen: session.showSessionPicker || commands.showCommandMenu,
+    isModalOpen: () =>
+      session.showSessionPicker() || commands.showCommandMenu(),
   });
 
   // Global keyboard shortcuts
@@ -158,293 +151,327 @@ function AppContent({
     showSessionPicker: session.showSessionPicker,
     currentSession: session.currentSession,
     onCopySuccess: (message: string) => setToast(message),
-    tuiConfig,
+    tuiConfig: tuiConfig(),
   });
 
   // Render welcome screen if no messages
-  if (session.displayMessages.length === 0) {
-    return (
-      <box
-        key="greeting-container"
-        style={{ backgroundColor: tokens.bgBase }}
-        flexDirection="column"
-        flexGrow={1}
-        alignItems="center"
-        justifyContent="center"
-      >
-        {context.showContextStats && context.contextStats && (
-          <ContextStatsModal
-            stats={context.contextStats}
-            modelName={model}
-            onClose={context.handleContextStatsClose}
-          />
-        )}
+  return (
+    <Show
+      when={session.displayMessages().length > 0}
+      fallback={
+        <box
+          style={{ backgroundColor: tokens.bgBase }}
+          flexDirection="column"
+          flexGrow={1}
+          alignItems="center"
+          justifyContent="center"
+        >
+          <Show when={context.showContextStats() && context.contextStats()}>
+            {(stats: () => import('./types').ContextStats) => (
+              <ContextStatsModal
+                stats={stats()}
+                modelName={model}
+                onClose={context.handleContextStatsClose}
+              />
+            )}
+          </Show>
 
-        {showConfigModal && (
+          <Show when={showConfigModal()}>
+            <ConfigModal
+              config={props.config}
+              layers={configLayers}
+              warnings={configWarnings}
+              onClose={() => setShowConfigModal(false)}
+            />
+          </Show>
+
+          <Show when={showHelp()}>
+            <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
+          </Show>
+
+          <box flexDirection="row">
+            <ascii_font
+              text="Ollie"
+              font="tiny"
+              color={RGBA.fromHex(tokens.primaryBase)}
+            />
+            <text> </text>
+            <ascii_font
+              text="Code"
+              font="tiny"
+              color={RGBA.fromHex(tokens.textBase)}
+            />
+          </box>
+
+          <Show when={session.showSessionPicker()}>
+            <SessionPicker
+              sessions={listSessions({ limit: tuiConfig().sessionListLimit })}
+              projectPath={props.projectPath}
+              onSelect={session.handleSessionSelect}
+              onCancel={session.handleSessionPickerCancel}
+              onSessionsChanged={session.handleSessionsChanged}
+            />
+          </Show>
+
+          <Show when={session.showThemePicker()}>
+            <ThemePicker
+              onSelect={session.handleThemeSelect}
+              onCancel={session.handleThemePickerCancel}
+            />
+          </Show>
+
+          <Show when={context.contextInfo()}>
+            {(info: () => string) => (
+              <box marginTop={1}>
+                <ContextInfoNotification message={info()} />
+              </box>
+            )}
+          </Show>
+
+          <box
+            flexDirection="column"
+            marginTop={2}
+            width={80}
+            position="relative"
+          >
+            <Show when={commands.showCommandMenu()}>
+              <CommandMenu
+                commands={commands.slashCommands}
+                filter={commands.commandFilter()}
+                selectedIndex={commands.commandSelectedIndex()}
+                onSelect={commands.handleCommandSelect}
+                onCancel={commands.handleCommandMenuCancel}
+                onIndexChange={commands.handleCommandIndexChange}
+                bottom={5}
+                width={80}
+              />
+            </Show>
+
+            <Show when={filePicker.showFilePicker()}>
+              <FilePicker
+                files={filePicker.files()}
+                filter={filePicker.fileFilter()}
+                selectedIndex={filePicker.fileSelectedIndex()}
+                onSelect={filePicker.handleFileSelect}
+                onCancel={filePicker.handleFilePickerCancel}
+                onIndexChange={filePicker.handleFileIndexChange}
+                bottom={5}
+                width={80}
+              />
+            </Show>
+
+            <InputBox
+              id="greeting-textarea"
+              model={model}
+              status={agent.status()}
+              error={agent.error()}
+              mode={session.mode()}
+              getTextareaRef={getTextareaRef}
+              getStatus={getStatus}
+              onSubmit={agent.handleSubmit}
+              onRef={(el) => {
+                textareaRef = el;
+              }}
+              suppressSubmit={filePicker.showFilePicker()}
+            />
+          </box>
+
+          <Show when={toast()}>
+            {(msg: () => string) => (
+              <ToastNotification
+                message={msg()}
+                duration={tuiConfig().toastDuration}
+                onDismiss={() => setToast(null)}
+              />
+            )}
+          </Show>
+        </box>
+      }
+    >
+      {/* Chat screen with messages */}
+      <box
+        style={{ backgroundColor: tokens.bgBase }}
+        flexDirection="row"
+        flexGrow={1}
+        flexShrink={1}
+      >
+        <Show when={context.showContextStats() && context.contextStats()}>
+          {(stats: () => import('./types').ContextStats) => (
+            <ContextStatsModal
+              stats={stats()}
+              modelName={model}
+              onClose={context.handleContextStatsClose}
+            />
+          )}
+        </Show>
+
+        <Show when={showConfigModal()}>
           <ConfigModal
-            config={config}
+            config={props.config}
             layers={configLayers}
             warnings={configWarnings}
             onClose={() => setShowConfigModal(false)}
           />
-        )}
+        </Show>
 
-        {showHelp && (
+        <Show when={showHelp()}>
           <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
-        )}
+        </Show>
 
-        <box flexDirection="row">
-          <ascii-font
-            text="Ollie"
-            font="tiny"
-            color={RGBA.fromHex(tokens.primaryBase)}
-          />
-          <text> </text>
-          <ascii-font
-            text="Code"
-            font="tiny"
-            color={RGBA.fromHex(tokens.textBase)}
-          />
-        </box>
-
-        {session.showSessionPicker && (
+        <Show when={session.showSessionPicker()}>
           <SessionPicker
-            key={session.sessionRefreshKey}
-            sessions={listSessions({ limit: tuiConfig.sessionListLimit })}
-            projectPath={projectPath}
+            sessions={listSessions({ limit: tuiConfig().sessionListLimit })}
+            projectPath={props.projectPath}
             onSelect={session.handleSessionSelect}
             onCancel={session.handleSessionPickerCancel}
             onSessionsChanged={session.handleSessionsChanged}
           />
-        )}
+        </Show>
 
-        {session.showThemePicker && (
+        <Show when={session.showThemePicker()}>
           <ThemePicker
             onSelect={session.handleThemeSelect}
             onCancel={session.handleThemePickerCancel}
           />
-        )}
-
-        {context.contextInfo && (
-          <box marginTop={1}>
-            <ContextInfoNotification message={context.contextInfo} />
-          </box>
-        )}
+        </Show>
 
         <box
           flexDirection="column"
-          marginTop={2}
-          width={80}
-          position="relative"
-        >
-          {commands.showCommandMenu && (
-            <CommandMenu
-              commands={commands.slashCommands}
-              filter={commands.commandFilter}
-              selectedIndex={commands.commandSelectedIndex}
-              onSelect={commands.handleCommandSelect}
-              onCancel={commands.handleCommandMenuCancel}
-              onIndexChange={commands.handleCommandIndexChange}
-              bottom={5}
-              width={80}
-            />
-          )}
-
-          {filePicker.showFilePicker && (
-            <FilePicker
-              files={filePicker.files}
-              filter={filePicker.fileFilter}
-              selectedIndex={filePicker.fileSelectedIndex}
-              onSelect={filePicker.handleFileSelect}
-              onCancel={filePicker.handleFilePickerCancel}
-              onIndexChange={filePicker.handleFileIndexChange}
-              bottom={5}
-              width={80}
-            />
-          )}
-
-          <InputBox
-            id="greeting-textarea"
-            model={model}
-            status={agent.status}
-            error={agent.error}
-            mode={session.mode}
-            textareaRef={textareaRef}
-            statusRef={statusRef}
-            onSubmit={agent.handleSubmit}
-            suppressSubmit={filePicker.showFilePicker}
-          />
-        </box>
-
-        {toast && (
-          <ToastNotification
-            message={toast}
-            duration={tuiConfig.toastDuration}
-            onDismiss={() => setToast(null)}
-          />
-        )}
-      </box>
-    );
-  }
-
-  // Render chat screen with messages
-  return (
-    <box
-      key="chat-container"
-      style={{ backgroundColor: tokens.bgBase }}
-      flexDirection="row"
-      flexGrow={1}
-      flexShrink={1}
-    >
-      {context.showContextStats && context.contextStats && (
-        <ContextStatsModal
-          stats={context.contextStats}
-          modelName={model}
-          onClose={context.handleContextStatsClose}
-        />
-      )}
-
-      {showConfigModal && (
-        <ConfigModal
-          config={config}
-          layers={configLayers}
-          warnings={configWarnings}
-          onClose={() => setShowConfigModal(false)}
-        />
-      )}
-
-      {showHelp && (
-        <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
-      )}
-
-      {session.showSessionPicker && (
-        <SessionPicker
-          key={session.sessionRefreshKey}
-          sessions={listSessions({ limit: tuiConfig.sessionListLimit })}
-          projectPath={projectPath}
-          onSelect={session.handleSessionSelect}
-          onCancel={session.handleSessionPickerCancel}
-          onSessionsChanged={session.handleSessionsChanged}
-        />
-      )}
-
-      {session.showThemePicker && (
-        <ThemePicker
-          onSelect={session.handleThemeSelect}
-          onCancel={session.handleThemePickerCancel}
-        />
-      )}
-
-      <box
-        flexDirection="column"
-        flexGrow={1}
-        flexShrink={1}
-        paddingTop={1}
-        paddingLeft={2}
-        paddingRight={2}
-      >
-        <scrollbox
           flexGrow={1}
           flexShrink={1}
-          stickyScroll={true}
-          stickyStart="bottom"
-          scrollAcceleration={fastScrollAccel}
+          paddingTop={1}
+          paddingLeft={2}
+          paddingRight={2}
         >
-          <box flexDirection="column" flexGrow={1} paddingRight={2}>
-            {session.displayMessages.map((msg, idx) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: todo
-              <box key={`msg-${idx}`} marginBottom={1}>
-                {msg.type === 'user' && (
-                  <UserMessage
-                    content={msg.content}
-                    attachedFiles={msg.attachedFiles}
-                  />
+          <scrollbox
+            flexGrow={1}
+            flexShrink={1}
+            stickyScroll={true}
+            stickyStart="bottom"
+            scrollAcceleration={fastScrollAccel}
+          >
+            <box flexDirection="column" flexGrow={1} paddingRight={2}>
+              <For each={session.displayMessages()}>
+                {(msg) => (
+                  <box marginBottom={1}>
+                    <Show when={msg.type === 'user' && msg}>
+                      {(userMsg: () => DisplayMessage) => {
+                        const m = userMsg() as {
+                          type: 'user';
+                          content: string;
+                          attachedFiles?: string[];
+                        };
+                        return (
+                          <UserMessage
+                            content={m.content}
+                            attachedFiles={m.attachedFiles}
+                          />
+                        );
+                      }}
+                    </Show>
+                    <Show when={msg.type === 'assistant' && msg}>
+                      {(assistantMsg: () => DisplayMessage) => {
+                        const m = assistantMsg() as {
+                          type: 'assistant';
+                          content: string;
+                        };
+                        return <AssistantMessage content={m.content} />;
+                      }}
+                    </Show>
+                    <Show when={msg.type === 'tool'}>
+                      <ToolMessage
+                        message={msg as import('./types').ToolDisplayMessage}
+                        isActiveConfirmation={
+                          agent.confirmingToolId() ===
+                          (msg as import('./types').ToolDisplayMessage).id
+                        }
+                        onConfirmationResponse={(response) => {
+                          agent.handleToolConfirmation(response);
+                          // Abort the agent run if user denies
+                          if (response.action === 'deny') {
+                            agent.abort();
+                          }
+                        }}
+                        expanded={toolsExpanded()}
+                      />
+                    </Show>
+                  </box>
                 )}
-                {msg.type === 'assistant' && (
-                  <AssistantMessage content={msg.content} />
-                )}
-                {msg.type === 'tool' && (
-                  <ToolMessage
-                    message={msg}
-                    isActiveConfirmation={agent.confirmingToolId === msg.id}
-                    onConfirmationResponse={(response) => {
-                      agent.handleToolConfirmation(response);
-                      // Abort the agent run if user denies
-                      if (response.action === 'deny') {
-                        agent.abort();
-                      }
-                    }}
-                    expanded={toolsExpanded}
-                  />
-                )}
-              </box>
-            ))}
+              </For>
 
-            {agent.streamingContent && (
-              <box key="streaming">
-                <text>{agent.streamingContent}</text>
-              </box>
-            )}
+              <Show when={agent.streamingContent()}>
+                <box>
+                  <text>{agent.streamingContent()}</text>
+                </box>
+              </Show>
+            </box>
+          </scrollbox>
+
+          <box flexDirection="column" flexShrink={0} position="relative">
+            <Show when={context.contextInfo()}>
+              {(info: () => string) => (
+                <ContextInfoNotification message={info()} />
+              )}
+            </Show>
+
+            <Show when={commands.showCommandMenu()}>
+              <CommandMenu
+                commands={commands.slashCommands}
+                filter={commands.commandFilter()}
+                selectedIndex={commands.commandSelectedIndex()}
+                onSelect={commands.handleCommandSelect}
+                onCancel={commands.handleCommandMenuCancel}
+                onIndexChange={commands.handleCommandIndexChange}
+                bottom={5}
+              />
+            </Show>
+
+            <Show when={filePicker.showFilePicker()}>
+              <FilePicker
+                files={filePicker.files()}
+                filter={filePicker.fileFilter()}
+                selectedIndex={filePicker.fileSelectedIndex()}
+                onSelect={filePicker.handleFileSelect}
+                onCancel={filePicker.handleFilePickerCancel}
+                onIndexChange={filePicker.handleFileIndexChange}
+                bottom={5}
+              />
+            </Show>
+
+            <InputBox
+              id="chat-textarea"
+              model={model}
+              status={agent.status()}
+              error={agent.error()}
+              mode={session.mode()}
+              getTextareaRef={getTextareaRef}
+              getStatus={getStatus}
+              onSubmit={agent.handleSubmit}
+              onRef={(el) => {
+                textareaRef = el;
+              }}
+              disabled={!!agent.confirmingToolId()}
+              suppressSubmit={filePicker.showFilePicker()}
+            />
           </box>
-        </scrollbox>
-
-        <box flexDirection="column" flexShrink={0} position="relative">
-          {context.contextInfo && (
-            <ContextInfoNotification message={context.contextInfo} />
-          )}
-
-          {commands.showCommandMenu && (
-            <CommandMenu
-              commands={commands.slashCommands}
-              filter={commands.commandFilter}
-              selectedIndex={commands.commandSelectedIndex}
-              onSelect={commands.handleCommandSelect}
-              onCancel={commands.handleCommandMenuCancel}
-              onIndexChange={commands.handleCommandIndexChange}
-              bottom={5}
-            />
-          )}
-
-          {filePicker.showFilePicker && (
-            <FilePicker
-              files={filePicker.files}
-              filter={filePicker.fileFilter}
-              selectedIndex={filePicker.fileSelectedIndex}
-              onSelect={filePicker.handleFileSelect}
-              onCancel={filePicker.handleFilePickerCancel}
-              onIndexChange={filePicker.handleFileIndexChange}
-              bottom={5}
-            />
-          )}
-
-          <InputBox
-            id="chat-textarea"
-            model={model}
-            status={agent.status}
-            error={agent.error}
-            mode={session.mode}
-            textareaRef={textareaRef}
-            statusRef={statusRef}
-            onSubmit={agent.handleSubmit}
-            disabled={!!agent.confirmingToolId}
-            suppressSubmit={filePicker.showFilePicker}
-          />
         </box>
-      </box>
 
-      <SidePanel
-        contextStats={context.sidebarStats}
-        todos={session.sidebarTodos}
-        width={40}
-      />
-
-      {toast && (
-        <ToastNotification
-          message={toast}
-          duration={tuiConfig.toastDuration}
-          onDismiss={() => setToast(null)}
+        <SidePanel
+          contextStats={context.sidebarStats()}
+          todos={session.sidebarTodos()}
+          width={40}
         />
-      )}
-    </box>
+
+        <Show when={toast()}>
+          {(msg: () => string) => (
+            <ToastNotification
+              message={msg()}
+              duration={tuiConfig().toastDuration}
+              onDismiss={() => setToast(null)}
+            />
+          )}
+        </Show>
+      </box>
+    </Show>
   );
 }
