@@ -254,6 +254,11 @@ export function useAgentSubmit(
 
         updateToolState(toolId, finalState);
 
+        // Refresh sidebar todos in real-time when todo_write completes
+        if (result.tool === 'todo_write' && !result.error) {
+          props.setSidebarTodos(getTodos(session.id));
+        }
+
         // Get the current tool message to build the ToolPart for storage
         props.setDisplayMessages((prev) => {
           const toolMsg = prev.find(

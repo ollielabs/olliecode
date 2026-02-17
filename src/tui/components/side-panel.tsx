@@ -3,11 +3,11 @@
  * Always visible on the right side of the chat interface.
  */
 
-import { For, Show, createMemo, mergeProps } from 'solid-js';
-import type { ContextStats } from '../../lib/tokenizer';
-import type { Todo, TodoStatus } from '../../session/todo';
+import { createMemo, createSignal, For, mergeProps, Show } from 'solid-js';
 import type { SemanticTokens } from '../../design';
 import { useTheme } from '../../design';
+import type { ContextStats } from '../../lib/tokenizer';
+import type { Todo, TodoStatus } from '../../session/todo';
 
 export type SidePanelProps = {
   contextStats: ContextStats | null;
@@ -43,7 +43,7 @@ function ContextBar(props: {
   statusColor: string;
   emptyColor: string;
 }) {
-  const width = 12;
+  const width = 8;
   const filled = createMemo(() => Math.round((props.percent / 100) * width));
   const empty = createMemo(() => width - filled());
 
@@ -60,28 +60,32 @@ function ContextSection(props: {
   tokens: SemanticTokens;
 }) {
   const statusColor = createMemo(() =>
-    getStatusColor(props.tokens, props.stats.isCritical, props.stats.isNearLimit),
+    getStatusColor(
+      props.tokens,
+      props.stats.isCritical,
+      props.stats.isNearLimit,
+    ),
   );
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: props.tokens.textBase }}>
-        <b>Context</b>
-      </text>
       <box flexDirection="row">
+        <text style={{ fg: props.tokens.textBase }}>
+          <b>Context</b>{' '}
+        </text>
         <ContextBar
           percent={props.stats.usagePercent}
           statusColor={statusColor()}
           emptyColor={props.tokens.textSubtle}
         />
-        <text style={{ fg: statusColor() }}>{props.stats.usagePercent}%</text>
+        <text style={{ fg: statusColor() }}> {props.stats.usagePercent}%</text>
       </box>
       <text style={{ fg: props.tokens.textMuted }}>
-        {formatTokenCount(props.stats.totalTokens)}/
+        {formatTokenCount(props.stats.totalTokens)} /{' '}
         {formatTokenCount(props.stats.maxTokens)}
       </text>
       <Show when={props.stats.isNearLimit}>
-          <text style={{ fg: statusColor() }}>
+        <text style={{ fg: statusColor() }}>
           {props.stats.isCritical ? '! Critical' : '~ Near limit'}
         </text>
       </Show>
@@ -89,15 +93,20 @@ function ContextSection(props: {
   );
 }
 
+const COLLAPSED_LIMIT = 5;
+
 function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
-  const completed = createMemo(() =>
-    props.todos.filter((t) => t.status === 'completed').length,
+  const [expanded, setExpanded] = createSignal(false);
+
+  const completed = createMemo(
+    () => props.todos.filter((t) => t.status === 'completed').length,
   );
   const total = createMemo(() => props.todos.length);
-  const activeTodos = createMemo(() =>
-    props.todos
-      .filter((t) => t.status === 'pending' || t.status === 'in_progress')
-      .slice(0, 5),
+  const visibleTodos = createMemo(() =>
+    expanded() ? props.todos : props.todos.slice(0, COLLAPSED_LIMIT),
+  );
+  const hiddenCount = createMemo(
+    () => props.todos.length - visibleTodos().length,
   );
 
   const statusColors = createMemo<Record<TodoStatus, string>>(() => ({
@@ -119,37 +128,53 @@ function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
       </box>
 
       <Show
-        when={activeTodos().length > 0}
+        when={props.todos.length > 0}
         fallback={
           <text style={{ fg: props.tokens.textSubtle }}>No active tasks</text>
         }
       >
         <box flexDirection="column">
-          <For each={activeTodos()}>
-            {(todo) => (
-              <box flexDirection="row">
-                <text style={{ fg: statusColors()[todo.status] }}>
-                  {STATUS_ICONS[todo.status]}{' '}
-                </text>
-                <text style={{ fg: props.tokens.textMuted }}>
-                  {todo.content.length > 20
-                    ? `${todo.content.slice(0, 18)}..`
-                    : todo.content}
-                </text>
-              </box>
-            )}
+          <For each={visibleTodos()}>
+            {(todo) => {
+              const isDone =
+                todo.status === 'completed' || todo.status === 'cancelled';
+              const textColor = isDone
+                ? props.tokens.textSubtle
+                : props.tokens.textMuted;
+              return (
+                <box flexDirection="row">
+                  <text width={2} style={{ fg: statusColors()[todo.status] }}>
+                    {STATUS_ICONS[todo.status]}
+                  </text>
+                  <Show
+                    when={isDone}
+                    fallback={
+                      <text flexShrink={1} style={{ fg: textColor }}>
+                        {todo.content}
+                      </text>
+                    }
+                  >
+                    <text flexShrink={1} style={{ fg: textColor }}>
+                      <span style={{ strikethrough: true }}>
+                        {todo.content}
+                      </span>
+                    </text>
+                  </Show>
+                </box>
+              );
+            }}
           </For>
-          <Show
-            when={
-              activeTodos().length <
-              props.todos.filter(
-                (t) => t.status === 'pending' || t.status === 'in_progress',
-              ).length
-            }
-          >
-            <text style={{ fg: props.tokens.textSubtle }}>
-              +{props.todos.length - 5} more
-            </text>
+          <Show when={hiddenCount() > 0}>
+            <box onMouseDown={() => setExpanded(true)}>
+              <text style={{ fg: props.tokens.primaryBase }}>
+                +{hiddenCount()} more
+              </text>
+            </box>
+          </Show>
+          <Show when={expanded() && props.todos.length > COLLAPSED_LIMIT}>
+            <box onMouseDown={() => setExpanded(false)}>
+              <text style={{ fg: props.tokens.primaryBase }}>show less</text>
+            </box>
           </Show>
         </box>
       </Show>
