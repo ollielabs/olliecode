@@ -24,6 +24,7 @@ export function scrollIntoView(
   itemBottom: number,
 ): void {
   const viewportHeight = scrollRef.viewport.height;
+  if (viewportHeight <= 0) return;
   const currentTop = scrollRef.scrollTop;
 
   if (itemTop < currentTop) {

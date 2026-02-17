@@ -330,11 +330,13 @@ export function useAgentSubmit(
     if ('type' in result) {
       // Error/abort path — persist partial history so it survives restart
       props.setHistory(result.messages);
-      addMessage(
-        session.id,
-        'assistant',
-        fromAssistantResponse('', completedToolParts),
-      );
+      if (completedToolParts.length > 0) {
+        addMessage(
+          session.id,
+          'assistant',
+          fromAssistantResponse('', completedToolParts),
+        );
+      }
 
       switch (result.type) {
         case 'aborted':
