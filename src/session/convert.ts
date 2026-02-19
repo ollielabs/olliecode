@@ -4,11 +4,43 @@
  */
 
 import type { Message, ToolCall } from 'ollama';
-import type { StoredMessage, MessagePart, ToolPart } from './types';
+import { TOOL_RESULT_PREFIX } from '../agent/tool-processor';
 import type { DisplayMessage } from '../tui/types';
+import type { MessagePart, StoredMessage, ToolPart } from './types';
 
 // Re-export DisplayMessage for backward compatibility
 export type { DisplayMessage };
+
+/** Regex to match the <attached-files> augmentation block appended by augmentMessageWithFiles */
+const ATTACHED_FILES_RE = /\n\n<attached-files>\n([\s\S]*)<\/attached-files>$/;
+
+/** Regex to extract individual file paths from the augmentation block */
+const FILE_PATH_RE = /<file path="([^"]+)">/g;
+
+/**
+ * Strip the <attached-files> augmentation block from a user message.
+ *
+ * When @file mentions are persisted with augmented content (file contents
+ * baked in), this extracts the clean prompt for display and the file paths
+ * for the attachedFiles badge.
+ */
+export function stripFileAugmentation(content: string): {
+  text: string;
+  attachedFiles?: string[];
+} {
+  const match = content.match(ATTACHED_FILES_RE);
+  if (!match || match.index === undefined) {
+    return { text: content };
+  }
+
+  const text = content.slice(0, match.index);
+  const filesBlock = match[1] ?? '';
+  const files = [...filesBlock.matchAll(FILE_PATH_RE)].map((m) => m[1] ?? '');
+  return {
+    text,
+    attachedFiles: files.length > 0 ? files : undefined,
+  };
+}
 
 /**
  * Convert stored messages to Ollama format for the agent.
@@ -54,7 +86,7 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
         let toolContent: string;
 
         if (state.status === 'completed') {
-          toolContent = state.output;
+          toolContent = `${TOOL_RESULT_PREFIX}\n\n${state.output}`;
         } else if (state.status === 'error') {
           toolContent = `Error: ${state.error}`;
         } else if (state.status === 'denied') {
@@ -95,7 +127,9 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
     for (const part of msg.parts) {
       if (part.type === 'text' && part.content.trim()) {
         if (msg.role === 'user') {
-          result.push({ type: 'user', content: part.content });
+          // Strip augmented file contents for display, extract file paths
+          const { text, attachedFiles } = stripFileAugmentation(part.content);
+          result.push({ type: 'user', content: text, attachedFiles });
         } else if (msg.role === 'assistant') {
           result.push({ type: 'assistant', content: part.content });
         }

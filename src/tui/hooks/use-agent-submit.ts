@@ -150,7 +150,10 @@ export function useAgentSubmit(
     const { content: augmentedPrompt, attachedFiles } =
       await augmentMessageWithFiles(prompt);
 
-    addMessage(session.id, 'user', fromUserInput(prompt));
+    // Persist augmented prompt (with file contents) so the model gets
+    // full context on session reload. Display strips the augmentation
+    // via stripFileAugmentation in toDisplayMessages.
+    addMessage(session.id, 'user', fromUserInput(augmentedPrompt));
     props.setDisplayMessages((prev) => [
       ...prev,
       {
