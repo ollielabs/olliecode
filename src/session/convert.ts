@@ -151,6 +151,27 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
 }
 
 /**
+ * Convert Ollama messages back to StoredMessage format.
+ *
+ * Used for compaction snapshots — compacted Message[] needs to be stored
+ * as StoredMessage[] so it can be loaded via getActiveMessages.
+ *
+ * This is a simplified conversion: each Message becomes one StoredMessage
+ * with a single text part. Tool calls in the compacted history are stored
+ * as text content (their tool_calls metadata is already summarized by
+ * the compaction process).
+ */
+export function fromOllamaMessages(messages: Message[]): StoredMessage[] {
+  return messages.map((msg, index) => ({
+    id: `compacted_${index}`,
+    sessionId: '',
+    role: msg.role as StoredMessage['role'],
+    parts: [{ type: 'text' as const, content: msg.content ?? '' }],
+    createdAt: 0,
+  }));
+}
+
+/**
  * Create a message parts array from user input text.
  */
 export function fromUserInput(content: string): MessagePart[] {

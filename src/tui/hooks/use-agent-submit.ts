@@ -3,7 +3,11 @@
  * Manages the prompt submission flow, streaming, and result handling.
  *
  * Uses unified tool messages that evolve through states:
- * pending → confirming → executing → completed/error/denied/blocked
+ * pending -> confirming -> executing -> completed/error/denied/blocked
+ *
+ * All message persistence and display state is managed through the
+ * message store (useMessageStore), ensuring in-memory and SQLite
+ * never diverge at rest.
  */
 
 import type { ToolCall } from 'ollama';
@@ -16,11 +20,6 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
-import {
-  addMessage,
-  fromAssistantResponse,
-  fromUserInput,
-} from '../../session';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -34,8 +33,6 @@ import type {
   AgentMode,
   ConfirmationRequest,
   ConfirmationResponse,
-  DisplayMessage,
-  Message,
   Session,
   Status,
   Todo,
@@ -43,6 +40,7 @@ import type {
   ToolMetadata,
   ToolState,
 } from '../types';
+import type { UseMessageStoreReturn } from './use-message-store';
 
 export type UseAgentSubmitProps = {
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
@@ -53,12 +51,8 @@ export type UseAgentSubmitProps = {
   ensureSession: () => Promise<Session>;
   /** Current mode (signal accessor) */
   mode: () => AgentMode;
-  /** Current history (signal accessor) */
-  history: () => Message[];
-  /** Setter for display messages */
-  setDisplayMessages: Setter<DisplayMessage[]>;
-  /** Setter for history */
-  setHistory: Setter<Message[]>;
+  /** Message store (owns history, display, and persistence) */
+  store: UseMessageStoreReturn;
   /** Setter for sidebar todos */
   setSidebarTodos: Setter<Todo[]>;
 };
@@ -96,6 +90,7 @@ export function useAgentSubmit(
 ): UseAgentSubmitReturn {
   const model = props.config.model;
   const host = props.config.host;
+  const store = props.store;
   const [status, setStatus] = createSignal<Status>('idle');
   const [error, setError] = createSignal('');
   const [streamingContent, setStreamingContent] = createSignal('');
@@ -110,19 +105,6 @@ export function useAgentSubmit(
 
   const abort = () => {
     abortController?.abort();
-  };
-
-  /**
-   * Update a tool message's state by ID.
-   */
-  const updateToolState = (toolId: string, newState: ToolState) => {
-    props.setDisplayMessages((prev) =>
-      prev.map((msg) =>
-        msg.type === 'tool' && msg.id === toolId
-          ? { ...msg, state: newState }
-          : msg,
-      ),
-    );
   };
 
   /**
@@ -151,27 +133,26 @@ export function useAgentSubmit(
       await augmentMessageWithFiles(prompt);
 
     // Persist augmented prompt (with file contents) so the model gets
-    // full context on session reload. Display strips the augmentation
-    // via stripFileAugmentation in toDisplayMessages.
-    addMessage(session.id, 'user', fromUserInput(augmentedPrompt));
-    props.setDisplayMessages((prev) => [
-      ...prev,
-      {
-        type: 'user',
-        content: prompt,
-        attachedFiles: attachedFiles.length > 0 ? attachedFiles : undefined,
-      },
-    ]);
+    // full context on session reload. Display shows the raw prompt with
+    // file badges (stripFileAugmentation runs in toDisplayMessages).
+    // Dedup: skips persistence if the last stored message is already
+    // a user message (handles retry after error).
+    store.appendUserMessage(
+      session.id,
+      prompt,
+      augmentedPrompt,
+      attachedFiles.length > 0 ? attachedFiles : undefined,
+    );
 
     abortController = new AbortController();
 
-    // Primary: index → toolId (for parallel-safe result correlation)
+    // Primary: index -> toolId (for parallel-safe result correlation)
     const toolIdsByIndex = new Map<number, string>();
-    // Reverse: toolId → index (for sorting completed parts back to call order)
+    // Reverse: toolId -> index (for sorting completed parts back to call order)
     const indexByToolId = new Map<string, number>();
-    // Secondary: name → toolId (for confirmation/blocked - safe because sequential)
+    // Secondary: name -> toolId (for confirmation/blocked - safe because sequential)
     const toolIdsByName = new Map<string, string>();
-    // Preview: toolId → preview (keyed by actual ID to prevent collision)
+    // Preview: toolId -> preview (keyed by actual ID to prevent collision)
     const previewsByToolId = new Map<string, ConfirmationRequest['preview']>();
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
@@ -181,7 +162,7 @@ export function useAgentSubmit(
       model,
       host,
       userMessage: augmentedPrompt,
-      history: props.history(),
+      history: store.history(),
       mode: props.mode(),
       sessionId: session.id,
       signal: abortController.signal,
@@ -204,15 +185,13 @@ export function useAgentSubmit(
         // Store by name (secondary - for confirmation/blocked which only have name)
         toolIdsByName.set(toolName, toolId);
 
-        const toolMessage: ToolDisplayMessage = {
+        store.addPendingToolMessage({
           type: 'tool',
           id: toolId,
           name: toolName,
           args: toolArgs,
           state: { status: 'pending' },
-        };
-
-        props.setDisplayMessages((prev) => [...prev, toolMessage]);
+        });
       },
       onToolResult: (result: ToolResult, index: number) => {
         // Use index for lookup (handles parallel calls to same tool)
@@ -255,30 +234,27 @@ export function useAgentSubmit(
           };
         }
 
-        updateToolState(toolId, finalState);
+        store.updatePendingToolState(toolId, finalState);
 
         // Refresh sidebar todos in real-time when todo_write completes
         if (result.tool === 'todo_write' && !result.error) {
           props.setSidebarTodos(getTodos(session.id));
         }
 
-        // Get the current tool message to build the ToolPart for storage
-        props.setDisplayMessages((prev) => {
-          const toolMsg = prev.find(
-            (m): m is ToolDisplayMessage =>
-              m.type === 'tool' && m.id === toolId,
-          );
-          if (toolMsg) {
-            completedToolParts.push({
-              type: 'tool',
-              id: toolId,
-              name: toolMsg.name,
-              args: toolMsg.args,
-              state: finalState,
-            });
-          }
-          return prev;
-        });
+        // Build the ToolPart for persistence from the pending display state
+        const pendingMsgs = store.getPendingDisplayMessages();
+        const toolMsg = pendingMsgs.find(
+          (m): m is ToolDisplayMessage => m.type === 'tool' && m.id === toolId,
+        );
+        if (toolMsg) {
+          completedToolParts.push({
+            type: 'tool',
+            id: toolId,
+            name: toolMsg.name,
+            args: toolMsg.args,
+            state: finalState,
+          });
+        }
       },
       onStepComplete: (_step: AgentStep) => setStreamingContent(''),
       onConfirmationNeeded: async (request: ConfirmationRequest) => {
@@ -292,7 +268,7 @@ export function useAgentSubmit(
 
         if (toolId) {
           // Update tool state to confirming with preview
-          updateToolState(toolId, {
+          store.updatePendingToolState(toolId, {
             status: 'confirming',
             preview: request.preview,
           });
@@ -305,9 +281,9 @@ export function useAgentSubmit(
             // Update tool state based on response
             if (toolId) {
               if (response.action === 'deny') {
-                updateToolState(toolId, { status: 'denied' });
+                store.updatePendingToolState(toolId, { status: 'denied' });
               } else {
-                updateToolState(toolId, { status: 'executing' });
+                store.updatePendingToolState(toolId, { status: 'executing' });
               }
             }
             resolve(response);
@@ -318,7 +294,7 @@ export function useAgentSubmit(
         // Use name-based lookup (safe because unsafe tools run sequentially)
         const toolId = toolIdsByName.get(tool);
         if (toolId) {
-          updateToolState(toolId, { status: 'blocked', reason });
+          store.updatePendingToolState(toolId, { status: 'blocked', reason });
         }
       },
     });
@@ -331,25 +307,17 @@ export function useAgentSubmit(
     });
 
     if ('type' in result) {
-      // Error/abort path — persist partial history so it survives restart
-      props.setHistory(result.messages);
-      if (completedToolParts.length > 0) {
-        addMessage(
-          session.id,
-          'assistant',
-          fromAssistantResponse('', completedToolParts),
-        );
-      }
+      // Error/abort path — settle with partial tool parts (if any)
+      // settleAgentRun persists the assistant message and refreshes the store,
+      // so in-memory and SQLite are consistent after this call.
+      store.settleAgentRun(session.id, '', completedToolParts);
 
       switch (result.type) {
         case 'aborted':
           setStatus('idle');
           setStreamingContent((prev) => {
             if (prev.trim()) {
-              props.setDisplayMessages((msgs) => [
-                ...msgs,
-                { type: 'assistant', content: `${prev}\n\n[interrupted]` },
-              ]);
+              store.addPendingAssistantMessage(`${prev}\n\n[interrupted]`);
             }
             return '';
           });
@@ -376,21 +344,11 @@ export function useAgentSubmit(
           break;
       }
     } else {
-      props.setDisplayMessages((prev) => [
-        ...prev,
-        { type: 'assistant', content: result.finalAnswer },
-      ]);
-      props.setHistory(result.messages);
+      // Success path — settle with final answer + tool parts
+      store.settleAgentRun(session.id, result.finalAnswer, completedToolParts);
       setStatus('idle');
 
       props.setSidebarTodos(getTodos(session.id));
-
-      // Store the assistant message with all tool parts
-      addMessage(
-        session.id,
-        'assistant',
-        fromAssistantResponse(result.finalAnswer, completedToolParts),
-      );
     }
 
     setStreamingContent('');

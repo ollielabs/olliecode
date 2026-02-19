@@ -1,19 +1,16 @@
 /**
  * Hook for session management.
- * Handles session CRUD, mode, history, display messages, and todos.
+ * Handles session CRUD, mode, todos, and session picker state.
+ *
+ * Message state (history, displayMessages) is delegated to useMessageStore.
+ * This hook calls store.loadSession/store.reset at the appropriate lifecycle
+ * points and exposes the store's signals for convenience.
  */
 
 import { createEffect, createSignal, type Setter } from 'solid-js';
 import type { TuiConfig } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
-import {
-  createSession,
-  getMessages,
-  getSession,
-  listSessions,
-  toDisplayMessages,
-  toOllamaMessages,
-} from '../../session';
+import { createSession, getSession, listSessions } from '../../session';
 import { getTodos } from '../../session/todo';
 import { FOCUS_DELAY_MS, SESSION_LIST_LIMIT } from '../constants';
 import type {
@@ -24,6 +21,7 @@ import type {
   TextareaRef,
   Todo,
 } from '../types';
+import type { UseMessageStoreReturn } from './use-message-store';
 
 export type UseSessionProps = {
   /** Project path for session creation */
@@ -36,6 +34,8 @@ export type UseSessionProps = {
   getTextareaRef: () => TextareaRef;
   /** TUI config for session list limit */
   tuiConfig?: TuiConfig;
+  /** Message store (owns history + displayMessages) */
+  store: UseMessageStoreReturn;
 };
 
 export type UseSessionReturn = {
@@ -43,14 +43,10 @@ export type UseSessionReturn = {
   currentSession: () => Session | null;
   /** Set current session */
   setCurrentSession: Setter<Session | null>;
-  /** Message history for Ollama */
+  /** Message history for Ollama (from store) */
   history: () => Message[];
-  /** Set history */
-  setHistory: Setter<Message[]>;
-  /** Display messages for UI */
+  /** Display messages for UI (from store) */
   displayMessages: () => DisplayMessage[];
-  /** Set display messages */
-  setDisplayMessages: Setter<DisplayMessage[]>;
   /** Current agent mode */
   mode: () => AgentMode;
   /** Set mode */
@@ -90,16 +86,13 @@ export type UseSessionReturn = {
 export function useSession(props: UseSessionProps): UseSessionReturn {
   const model = props.config.model;
   const host = props.config.host;
+  const store = props.store;
   const sessionListLimit =
     props.tuiConfig?.sessionListLimit ?? SESSION_LIST_LIMIT;
   const defaultMode = props.config.agent.defaultMode;
 
   const [currentSession, setCurrentSession] = createSignal<Session | null>(
     null,
-  );
-  const [history, setHistory] = createSignal<Message[]>([]);
-  const [displayMessages, setDisplayMessages] = createSignal<DisplayMessage[]>(
-    [],
   );
   const [mode, setMode] = createSignal<AgentMode>(defaultMode);
   const [sidebarTodos, setSidebarTodos] = createSignal<Todo[]>([]);
@@ -115,11 +108,7 @@ export function useSession(props: UseSessionProps): UseSessionReturn {
       if (session) {
         setCurrentSession(session);
         setMode(session.mode);
-        const storedMessages = getMessages(session.id);
-        const ollamaMessages = toOllamaMessages(storedMessages);
-        const displayMsgs = toDisplayMessages(storedMessages);
-        setHistory(ollamaMessages);
-        setDisplayMessages(displayMsgs);
+        store.loadSession(session.id);
       }
     }
   });
@@ -140,18 +129,15 @@ export function useSession(props: UseSessionProps): UseSessionReturn {
 
   const handleNewSession = () => {
     setCurrentSession(null);
-    setHistory([]);
-    setDisplayMessages([]);
     setMode(defaultMode);
+    store.reset();
   };
 
   const handleSessionSelect = (session: Session) => {
     setShowSessionPicker(false);
     setCurrentSession(session);
     setMode(session.mode);
-    const storedMessages = getMessages(session.id);
-    setHistory(toOllamaMessages(storedMessages));
-    setDisplayMessages(toDisplayMessages(storedMessages));
+    store.loadSession(session.id);
     setTimeout(() => props.getTextareaRef()?.focus(), FOCUS_DELAY_MS);
   };
 
@@ -196,10 +182,8 @@ export function useSession(props: UseSessionProps): UseSessionReturn {
   return {
     currentSession,
     setCurrentSession,
-    history,
-    setHistory,
-    displayMessages,
-    setDisplayMessages,
+    history: store.history,
+    displayMessages: store.displayMessages,
     mode,
     setMode,
     sidebarTodos,

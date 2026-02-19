@@ -33,6 +33,7 @@ import {
   useKeyboardShortcuts,
   useSession,
 } from './hooks';
+import { useMessageStore } from './hooks/use-message-store';
 import type { AppProps, DisplayMessage, Status } from './types';
 import { fastScrollAccel } from './utils';
 
@@ -75,6 +76,9 @@ function AppContent(props: AppProps) {
   // Extract TUI config once
   const tuiConfig = createMemo(() => extractTuiConfig(props.config));
 
+  // Central message store — single source of truth for all message state
+  const store = useMessageStore();
+
   // Initialize session hook first as other hooks depend on it
   const session = useSession({
     projectPath: props.projectPath,
@@ -82,14 +86,14 @@ function AppContent(props: AppProps) {
     initialSessionId: props.initialSessionId,
     getTextareaRef,
     tuiConfig: tuiConfig(),
+    store,
   });
 
   // Context hook for stats, compaction, and related operations
   const context = useAgentContext({
-    history: session.history,
     config: props.config,
-    setHistory: session.setHistory,
-    setDisplayMessages: session.setDisplayMessages,
+    store,
+    sessionId: () => session.currentSession()?.id,
   });
 
   // Agent submission hook (includes confirmation handling)
@@ -98,9 +102,7 @@ function AppContent(props: AppProps) {
     projectPath: props.projectPath,
     ensureSession: session.ensureSession,
     mode: session.mode,
-    history: session.history,
-    setDisplayMessages: session.setDisplayMessages,
-    setHistory: session.setHistory,
+    store,
     setSidebarTodos: session.setSidebarTodos,
   });
 
