@@ -4,12 +4,13 @@
  * Supports delete (ctrl+d) and rename (ctrl+r) operations.
  */
 
-import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
+import type { InputRenderable, ScrollBoxRenderable } from '@opentui/core';
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
-import type { InputRenderable } from '@opentui/core';
-import { deleteSession, updateSession, type Session } from '../../session';
-import { Modal } from './modal';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { deleteSession, type Session, updateSession } from '../../session';
+import { scrollIntoView } from '../utils';
+import { Modal } from './modal';
 
 export type SessionPickerProps = {
   sessions: Session[];
@@ -86,6 +87,60 @@ function buildSessionIndexMap(groups: SessionGroup[]): Map<string, number> {
   return map;
 }
 
+/**
+ * Get the actual layout position of a session item from the scroll content tree.
+ *
+ * Structure: scrollbox > content > innerBox > groupBox[] > [header, ...sessionItems]
+ * Each groupBox child[0] is the header <text>, children[1..] are session <box> rows.
+ *
+ * Uses yoga layout nodes to read positions relative to the content container,
+ * which are stable regardless of scroll position.
+ *
+ * Returns { top, bottom } in content-relative coordinates where:
+ *   top = y to show when scrolling UP (includes group header for first-in-group)
+ *   bottom = y + height of the item (for scrolling DOWN)
+ */
+function getItemLayoutBounds(
+  scrollRef: ScrollBoxRenderable,
+  groups: SessionGroup[],
+  flatIndex: number,
+): { top: number; bottom: number } | null {
+  // content > innerBox > groupBoxes
+  const innerBox = scrollRef.content.getChildren()[0];
+  if (!innerBox) return null;
+  const groupBoxes = innerBox.getChildren();
+
+  let remaining = flatIndex;
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi]!;
+    const groupBox = groupBoxes[gi];
+    if (!groupBox) continue;
+
+    if (remaining < group.sessions.length) {
+      // child[0] = header text, child[1..] = session items
+      const itemChild = groupBox.getChildren()[remaining + 1];
+      if (!itemChild) return null;
+
+      // Use yoga layout nodes for scroll-stable positions
+      const groupLayout = groupBox.getLayoutNode();
+      const itemLayout = itemChild.getLayoutNode();
+      const groupY = groupLayout.getComputedTop();
+      const itemY = groupY + itemLayout.getComputedTop();
+      const itemBottom = itemY + itemLayout.getComputedHeight();
+
+      // For first item in group, include the group header
+      let top = itemY;
+      if (remaining === 0) {
+        top = groupY;
+      }
+
+      return { top, bottom: itemBottom };
+    }
+    remaining -= group.sessions.length;
+  }
+  return null;
+}
+
 type PickerMode = 'browse' | 'confirm-delete' | 'rename';
 
 export function SessionPicker(props: SessionPickerProps) {
@@ -95,6 +150,7 @@ export function SessionPicker(props: SessionPickerProps) {
   const [renameValue, setRenameValue] = createSignal('');
   const dimensions = useTerminalDimensions();
   let inputRef: InputRenderable | undefined;
+  let scrollRef: ScrollBoxRenderable | undefined;
 
   const projectSessions = createMemo(() =>
     props.sessions.filter((s) => s.projectPath === props.projectPath),
@@ -120,6 +176,18 @@ export function SessionPicker(props: SessionPickerProps) {
     if (mode() === 'rename' && inputRef) {
       inputRef.focus();
     }
+  });
+
+  // Scroll-into-view: only scroll when selected item is outside the viewport.
+  // Reads actual layout positions from the renderable tree.
+  createEffect(() => {
+    const idx = selectedIndex();
+    const sessions = flatSessions();
+    const g = groups();
+    if (!scrollRef || sessions.length === 0) return;
+
+    const bounds = getItemLayoutBounds(scrollRef, g, idx);
+    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
   const handleDelete = () => {
@@ -180,7 +248,9 @@ export function SessionPicker(props: SessionPickerProps) {
         break;
       case 'down':
       case 'j':
-        setSelectedIndex((prev) => Math.min(flatSessions().length - 1, prev + 1));
+        setSelectedIndex((prev) =>
+          Math.min(flatSessions().length - 1, prev + 1),
+        );
         break;
       case 'return': {
         const session = flatSessions()[selectedIndex()];
@@ -222,7 +292,12 @@ export function SessionPicker(props: SessionPickerProps) {
 
       <Show when={mode() !== 'rename' && flatSessions().length > 0}>
         <box flexDirection="column">
-          <scrollbox maxHeight={scrollHeight()} stickyScroll={false}>
+          <scrollbox
+            ref={scrollRef!}
+            maxHeight={scrollHeight()}
+            stickyScroll={false}
+            focusable={false}
+          >
             <box flexDirection="column">
               <For each={groups()}>
                 {(group) => (
@@ -233,27 +308,34 @@ export function SessionPicker(props: SessionPickerProps) {
 
                     <For each={group.sessions}>
                       {(session) => {
-                        const idx = sessionIndexMap().get(session.id) ?? 0;
-                        const isSelected = idx === selectedIndex();
-                        const isConfirmingDelete =
-                          isSelected && mode() === 'confirm-delete';
-                        const prefix = isSelected ? '> ' : '  ';
-                        const title = isConfirmingDelete
-                          ? 'Press ctrl+d again to confirm delete'
-                          : (session.title ?? session.id.slice(0, 8));
+                        const idx = createMemo(
+                          () => sessionIndexMap().get(session.id) ?? 0,
+                        );
+                        const isSelected = createMemo(
+                          () => idx() === selectedIndex(),
+                        );
+                        const isConfirmingDelete = createMemo(
+                          () => isSelected() && mode() === 'confirm-delete',
+                        );
+                        const prefix = () => (isSelected() ? '> ' : '  ');
+                        const title = () =>
+                          isConfirmingDelete()
+                            ? 'Press ctrl+d again to confirm delete'
+                            : (session.title ?? session.id.slice(0, 8));
                         const time = formatTime(session.updatedAt);
 
-                        const fg = isConfirmingDelete
-                          ? tokens.error
-                          : isSelected
-                            ? tokens.success
-                            : tokens.textMuted;
+                        const fg = () =>
+                          isConfirmingDelete()
+                            ? tokens.error
+                            : isSelected()
+                              ? tokens.success
+                              : tokens.textMuted;
 
                         return (
                           <box flexDirection="row">
-                            <text style={{ fg }}>
-                              {prefix}
-                              {time} - {title}
+                            <text style={{ fg: fg() }}>
+                              {prefix()}
+                              {time} - {title()}
                             </text>
                           </box>
                         );

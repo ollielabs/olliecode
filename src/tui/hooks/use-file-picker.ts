@@ -95,17 +95,25 @@ export function useFilePicker(props: UseFilePickerProps): UseFilePickerReturn {
     const filterEnd = afterAt.search(/\s/);
     const afterFilter = filterEnd === -1 ? '' : afterAt.slice(filterEnd);
 
-    const newText = `${beforeAt}@${path}${afterFilter}`;
+    // Add trailing space so findLastTriggerAt sees the @ context as complete
+    // (whitespace after @ path means it's no longer an active trigger)
+    const separator = afterFilter ? '' : ' ';
+    const newText = `${beforeAt}@${path}${separator}${afterFilter}`;
     ref.setText(newText);
 
-    // Move cursor to end of inserted path (after @path)
-    const cursorPosition = beforeAt.length + 1 + path.length; // +1 for @
+    // Move cursor to end of inserted path + separator
+    const cursorPosition = beforeAt.length + 1 + path.length + separator.length; // +1 for @
     ref.cursorOffset = cursorPosition;
 
-    setShowFilePicker(false);
-    setFileFilter('');
-    setFileSelectedIndex(0);
-    setAtPosition(null);
+    // Defer closing so suppressSubmit stays true during this event tick.
+    // Without this, the textarea's Enter→submit handler fires after the
+    // picker closes synchronously, bypassing the suppressSubmit guard.
+    queueMicrotask(() => {
+      setShowFilePicker(false);
+      setFileFilter('');
+      setFileSelectedIndex(0);
+      setAtPosition(null);
+    });
   };
 
   const handleFilePickerCancel = () => {

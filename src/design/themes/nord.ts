@@ -42,9 +42,7 @@ export const nordTheme: Theme = {
       syntaxVariable: '#d8dee9',
       // Diff colors
       diffAdd: '#a3be8c',
-      diffAddBg: '#2e3d2e',
       diffDelete: '#bf616a',
-      diffDeleteBg: '#3d2e2e',
     },
   },
   light: {

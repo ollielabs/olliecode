@@ -4,12 +4,13 @@
  * Matches the UI pattern of CommandMenu.
  */
 
-import type { JSX } from 'solid-js';
-import { Index, Show, createEffect, createMemo, mergeProps } from 'solid-js';
 import type { ScrollBoxRenderable } from '@opentui/core';
 import { useKeyboard } from '@opentui/solid';
+import type { JSX } from 'solid-js';
+import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { fuzzySearch, type FuzzyMatch } from '../../lib/fuzzy';
+import { type FuzzyMatch, fuzzySearch } from '../../lib/fuzzy';
+import { getScrollChildBounds, scrollIntoView } from '../utils';
 
 export type FilePickerProps = {
   /** List of available files (from getFilesAndDirectories) */
@@ -63,10 +64,12 @@ export function FilePicker(rawProps: FilePickerProps) {
     }
   });
 
-  // Scroll to keep the selected item visible
+  // Scroll-into-view: only adjust when selected item is outside the viewport
   createEffect(() => {
     const idx = props.selectedIndex;
-    scrollRef?.scrollTo(idx);
+    if (!scrollRef) return;
+    const bounds = getScrollChildBounds(scrollRef, idx);
+    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
   useKeyboard((key: { name?: string }) => {
@@ -122,7 +125,11 @@ export function FilePicker(rawProps: FilePickerProps) {
           maxHeight: VISIBLE_ITEMS + 2,
         }}
       >
-        <scrollbox ref={scrollRef!} maxHeight={VISIBLE_ITEMS} stickyScroll={false}>
+        <scrollbox
+          ref={scrollRef!}
+          maxHeight={VISIBLE_ITEMS}
+          stickyScroll={false}
+        >
           <box flexDirection="column">
             <Index each={results()}>
               {(match, idx) => {
@@ -133,9 +140,9 @@ export function FilePicker(rawProps: FilePickerProps) {
                       flexDirection: 'row',
                       paddingLeft: 1,
                       paddingRight: 1,
-                      ...(isSelected() && {
-                        backgroundColor: tokens.selected,
-                      }),
+                      backgroundColor: isSelected()
+                        ? tokens.selected
+                        : 'transparent',
                     }}
                   >
                     <HighlightedPath

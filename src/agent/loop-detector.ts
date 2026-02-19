@@ -177,7 +177,8 @@ export function detectDoomLoop(
   }
 
   // Check for oscillating pattern (A->B->A->B or similar)
-  // But exclude search tool oscillations - grep/glob alternation is normal search behavior
+  // Only flag as a loop if the arguments are also repeating, meaning the agent
+  // is truly stuck rather than making a series of productive edit→read→edit calls.
   const searchTools = new Set(['grep', 'glob', 'read_file', 'list_dir']);
   if (recent.length >= 4) {
     const toolSequence = recent.map(
@@ -197,12 +198,23 @@ export function detectDoomLoop(
         searchTools.has(toolSequence[1] ?? '');
 
       if (!isSearchOscillation) {
-        return {
-          detected: true,
-          type: 'oscillating',
-          tool: toolSequence[0],
-          suggestion: `Agent is oscillating between "${toolSequence[0]}" and "${toolSequence[1]}". This pattern won't make progress - try a different approach.`,
-        };
+        // Check if arguments are actually repeating — if the agent is calling
+        // the same tools with different arguments, it's making progress
+        const sigA0 = getActionSignature(recent[0]!.actions[0]!);
+        const sigA1 = getActionSignature(recent[2]!.actions[0]!);
+        const sigB0 = getActionSignature(recent[1]!.actions[0]!);
+        const sigB1 = getActionSignature(recent[3]!.actions[0]!);
+
+        const argsRepeating = sigA0 === sigA1 && sigB0 === sigB1;
+
+        if (argsRepeating) {
+          return {
+            detected: true,
+            type: 'oscillating',
+            tool: toolSequence[0],
+            suggestion: `Agent is oscillating between "${toolSequence[0]}" and "${toolSequence[1]}" with identical arguments. This pattern won't make progress - try a different approach.`,
+          };
+        }
       }
     }
   }

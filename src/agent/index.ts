@@ -105,6 +105,17 @@ function buildInitialMessages(
 }
 
 /**
+ * Strip the system prompt (index 0) from the messages array.
+ * The system prompt is added fresh each turn by buildInitialMessages,
+ * so it must not be included in the returned history.
+ */
+function stripSystemPrompt(messages: Message[]): Message[] {
+  return messages.length > 0 && messages[0]?.role === 'system'
+    ? messages.slice(1)
+    : messages;
+}
+
+/**
  * Creates the final result when the agent completes successfully.
  */
 function buildFinalResult(
@@ -116,14 +127,10 @@ function buildFinalResult(
   startTime: number,
   contextUsage?: ContextUsage,
 ): AgentResult {
-  // Return messages WITHOUT the system prompt (index 0)
-  // The system prompt is added fresh each turn by the agent
-  const historyMessages = messages.slice(1);
-
   return {
     steps,
     finalAnswer,
-    messages: historyMessages,
+    messages: stripSystemPrompt(messages),
     stats: {
       totalIterations: iteration + 1,
       totalToolCalls,
@@ -227,7 +234,7 @@ export async function runAgent(
       // Check for abort before iteration
       if (args.signal.aborted) {
         log('Aborted before iteration');
-        return { type: 'aborted' };
+        return { type: 'aborted', messages: stripSystemPrompt(messages) };
       }
 
       const stepStartTime = Date.now();
@@ -262,13 +269,29 @@ export async function runAgent(
         toolCalls = accumulated.toolCalls;
       } catch (e) {
         log('Error during chat:', e);
+        if (e instanceof Error) {
+          log('Error name:', e.name, 'Stack:', e.stack);
+          if ('status_code' in e)
+            log('HTTP status:', (e as { status_code: unknown }).status_code);
+          if ('cause' in e) log('Cause:', e.cause);
+        }
+        log(
+          'Messages at error:',
+          messages.length,
+          'messages, roles:',
+          messages.map((m) => m.role).join(','),
+        );
 
         if (args.signal.aborted || isAbortError(e)) {
-          return { type: 'aborted' };
+          return { type: 'aborted', messages: stripSystemPrompt(messages) };
         }
 
         const message = e instanceof Error ? e.message : String(e);
-        return { type: 'model_error', message };
+        return {
+          type: 'model_error',
+          message,
+          messages: stripSystemPrompt(messages),
+        };
       }
 
       // Handle empty response
@@ -370,6 +393,7 @@ export async function runAgent(
             type: 'loop_detected',
             action: loopCheck.action ?? 'unknown',
             attempts: config.loopThreshold,
+            messages: stripSystemPrompt(messages),
           };
         }
 
@@ -404,6 +428,7 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
               type: 'loop_detected',
               action: doomCheck.tool ?? 'unknown',
               attempts: config.loopThreshold,
+              messages: stripSystemPrompt(messages),
             };
           }
         }
@@ -450,6 +475,7 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
       type: 'max_iterations',
       iterations: config.maxIterations,
       lastThought: steps[steps.length - 1]?.thought ?? '',
+      messages: stripSystemPrompt(messages),
     };
   } finally {
     args.signal.removeEventListener('abort', abortHandler);

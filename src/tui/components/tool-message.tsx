@@ -23,6 +23,8 @@ export type ToolMessageProps = {
   isActiveConfirmation?: boolean;
   /** Whether to show expanded output for read-only tools (toggle with Ctrl+E) */
   expanded?: boolean;
+  /** Whether a modal (command menu, session picker) is open — suppresses confirmation keys */
+  isModalOpen?: () => boolean;
 };
 
 /** Read-only tools that support expand/collapse */
@@ -278,6 +280,7 @@ function ConfirmingView(props: {
   message: ToolDisplayMessage;
   onResponse?: (response: ConfirmationResponse) => void;
   isActive?: boolean;
+  isModalOpen?: () => boolean;
   tokens: SemanticTokens;
 }) {
   let responded = false;
@@ -285,6 +288,7 @@ function ConfirmingView(props: {
   useKeyboard((key: { name?: string }) => {
     if (props.message.state.status !== 'confirming') return;
     if (!props.isActive || responded || !props.onResponse) return;
+    if (props.isModalOpen?.()) return;
 
     switch (key.name?.toLowerCase()) {
       case 'y':
@@ -654,6 +658,7 @@ export function ToolMessage(props: ToolMessageProps) {
           message={props.message}
           onResponse={props.onConfirmationResponse}
           isActive={props.isActiveConfirmation}
+          isModalOpen={props.isModalOpen}
           tokens={tokens}
         />
       );

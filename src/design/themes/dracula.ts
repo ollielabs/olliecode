@@ -39,9 +39,7 @@ export const draculaTheme: Theme = {
       syntaxOperator: '#ff79c6',
       // Diff colors
       diffAdd: '#50fa7b',
-      diffAddBg: '#2d4737',
       diffDelete: '#ff5555',
-      diffDeleteBg: '#4d2d37',
     },
   },
   light: {

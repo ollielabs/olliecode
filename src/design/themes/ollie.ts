@@ -49,9 +49,7 @@ export const ollieTheme: Theme = {
       syntaxDefault: '#c0c0c0',
       // Diff colors
       diffAdd: '#22c55e',
-      diffAddBg: '#1a4d1a',
       diffDelete: '#ef4444',
-      diffDeleteBg: '#4d1a1a',
     },
   },
   light: {

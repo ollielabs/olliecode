@@ -1,8 +1,8 @@
+import { RGBA, SyntaxStyle, type TextareaRenderable } from '@opentui/core';
 import { createEffect } from 'solid-js';
-import type { TextareaRenderable } from '@opentui/core';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
-import { StatusBar, type Status } from './status-bar';
+import { type Status, StatusBar } from './status-bar';
 
 const TEXTAREA_KEY_BINDINGS: {
   name: string;
@@ -31,16 +31,62 @@ export type InputBoxProps = {
   suppressSubmit?: boolean;
 };
 
+/** Regex to find @mentions: @ at start or after whitespace, followed by non-whitespace */
+const MENTION_RE = /(?:^|(?<=\s))@(\S+)/g;
+
+/** Unique hlRef for mention highlights so we can clear them without affecting others */
+const MENTION_HL_REF = 9999;
+
 export function InputBox(props: InputBoxProps) {
   const { tokens } = useTheme();
   let textareaRef: TextareaRenderable | undefined;
+  let mentionStyleId: number | null = null;
 
-  // Blur/focus textarea based on disabled state
+  /** Create a SyntaxStyle with a "mention" style and attach it to the textarea */
+  const setupMentionStyle = (ref: TextareaRenderable) => {
+    const style = SyntaxStyle.fromStyles({
+      mention: {
+        fg: RGBA.fromHex(tokens.textAccent),
+        underline: true,
+      },
+    });
+    ref.syntaxStyle = style;
+    mentionStyleId = style.resolveStyleId('mention');
+  };
+
+  /** Scan text for @mentions and apply highlights */
+  const updateMentionHighlights = () => {
+    if (!textareaRef || mentionStyleId === null) return;
+
+    // Clear previous mention highlights
+    textareaRef.removeHighlightsByRef(MENTION_HL_REF);
+
+    const text = textareaRef.plainText ?? '';
+    MENTION_RE.lastIndex = 0;
+
+    for (const match of text.matchAll(MENTION_RE)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      textareaRef.addHighlightByCharRange({
+        start,
+        end,
+        styleId: mentionStyleId,
+        hlRef: MENTION_HL_REF,
+      });
+    }
+  };
+
+  // Blur/focus textarea based on disabled state.
+  // Also toggle focusable to prevent mouse clicks from re-focusing
+  // the textarea while a confirmation dialog is active.
   createEffect(() => {
+    if (!textareaRef) return;
     if (props.disabled) {
-      textareaRef?.blur();
+      textareaRef.focusable = false;
+      textareaRef.blur();
     } else {
-      textareaRef?.focus();
+      textareaRef.focusable = true;
+      textareaRef.focus();
     }
   });
 
@@ -71,12 +117,14 @@ export function InputBox(props: InputBoxProps) {
         focused={!props.disabled}
         ref={(el) => {
           textareaRef = el;
+          setupMentionStyle(el);
           props.onRef?.(el);
         }}
         maxHeight={2}
         wrapMode="word"
         keyBindings={TEXTAREA_KEY_BINDINGS}
         onSubmit={handleSubmit}
+        onContentChange={updateMentionHighlights}
       />
       <StatusBar
         model={props.model}

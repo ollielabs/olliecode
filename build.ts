@@ -11,8 +11,8 @@
  *   bun run build.ts --target=bun-darwin-x64 --outfile=dist/ollie-darwin-x64
  */
 
+import { parseArgs } from 'node:util';
 import solidPlugin from '@opentui/solid/bun-plugin';
-import { parseArgs } from 'util';
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),

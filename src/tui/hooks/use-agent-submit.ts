@@ -254,6 +254,11 @@ export function useAgentSubmit(
 
         updateToolState(toolId, finalState);
 
+        // Refresh sidebar todos in real-time when todo_write completes
+        if (result.tool === 'todo_write' && !result.error) {
+          props.setSidebarTodos(getTodos(session.id));
+        }
+
         // Get the current tool message to build the ToolPart for storage
         props.setDisplayMessages((prev) => {
           const toolMsg = prev.find(
@@ -315,7 +320,24 @@ export function useAgentSubmit(
       },
     });
 
+    // Sort tool parts by original call order (parallel tools may complete out of order)
+    completedToolParts.sort((a, b) => {
+      const indexA = indexByToolId.get(a.id) ?? 0;
+      const indexB = indexByToolId.get(b.id) ?? 0;
+      return indexA - indexB;
+    });
+
     if ('type' in result) {
+      // Error/abort path — persist partial history so it survives restart
+      props.setHistory(result.messages);
+      if (completedToolParts.length > 0) {
+        addMessage(
+          session.id,
+          'assistant',
+          fromAssistantResponse('', completedToolParts),
+        );
+      }
+
       switch (result.type) {
         case 'aborted':
           setStatus('idle');
@@ -359,13 +381,6 @@ export function useAgentSubmit(
       setStatus('idle');
 
       props.setSidebarTodos(getTodos(session.id));
-
-      // Sort tool parts by original call order (parallel tools may complete out of order)
-      completedToolParts.sort((a, b) => {
-        const indexA = indexByToolId.get(a.id) ?? 0;
-        const indexB = indexByToolId.get(b.id) ?? 0;
-        return indexA - indexB;
-      });
 
       // Store the assistant message with all tool parts
       addMessage(
