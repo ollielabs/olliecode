@@ -7,6 +7,7 @@ import type { Message, ToolCall } from 'ollama';
 import { Ollama } from 'ollama';
 import { fetchModelInfo, getContextStats } from '../lib/tokenizer';
 import {
+  type CompactionResult,
   needsCompaction as checkNeedsCompaction,
   compactMessages,
   DEFAULT_COMPACTION_CONFIG,
@@ -126,6 +127,7 @@ function buildFinalResult(
   totalToolCalls: number,
   startTime: number,
   contextUsage?: ContextUsage,
+  compacted?: CompactionResult,
 ): AgentResult {
   return {
     steps,
@@ -137,6 +139,7 @@ function buildFinalResult(
       totalDurationMs: Date.now() - startTime,
     },
     contextUsage,
+    compacted,
   };
 }
 
@@ -219,6 +222,7 @@ export async function runAgent(
   const steps: AgentStep[] = [];
   const startTime = Date.now();
   let totalToolCalls = 0;
+  let lastCompaction: CompactionResult | undefined;
 
   // Wire up abort signal
   const abortHandler = () => client.abort();
@@ -234,7 +238,11 @@ export async function runAgent(
       // Check for abort before iteration
       if (args.signal.aborted) {
         log('Aborted before iteration');
-        return { type: 'aborted', messages: stripSystemPrompt(messages) };
+        return {
+          type: 'aborted',
+          messages: stripSystemPrompt(messages),
+          compacted: lastCompaction,
+        };
       }
 
       const stepStartTime = Date.now();
@@ -283,7 +291,11 @@ export async function runAgent(
         );
 
         if (args.signal.aborted || isAbortError(e)) {
-          return { type: 'aborted', messages: stripSystemPrompt(messages) };
+          return {
+            type: 'aborted',
+            messages: stripSystemPrompt(messages),
+            compacted: lastCompaction,
+          };
         }
 
         const message = e instanceof Error ? e.message : String(e);
@@ -291,6 +303,7 @@ export async function runAgent(
           type: 'model_error',
           message,
           messages: stripSystemPrompt(messages),
+          compacted: lastCompaction,
         };
       }
 
@@ -331,6 +344,7 @@ export async function runAgent(
           totalToolCalls,
           startTime,
           contextUsage,
+          lastCompaction,
         );
       }
 
@@ -394,6 +408,7 @@ export async function runAgent(
             action: loopCheck.action ?? 'unknown',
             attempts: config.loopThreshold,
             messages: stripSystemPrompt(messages),
+            compacted: lastCompaction,
           };
         }
 
@@ -429,6 +444,7 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
               action: doomCheck.tool ?? 'unknown',
               attempts: config.loopThreshold,
               messages: stripSystemPrompt(messages),
+              compacted: lastCompaction,
             };
           }
         }
@@ -458,6 +474,8 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
           // Replace messages array with compacted version
           messages.length = 0;
           messages.push(...result.messages);
+          // Stash the compaction result so the TUI can persist a snapshot
+          lastCompaction = result;
           log(
             'Compacted:',
             result.originalCount,
@@ -476,6 +494,7 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
       iterations: config.maxIterations,
       lastThought: steps[steps.length - 1]?.thought ?? '',
       messages: stripSystemPrompt(messages),
+      compacted: lastCompaction,
     };
   } finally {
     args.signal.removeEventListener('abort', abortHandler);

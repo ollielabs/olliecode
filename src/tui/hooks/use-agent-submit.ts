@@ -20,6 +20,7 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
+import { fromOllamaMessages } from '../../session/convert';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -40,7 +41,10 @@ import type {
   ToolMetadata,
   ToolState,
 } from '../types';
-import type { UseMessageStoreReturn } from './use-message-store';
+import type {
+  CompactionInfo,
+  UseMessageStoreReturn,
+} from './use-message-store';
 
 export type UseAgentSubmitProps = {
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
@@ -306,11 +310,21 @@ export function useAgentSubmit(
       return indexA - indexB;
     });
 
+    // Build compaction info if auto-compaction occurred during the run
+    let compaction: CompactionInfo | undefined;
+    if (result.compacted) {
+      compaction = {
+        snapshotType: 'auto_compaction',
+        messages: fromOllamaMessages(result.compacted.messages),
+        originalCount: result.compacted.originalCount,
+      };
+    }
+
     if ('type' in result) {
       // Error/abort path — settle with partial tool parts (if any)
       // settleAgentRun persists the assistant message and refreshes the store,
       // so in-memory and SQLite are consistent after this call.
-      store.settleAgentRun(session.id, '', completedToolParts);
+      store.settleAgentRun(session.id, '', completedToolParts, compaction);
 
       switch (result.type) {
         case 'aborted':
@@ -344,8 +358,13 @@ export function useAgentSubmit(
           break;
       }
     } else {
-      // Success path — settle with final answer + tool parts
-      store.settleAgentRun(session.id, result.finalAnswer, completedToolParts);
+      // Success path — settle with final answer + tool parts + compaction snapshot
+      store.settleAgentRun(
+        session.id,
+        result.finalAnswer,
+        completedToolParts,
+        compaction,
+      );
       setStatus('idle');
 
       props.setSidebarTodos(getTodos(session.id));

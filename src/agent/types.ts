@@ -1,6 +1,7 @@
 import type { Message, ToolCall } from 'ollama';
 import type { z } from 'zod';
 
+import type { CompactionResult } from './compaction';
 import type { SafetyConfig } from './safety/types';
 
 // Re-export safety types for convenience
@@ -117,17 +118,42 @@ export type AgentResult = {
   };
   /** Context usage statistics (if available) */
   contextUsage?: ContextUsage;
+  /** If auto-compaction occurred during this run, the compaction result */
+  compacted?: CompactionResult;
 };
 
 /**
  * Error types for agent failures
  */
 export type AgentError =
-  | { type: 'aborted'; messages: Message[] }
-  | { type: 'model_error'; message: string; messages: Message[] }
-  | { type: 'loop_detected'; action: string; attempts: number; messages: Message[] }
-  | { type: 'max_iterations'; iterations: number; lastThought: string; messages: Message[] }
-  | { type: 'tool_error'; tool: string; message: string; messages: Message[] };
+  | { type: 'aborted'; messages: Message[]; compacted?: CompactionResult }
+  | {
+      type: 'model_error';
+      message: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'loop_detected';
+      action: string;
+      attempts: number;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'max_iterations';
+      iterations: number;
+      lastThought: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'tool_error';
+      tool: string;
+      message: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    };
 
 /**
  * Configuration for the agent
