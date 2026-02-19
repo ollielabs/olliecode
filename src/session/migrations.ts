@@ -78,6 +78,27 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
     `,
   },
+  {
+    version: 3,
+    name: 'add_message_snapshots',
+    sql: `
+      -- Compaction snapshots for message history.
+      -- Original messages are never deleted — snapshots are overlays.
+      -- On load: active = snapshot.messages + raw messages added after snapshot.
+      CREATE TABLE IF NOT EXISTS message_snapshots (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        snapshot_type TEXT NOT NULL,
+        messages TEXT NOT NULL,
+        original_count INTEGER NOT NULL,
+        compacted_count INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_snapshots_session ON message_snapshots(session_id);
+    `,
+  },
 ];
 
 /**
