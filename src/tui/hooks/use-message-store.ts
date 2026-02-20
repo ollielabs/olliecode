@@ -162,10 +162,10 @@ export function useMessageStore(): UseMessageStoreReturn {
     augmentedPrompt: string,
     attachedFiles?: string[],
   ): void => {
-    // Dedup: if last stored message is already a user message (from a
-    // failed previous attempt), skip re-persisting. The model will see
-    // the existing user message in history.
-    if (!hasTrailingUserMessage(sessionId)) {
+    // Dedup: if last stored message is already a user message with the
+    // same content (from a failed previous attempt), skip re-persisting.
+    // Different content means a genuinely new message after a failed run.
+    if (!hasTrailingUserMessage(sessionId, augmentedPrompt)) {
       addMessage(sessionId, 'user', fromUserInput(augmentedPrompt));
     }
 

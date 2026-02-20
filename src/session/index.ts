@@ -286,17 +286,42 @@ export function getActiveMessages(sessionId: string): StoredMessage[] {
 }
 
 /**
- * Check if the last message in a session is a user message with no
- * subsequent assistant response. Used for deduplication on retry.
+ * Check if the last message in a session is a user message with the
+ * same content. Used for deduplication on retry — prevents double-persist
+ * when the user retries after an error.
+ *
+ * Only deduplicates if the content matches, so new user messages after
+ * a failed run (where no assistant response was persisted) are correctly
+ * stored as separate entries.
  */
-export function hasTrailingUserMessage(sessionId: string): boolean {
+export function hasTrailingUserMessage(
+  sessionId: string,
+  content?: string,
+): boolean {
   const db = getDatabase();
   const row = db
     .query(
-      'SELECT role FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT role, parts FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
     )
-    .get(sessionId) as { role: string } | null;
-  return row?.role === 'user';
+    .get(sessionId) as { role: string; parts: string } | null;
+
+  if (row?.role !== 'user') return false;
+  if (content === undefined) return true;
+
+  // Compare content: extract text from stored parts
+  try {
+    const parts = JSON.parse(row.parts) as Array<{
+      type: string;
+      content?: string;
+    }>;
+    const storedContent = parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.content ?? '')
+      .join('\n');
+    return storedContent === content;
+  } catch {
+    return false;
+  }
 }
 
 /**
