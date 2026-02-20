@@ -12,6 +12,7 @@ import { listSessions } from '../session';
 import {
   AssistantMessage,
   CommandMenu,
+  CompactionSummary,
   ConfigModal,
   ContextInfoNotification,
   ContextStatsModal,
@@ -104,6 +105,7 @@ function AppContent(props: AppProps) {
     mode: session.mode,
     store,
     setSidebarTodos: session.setSidebarTodos,
+    updateRealTokenCounts: context.updateRealTokenCounts,
   });
 
   // Status getter for InputBox
@@ -399,6 +401,16 @@ function AppContent(props: AppProps) {
                           commands.showCommandMenu()
                         }
                       />
+                    </Show>
+                    <Show when={msg.type === 'compaction_summary' && msg}>
+                      {(
+                        summaryMsg: () => import('./types').CompactionSummaryDisplayMessage,
+                      ) => (
+                        <CompactionSummary
+                          content={summaryMsg().content}
+                          compactedCount={summaryMsg().compactedCount}
+                        />
+                      )}
                     </Show>
                   </box>
                 )}

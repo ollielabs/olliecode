@@ -11,6 +11,28 @@ import { estimateMessagesTokens } from '../lib/tokenizer';
 import { log } from './logger';
 
 /**
+ * Prefix used to identify compaction summary messages in the Ollama Message[]
+ * pipeline. This allows fromOllamaMessages() to detect summaries and store
+ * them as CompactionSummaryPart instead of plain text.
+ *
+ * Format: `[compaction:N]` where N is the number of messages compacted.
+ */
+export const COMPACTION_SUMMARY_PREFIX = '[compaction:';
+
+/**
+ * Build a compaction summary message with the identifiable prefix.
+ */
+function buildCompactionSummaryMessage(
+  summary: string,
+  compactedCount: number,
+): Message {
+  return {
+    role: 'assistant',
+    content: `${COMPACTION_SUMMARY_PREFIX}${compactedCount}]\n${summary}`,
+  };
+}
+
+/**
  * Compaction configuration options.
  */
 export type CompactionConfig = {
@@ -202,6 +224,7 @@ function compactSimple(
   config: CompactionConfig,
 ): Message[] {
   const result: Message[] = [];
+  let droppedCount = 0;
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
@@ -210,6 +233,16 @@ function compactSimple(
     if (
       shouldPreserve(message, i, messages.length, config.minPreservedMessages)
     ) {
+      // Flush dropped count as a compaction summary before preserved messages
+      if (droppedCount > 0) {
+        result.push(
+          buildCompactionSummaryMessage(
+            `${droppedCount} earlier messages compacted`,
+            droppedCount,
+          ),
+        );
+        droppedCount = 0;
+      }
       // Preserve but still truncate tool outputs
       if (message.role === 'tool') {
         result.push(summarizeToolMessage(message, level));
@@ -224,10 +257,21 @@ function compactSimple(
         content: truncateToolOutput(message.content ?? '', maxLines),
       });
     } else if (level === 'aggressive') {
+      droppedCount++;
     } else {
       // Keep the message but truncate if needed
       result.push(message);
     }
+  }
+
+  // Flush any trailing dropped messages
+  if (droppedCount > 0) {
+    result.push(
+      buildCompactionSummaryMessage(
+        `${droppedCount} earlier messages compacted`,
+        droppedCount,
+      ),
+    );
   }
 
   return result;
@@ -263,10 +307,7 @@ async function compactWithSummary(
           config.maxSummaryTokens,
           config.temperature,
         );
-        result.push({
-          role: 'system',
-          content: `[Previous conversation summary: ${summary}]`,
-        });
+        result.push(buildCompactionSummaryMessage(summary, toSummarize.length));
         toSummarize.length = 0;
       }
 
@@ -291,10 +332,7 @@ async function compactWithSummary(
       config.maxSummaryTokens,
       config.temperature,
     );
-    result.push({
-      role: 'system',
-      content: `[Previous conversation summary: ${summary}]`,
-    });
+    result.push(buildCompactionSummaryMessage(summary, toSummarize.length));
   }
 
   return result;

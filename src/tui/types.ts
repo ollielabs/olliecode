@@ -70,13 +70,27 @@ export type ToolDisplayMessage = {
 };
 
 /**
+ * Compaction summary display message.
+ * Rendered as a visually distinct separator in the chat with the
+ * LLM-generated summary content.
+ */
+export type CompactionSummaryDisplayMessage = {
+  type: 'compaction_summary';
+  /** The LLM-generated summary content */
+  content: string;
+  /** Number of messages that were compacted */
+  compactedCount: number;
+};
+
+/**
  * Display message for TUI rendering.
  * Each message type has a different visual representation.
  */
 export type DisplayMessage =
   | { type: 'user'; content: string; attachedFiles?: string[] }
   | { type: 'assistant'; content: string }
-  | ToolDisplayMessage;
+  | ToolDisplayMessage
+  | CompactionSummaryDisplayMessage;
 
 /**
  * Props for the main App component.

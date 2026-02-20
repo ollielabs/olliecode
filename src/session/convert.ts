@@ -4,9 +4,15 @@
  */
 
 import type { Message, ToolCall } from 'ollama';
+import { COMPACTION_SUMMARY_PREFIX } from '../agent/compaction';
 import { TOOL_RESULT_PREFIX } from '../agent/tool-processor';
 import type { DisplayMessage } from '../tui/types';
-import type { MessagePart, StoredMessage, ToolPart } from './types';
+import type {
+  CompactionSummaryPart,
+  MessagePart,
+  StoredMessage,
+  ToolPart,
+} from './types';
 
 // Re-export DisplayMessage for backward compatibility
 export type { DisplayMessage };
@@ -58,7 +64,23 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
       const content = textParts.map((p) => p.content).join('\n');
       result.push({ role: 'user', content });
     } else if (msg.role === 'assistant') {
-      // Assistant messages: extract text and tool parts
+      // Check for compaction summary parts
+      const summaryParts = msg.parts.filter(
+        (p): p is CompactionSummaryPart => p.type === 'compaction_summary',
+      );
+      if (summaryParts.length > 0) {
+        // Compaction summaries: emit as assistant messages with the prefix
+        // so the model sees them as conversation context
+        for (const sp of summaryParts) {
+          result.push({
+            role: 'assistant',
+            content: `${COMPACTION_SUMMARY_PREFIX}${sp.compactedCount}]\n${sp.content}`,
+          });
+        }
+        continue;
+      }
+
+      // Regular assistant messages: extract text and tool parts
       const textParts = msg.parts.filter(
         (p): p is MessagePart & { type: 'text' } => p.type === 'text',
       );
@@ -125,7 +147,13 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
 
   for (const msg of messages) {
     for (const part of msg.parts) {
-      if (part.type === 'text' && part.content.trim()) {
+      if (part.type === 'compaction_summary') {
+        result.push({
+          type: 'compaction_summary',
+          content: part.content,
+          compactedCount: part.compactedCount,
+        });
+      } else if (part.type === 'text' && part.content.trim()) {
         if (msg.role === 'user') {
           // Strip augmented file contents for display, extract file paths
           const { text, attachedFiles } = stripFileAugmentation(part.content);
@@ -150,25 +178,75 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
   return result;
 }
 
+/** Regex to parse the compaction summary prefix: `[compaction:N]\n` */
+const COMPACTION_PREFIX_RE = /^\[compaction:(\d+)\]\n([\s\S]*)$/;
+
+/** Valid StoredMessage roles */
+const VALID_ROLES = new Set<StoredMessage['role']>([
+  'user',
+  'assistant',
+  'system',
+]);
+
 /**
  * Convert Ollama messages back to StoredMessage format.
  *
  * Used for compaction snapshots — compacted Message[] needs to be stored
  * as StoredMessage[] so it can be loaded via getActiveMessages.
  *
- * This is a simplified conversion: each Message becomes one StoredMessage
- * with a single text part. Tool calls in the compacted history are stored
- * as text content (their tool_calls metadata is already summarized by
- * the compaction process).
+ * Detects compaction summary messages (via COMPACTION_SUMMARY_PREFIX) and
+ * stores them as CompactionSummaryPart so they're identifiable throughout
+ * the pipeline.
+ *
+ * Filters out messages with invalid roles (e.g., 'tool' messages that
+ * survive compaction as standalone entries).
  */
 export function fromOllamaMessages(messages: Message[]): StoredMessage[] {
-  return messages.map((msg, index) => ({
-    id: `compacted_${index}`,
-    sessionId: '',
-    role: msg.role as StoredMessage['role'],
-    parts: [{ type: 'text' as const, content: msg.content ?? '' }],
-    createdAt: 0,
-  }));
+  const baseTimestamp = Date.now();
+  const result: StoredMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (!msg) continue;
+
+    const content = msg.content ?? '';
+    const role = msg.role as string;
+
+    // Filter out invalid roles (e.g., standalone 'tool' messages)
+    if (!VALID_ROLES.has(role as StoredMessage['role'])) {
+      continue;
+    }
+
+    // Detect compaction summary messages
+    const compactionMatch = content.match(COMPACTION_PREFIX_RE);
+    if (compactionMatch && role === 'assistant') {
+      const compactedCount = Number.parseInt(compactionMatch[1] ?? '0', 10);
+      const summaryContent = compactionMatch[2] ?? '';
+      result.push({
+        id: `compacted_${i}`,
+        sessionId: '',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'compaction_summary',
+            content: summaryContent,
+            compactedCount,
+          },
+        ],
+        createdAt: baseTimestamp + i,
+      });
+    } else {
+      result.push({
+        id: `compacted_${i}`,
+        sessionId: '',
+        role: role as StoredMessage['role'],
+        parts: [{ type: 'text' as const, content }],
+        createdAt: baseTimestamp + i,
+      });
+    }
+  }
+
+  return result;
 }
 
 /**

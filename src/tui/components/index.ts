@@ -9,6 +9,10 @@ export {
 } from './assistant-message';
 // Dialog and modal components
 export { CommandMenu, type SlashCommand } from './command-menu';
+export {
+  CompactionSummary,
+  type CompactionSummaryProps,
+} from './compaction-summary';
 export { ConfigModal, type ConfigModalProps } from './config-modal';
 export {
   ContextInfoNotification,

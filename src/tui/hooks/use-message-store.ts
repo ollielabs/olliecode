@@ -167,19 +167,12 @@ export function useMessageStore(): UseMessageStoreReturn {
     // the existing user message in history.
     if (!hasTrailingUserMessage(sessionId)) {
       addMessage(sessionId, 'user', fromUserInput(augmentedPrompt));
-      refreshStore(sessionId);
     }
 
-    // Always add to pending display so the UI shows the message immediately
-    setPendingDisplayMessages((prev) => [
-      ...prev,
-      {
-        type: 'user' as const,
-        content: rawPrompt,
-        attachedFiles:
-          attachedFiles && attachedFiles.length > 0 ? attachedFiles : undefined,
-      },
-    ]);
+    // Refresh the store — the user message is now in storedMessages,
+    // so displayMessages derives it automatically. No need to add to
+    // pending (that would cause a duplicate).
+    refreshStore(sessionId);
   };
 
   const settleAgentRun = (

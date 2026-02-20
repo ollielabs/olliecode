@@ -22,10 +22,26 @@ export type ToolPart = {
 };
 
 /**
+ * Compaction summary part — identifies a message as a compaction artifact.
+ * Stored as a distinct part type so it can be identified throughout the
+ * pipeline: storage, Ollama conversion, display rendering, and undo-compact.
+ */
+export type CompactionSummaryPart = {
+  type: 'compaction_summary';
+  /** The LLM-generated summary content */
+  content: string;
+  /** Number of messages that were compacted into this summary */
+  compactedCount: number;
+};
+
+/**
  * Message part types (stored as JSON in `parts` column).
  * This is the source of truth for both Ollama messages and display UI.
  */
-export type MessagePart = { type: 'text'; content: string } | ToolPart;
+export type MessagePart =
+  | { type: 'text'; content: string }
+  | ToolPart
+  | CompactionSummaryPart;
 
 /**
  * Stored message (maps to DB row).
