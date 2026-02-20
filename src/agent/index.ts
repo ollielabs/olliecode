@@ -5,7 +5,11 @@
 
 import type { Message, ToolCall } from 'ollama';
 import { Ollama } from 'ollama';
-import { fetchModelInfo, getContextStats } from '../lib/tokenizer';
+import {
+  fetchModelInfo,
+  getContextStats,
+  OVERHEAD_AGENT_LOOP,
+} from '../lib/tokenizer';
 import {
   type CompactionResult,
   needsCompaction as checkNeedsCompaction,
@@ -355,8 +359,12 @@ export async function runAgent(
               completionTokens: lastCompletionTokens,
             };
           } else {
-            // Fallback to heuristic estimate
-            const stats = getContextStats(messages, maxContextTokens);
+            // Fallback to heuristic estimate (messages includes system prompt)
+            const stats = getContextStats(
+              messages,
+              maxContextTokens,
+              OVERHEAD_AGENT_LOOP,
+            );
             contextUsage = {
               totalTokens: stats.totalTokens,
               maxTokens: stats.maxTokens,
@@ -493,7 +501,12 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
           usagePercent = Math.round((totalUsed / maxContextTokens) * 100);
           log('Context usage (real):', `${usagePercent}%`);
         } else {
-          const stats = getContextStats(messages, maxContextTokens);
+          // messages already includes system prompt, only add tool schema overhead
+          const stats = getContextStats(
+            messages,
+            maxContextTokens,
+            OVERHEAD_AGENT_LOOP,
+          );
           usagePercent = stats.usagePercent;
           log('Context usage (estimated):', `${usagePercent}%`);
         }

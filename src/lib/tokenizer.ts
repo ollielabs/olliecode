@@ -17,13 +17,14 @@ import type { Message } from 'ollama';
 
 /**
  * Average characters per token for different content types.
- * These are empirical estimates based on common tokenizers (GPT, Llama).
+ * Conservative estimates (lower = higher token count = safer).
+ * Based on empirical testing with GLM-4, Llama 3, and Qwen tokenizers.
  */
 const CHARS_PER_TOKEN = {
-  text: 4,
-  code: 3,
-  json: 3.5,
-  mixed: 3.5, // Default for most LLM conversations
+  text: 3.5,
+  code: 2.5,
+  json: 3,
+  mixed: 3, // Default — conservative for code-heavy conversations
 } as const;
 
 type ContentType = keyof typeof CHARS_PER_TOKEN;
@@ -237,19 +238,41 @@ export function clearModelInfoCache(): void {
 }
 
 /**
+ * Estimated token overhead for components NOT included in the message
+ * history but always present in the actual Ollama request.
+ *
+ * SIDEBAR overhead (history excludes system prompt):
+ * - System prompt (build mode + AGENTS.md): ~4,000-6,000 tokens
+ * - Tool schemas (10 tools with Zod JSON schemas): ~3,000-5,000 tokens
+ * - ChatML formatting overhead: ~500 tokens
+ *
+ * AGENT LOOP overhead (messages includes system prompt, but not tool schemas):
+ * - Tool schemas: ~3,000-5,000 tokens
+ * - ChatML formatting overhead: ~500 tokens
+ *
+ * When real token counts are available (from prompt_eval_count), they
+ * supersede this entirely.
+ */
+export const OVERHEAD_SIDEBAR = 10_000;
+export const OVERHEAD_AGENT_LOOP = 4_000;
+
+/**
  * Calculate context usage statistics.
  *
- * @param messages - Current conversation messages
+ * @param messages - Current conversation messages (excluding system prompt)
  * @param maxTokens - Maximum context window size (from fetchModelInfo)
+ * @param overheadTokens - Additional tokens for system prompt + tool schemas
+ *                         (defaults to DEFAULT_OVERHEAD_TOKENS)
  * @returns Context usage statistics
  */
 export function getContextStats(
   messages: Message[],
   maxTokens: number,
+  overheadTokens: number = OVERHEAD_SIDEBAR,
 ): ContextStats {
   // Calculate tokens by role
   const byRole = {
-    system: 0,
+    system: overheadTokens,
     user: 0,
     assistant: 0,
     tool: 0,
