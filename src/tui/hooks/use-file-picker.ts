@@ -3,8 +3,8 @@
  * Manages file filtering, selection, and path insertion.
  */
 
-import { createSignal, onMount } from 'solid-js';
 import { useKeyboard } from '@opentui/solid';
+import { createSignal, onMount } from 'solid-js';
 import { getFilesAndDirectories } from '../../utils/file-list';
 import type { Status, TextareaRef } from '../types';
 
@@ -51,7 +51,7 @@ export function useFilePicker(props: UseFilePickerProps): UseFilePickerReturn {
     setTimeout(() => {
       const ref = props.getTextareaRef();
       if (!ref || ref.isDestroyed) return;
-      if (props.status() !== 'idle' || props.isModalOpen()) return;
+      if (props.status() === 'thinking' || props.isModalOpen()) return;
 
       const currentText = ref.plainText ?? '';
 

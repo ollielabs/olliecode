@@ -87,7 +87,7 @@ export function useKeyboardShortcuts(
     // Tab: Toggle mode (only when idle and no modals open)
     if (
       key.name === 'tab' &&
-      props.status() === 'idle' &&
+      props.status() !== 'thinking' &&
       !props.showCommandMenu() &&
       !props.showSessionPicker()
     ) {
