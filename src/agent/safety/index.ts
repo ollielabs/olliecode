@@ -198,9 +198,10 @@ export class SafetyLayer {
                 riskLevel: 'dangerous',
                 description: `Overwrite ${this.getDisplayPath(path)} (${currentContent.length} bytes → ${contentLength} bytes). Consider using edit_file for targeted changes.`,
                 preview: {
-                  type: 'content',
-                  content: truncate(content ?? '', 2000),
-                  truncated: (content?.length ?? 0) > 2000,
+                  type: 'diff',
+                  before: currentContent,
+                  after: content ?? '',
+                  filePath: path,
                 },
               };
               return { status: 'needs_confirmation', request };
@@ -363,11 +364,25 @@ export class SafetyLayer {
     try {
       switch (tool) {
         case 'write_file': {
-          const content = args.content as string;
+          const filePath = args.path as string;
+          const newContent = args.content as string;
+
+          // Read existing file content for diff (empty string if new file)
+          let existingContent = '';
+          try {
+            const file = Bun.file(filePath);
+            if (await file.exists()) {
+              existingContent = await file.text();
+            }
+          } catch {
+            // New file or unreadable — diff against empty
+          }
+
           return {
-            type: 'content',
-            content: truncate(content, 2000),
-            truncated: content.length > 2000,
+            type: 'diff',
+            before: existingContent,
+            after: newContent,
+            filePath,
           };
         }
 
