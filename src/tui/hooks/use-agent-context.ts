@@ -49,6 +49,16 @@ export type UseAgentContextReturn = {
   handleContextStatsClose: () => void;
   /** Set context info message */
   setContextInfo: (info: string | null) => void;
+  /**
+   * Update sidebar stats with real token counts from the model.
+   * Called by use-agent-submit after a successful agent run.
+   */
+  updateRealTokenCounts: (
+    totalTokens: number,
+    maxTokens: number,
+    promptTokens?: number,
+    completionTokens?: number,
+  ) => void;
 };
 
 export function useAgentContext(
@@ -193,6 +203,30 @@ export function useAgentContext(
     setContextStats(null);
   };
 
+  const updateRealTokenCounts = (
+    totalTokens: number,
+    maxTokens: number,
+    promptTokens?: number,
+    completionTokens?: number,
+  ) => {
+    const usagePercent = Math.round((totalTokens / maxTokens) * 100);
+    setSidebarStats({
+      totalTokens,
+      maxTokens,
+      usagePercent,
+      isNearLimit: usagePercent >= 80,
+      isCritical: usagePercent >= 90,
+      byRole: {
+        // Real counts don't provide per-role breakdown
+        // Use total as assistant since that's the dominant category
+        system: 0,
+        user: 0,
+        assistant: promptTokens ?? totalTokens,
+        tool: completionTokens ?? 0,
+      },
+    });
+  };
+
   return {
     contextInfo,
     contextStats,
@@ -204,5 +238,6 @@ export function useAgentContext(
     handleForget,
     handleContextStatsClose,
     setContextInfo,
+    updateRealTokenCounts,
   };
 }

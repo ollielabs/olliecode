@@ -12,6 +12,10 @@ import { log } from './logger';
 export type AccumulatedResponse = {
   content: string;
   toolCalls: ToolCall[];
+  /** Actual prompt token count from model (from final done=true chunk) */
+  promptTokens?: number;
+  /** Actual completion token count from model (from final done=true chunk) */
+  completionTokens?: number;
 };
 
 /**
@@ -24,6 +28,7 @@ export type StreamCallbacks = {
 
 /**
  * A single chunk from Ollama streaming response.
+ * The final chunk (done=true) includes actual token counts from the model.
  */
 export type OllamaChunk = {
   message?: {
@@ -31,6 +36,10 @@ export type OllamaChunk = {
     tool_calls?: ToolCall[];
   };
   done?: boolean;
+  /** Actual number of tokens in the prompt (final chunk only) */
+  prompt_eval_count?: number;
+  /** Actual number of tokens generated (final chunk only) */
+  eval_count?: number;
 };
 
 /**
@@ -75,7 +84,19 @@ export async function processStream(
     }
 
     if (chunk.done) {
-      log('Chunk done=true');
+      // Capture actual token counts from the final chunk
+      if (chunk.prompt_eval_count !== undefined) {
+        accumulated.promptTokens = chunk.prompt_eval_count;
+      }
+      if (chunk.eval_count !== undefined) {
+        accumulated.completionTokens = chunk.eval_count;
+      }
+      log(
+        'Chunk done=true, promptTokens:',
+        accumulated.promptTokens ?? 'N/A',
+        'completionTokens:',
+        accumulated.completionTokens ?? 'N/A',
+      );
       break;
     }
   }

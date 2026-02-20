@@ -223,6 +223,10 @@ export async function runAgent(
   const startTime = Date.now();
   let totalToolCalls = 0;
   let lastCompaction: CompactionResult | undefined;
+  /** Last known actual prompt token count from model (from processStream) */
+  let lastPromptTokens: number | undefined;
+  /** Last known actual completion token count from model */
+  let lastCompletionTokens: number | undefined;
 
   // Wire up abort signal
   const abortHandler = () => client.abort();
@@ -275,6 +279,14 @@ export async function runAgent(
 
         content = accumulated.content;
         toolCalls = accumulated.toolCalls;
+
+        // Track real token counts from the model
+        if (accumulated.promptTokens !== undefined) {
+          lastPromptTokens = accumulated.promptTokens;
+        }
+        if (accumulated.completionTokens !== undefined) {
+          lastCompletionTokens = accumulated.completionTokens;
+        }
       } catch (e) {
         log('Error during chat:', e);
         if (e instanceof Error) {
@@ -323,16 +335,35 @@ export async function runAgent(
           content,
         });
 
-        // Calculate final context usage if we have model info
+        // Calculate final context usage — prefer real token counts from model
         let contextUsage: ContextUsage | undefined;
         if (maxContextTokens) {
-          const stats = getContextStats(messages, maxContextTokens);
-          contextUsage = {
-            totalTokens: stats.totalTokens,
-            maxTokens: stats.maxTokens,
-            usagePercent: stats.usagePercent,
-            exceededThreshold: stats.isNearLimit,
-          };
+          if (lastPromptTokens !== undefined) {
+            // Use real counts: promptTokens is the total input tokens
+            // (system + history + user + tool schemas — everything).
+            // Add completionTokens for the response we just generated.
+            const totalTokens = lastPromptTokens + (lastCompletionTokens ?? 0);
+            const usagePercent = Math.round(
+              (totalTokens / maxContextTokens) * 100,
+            );
+            contextUsage = {
+              totalTokens,
+              maxTokens: maxContextTokens,
+              usagePercent,
+              exceededThreshold: usagePercent >= 80,
+              promptTokens: lastPromptTokens,
+              completionTokens: lastCompletionTokens,
+            };
+          } else {
+            // Fallback to heuristic estimate
+            const stats = getContextStats(messages, maxContextTokens);
+            contextUsage = {
+              totalTokens: stats.totalTokens,
+              maxTokens: stats.maxTokens,
+              usagePercent: stats.usagePercent,
+              exceededThreshold: stats.isNearLimit,
+            };
+          }
           log('Final context usage:', `${contextUsage.usagePercent}%`);
         }
 
@@ -452,15 +483,23 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
 
       // Check for context compaction
       if (config.autoCompaction && maxContextTokens) {
-        const stats = getContextStats(messages, maxContextTokens);
-        if (
-          checkNeedsCompaction(stats.usagePercent, config.compactionThreshold)
-        ) {
-          log(
-            'Context usage at',
-            `${stats.usagePercent}%, triggering compaction`,
-          );
-          const level = getCompactionLevel(stats.usagePercent);
+        // Use real token count from model when available, fall back to heuristic
+        let usagePercent: number;
+        if (lastPromptTokens !== undefined) {
+          // Real: promptTokens includes everything the model tokenized
+          // (system + history + tools + user). Add completion tokens for
+          // the response that is now part of history.
+          const totalUsed = lastPromptTokens + (lastCompletionTokens ?? 0);
+          usagePercent = Math.round((totalUsed / maxContextTokens) * 100);
+          log('Context usage (real):', `${usagePercent}%`);
+        } else {
+          const stats = getContextStats(messages, maxContextTokens);
+          usagePercent = stats.usagePercent;
+          log('Context usage (estimated):', `${usagePercent}%`);
+        }
+        if (checkNeedsCompaction(usagePercent, config.compactionThreshold)) {
+          log('Context usage at', `${usagePercent}%, triggering compaction`);
+          const level = getCompactionLevel(usagePercent);
           const result = await compactMessages(
             messages,
             level,

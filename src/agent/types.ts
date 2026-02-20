@@ -92,9 +92,13 @@ export type AgentStep = {
 
 /**
  * Context usage statistics for the agent run.
+ *
+ * When `promptTokens` is present, `totalTokens` and `usagePercent` are
+ * computed from real model tokenizer counts. Otherwise they fall back to
+ * the character-based heuristic.
  */
 export type ContextUsage = {
-  /** Estimated tokens used at end of run */
+  /** Total tokens used (real if promptTokens available, else estimated) */
   totalTokens: number;
   /** Maximum context window for the model */
   maxTokens: number;
@@ -102,6 +106,10 @@ export type ContextUsage = {
   usagePercent: number;
   /** Whether context exceeded 80% threshold */
   exceededThreshold: boolean;
+  /** Actual prompt tokens from model (undefined if not yet available) */
+  promptTokens?: number;
+  /** Actual completion tokens from model (undefined if not yet available) */
+  completionTokens?: number;
 };
 
 /**

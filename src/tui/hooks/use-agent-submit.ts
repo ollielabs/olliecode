@@ -59,6 +59,13 @@ export type UseAgentSubmitProps = {
   store: UseMessageStoreReturn;
   /** Setter for sidebar todos */
   setSidebarTodos: Setter<Todo[]>;
+  /** Update sidebar with real token counts from the model */
+  updateRealTokenCounts?: (
+    totalTokens: number,
+    maxTokens: number,
+    promptTokens?: number,
+    completionTokens?: number,
+  ) => void;
 };
 
 export type UseAgentSubmitReturn = {
@@ -366,6 +373,16 @@ export function useAgentSubmit(
         compaction,
       );
       setStatus('idle');
+
+      // Update sidebar with real token counts from the model
+      if (result.contextUsage && props.updateRealTokenCounts) {
+        props.updateRealTokenCounts(
+          result.contextUsage.totalTokens,
+          result.contextUsage.maxTokens,
+          result.contextUsage.promptTokens,
+          result.contextUsage.completionTokens,
+        );
+      }
 
       props.setSidebarTodos(getTodos(session.id));
     }
