@@ -73,10 +73,6 @@ export type UseAgentSubmitReturn = {
   status: () => Status;
   /** Set status */
   setStatus: Setter<Status>;
-  /** Error message */
-  error: () => string;
-  /** Set error */
-  setError: Setter<string>;
   /** Streaming content during response */
   streamingContent: () => string;
   /** Set streaming content */
@@ -103,7 +99,6 @@ export function useAgentSubmit(
   const host = props.config.host;
   const store = props.store;
   const [status, setStatus] = createSignal<Status>('idle');
-  const [error, setError] = createSignal('');
   const [streamingContent, setStreamingContent] = createSignal('');
   const [confirmingToolId, setConfirmingToolId] = createSignal<string | null>(
     null,
@@ -134,7 +129,6 @@ export function useAgentSubmit(
 
   const handleSubmit = async (prompt: string) => {
     setStatus('thinking');
-    setError('');
     setStreamingContent('');
 
     const session = await props.ensureSession();
@@ -320,22 +314,32 @@ export function useAgentSubmit(
     // Build compaction info if auto-compaction occurred during the run
     let compaction: CompactionInfo | undefined;
     if (result.compacted) {
+      // Strip system prompt from compacted messages — the agent loop's
+      // messages array includes it at index 0, but the snapshot should
+      // only contain conversation messages (system prompt is added fresh
+      // each turn by buildInitialMessages).
+      const compactedHistory =
+        result.compacted.messages.length > 0 &&
+        result.compacted.messages[0]?.role === 'system'
+          ? result.compacted.messages.slice(1)
+          : result.compacted.messages;
+
       compaction = {
         snapshotType: 'auto_compaction',
-        messages: fromOllamaMessages(result.compacted.messages),
+        messages: fromOllamaMessages(compactedHistory),
         originalCount: result.compacted.originalCount,
       };
     }
 
     if ('type' in result) {
-      // Error/abort path — settle with partial tool parts (if any)
-      // settleAgentRun persists the assistant message and refreshes the store,
-      // so in-memory and SQLite are consistent after this call.
-      store.settleAgentRun(session.id, '', completedToolParts, compaction);
+      // Error/abort path — persist the error as a message in chat history.
+      // Errors are first-class display messages, not ephemeral UI state.
 
       switch (result.type) {
         case 'aborted':
-          setStatus('idle');
+          // Abort is special — not an error, just a cancellation.
+          // Settle any partial tool results, show interrupted content.
+          store.settleAgentRun(session.id, '', completedToolParts, compaction);
           setStreamingContent((prev) => {
             if (prev.trim()) {
               store.addPendingAssistantMessage(`${prev}\n\n[interrupted]`);
@@ -344,26 +348,43 @@ export function useAgentSubmit(
           });
           break;
         case 'model_error':
-          setStatus('error');
-          setError(result.message);
+          store.settleAgentError(
+            session.id,
+            'model_error',
+            result.message,
+            completedToolParts,
+            compaction,
+          );
           break;
         case 'max_iterations':
-          setStatus('error');
-          setError(
-            `Max iterations (${result.iterations}) reached. Last thought: ${result.lastThought.slice(0, 100)}...`,
+          store.settleAgentError(
+            session.id,
+            'max_iterations',
+            `Reached ${result.iterations} iterations without completing. Last thought: ${result.lastThought}`,
+            completedToolParts,
+            compaction,
           );
           break;
         case 'loop_detected':
-          setStatus('error');
-          setError(
-            `Loop detected: ${result.action} called ${result.attempts} times`,
+          store.settleAgentError(
+            session.id,
+            'loop_detected',
+            `Loop detected: ${result.action} called ${result.attempts} times consecutively`,
+            completedToolParts,
+            compaction,
           );
           break;
         case 'tool_error':
-          setStatus('error');
-          setError(`Tool error (${result.tool}): ${result.message}`);
+          store.settleAgentError(
+            session.id,
+            'tool_error',
+            `Tool error (${result.tool}): ${result.message}`,
+            completedToolParts,
+            compaction,
+          );
           break;
       }
+      setStatus('idle');
     } else {
       // Success path — settle with final answer + tool parts + compaction snapshot
       store.settleAgentRun(
@@ -393,8 +414,6 @@ export function useAgentSubmit(
   return {
     status,
     setStatus,
-    error,
-    setError,
     streamingContent,
     setStreamingContent,
     handleSubmit,

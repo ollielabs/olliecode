@@ -21,6 +21,7 @@ export {
 export { ContextStatsModal } from './context-stats-modal';
 // Diff components
 export { DiffView, type DiffViewProps } from './diff-view';
+export { ErrorMessage, type ErrorMessageProps } from './error-message';
 export {
   FilePicker,
   type FilePickerProps,
@@ -33,7 +34,7 @@ export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
 // Layout components
 export { SidePanel } from './side-panel';
-export { type Status, StatusBar } from './status-bar';
+export { StatusBar } from './status-bar';
 export { ThemePicker } from './theme-picker';
 export {
   ToastNotification,

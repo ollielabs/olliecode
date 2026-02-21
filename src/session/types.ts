@@ -35,13 +35,27 @@ export type CompactionSummaryPart = {
 };
 
 /**
+ * Error part — persists agent-level errors as chat history.
+ * Stored on assistant messages so errors survive session reload
+ * and render inline in the conversation.
+ */
+export type ErrorPart = {
+  type: 'error';
+  /** Error category (model_error, max_iterations, loop_detected, tool_error) */
+  errorType: string;
+  /** Full error message */
+  content: string;
+};
+
+/**
  * Message part types (stored as JSON in `parts` column).
  * This is the source of truth for both Ollama messages and display UI.
  */
 export type MessagePart =
   | { type: 'text'; content: string }
   | ToolPart
-  | CompactionSummaryPart;
+  | CompactionSummaryPart
+  | ErrorPart;
 
 /**
  * Stored message (maps to DB row).

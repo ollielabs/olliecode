@@ -18,8 +18,9 @@ import type { Todo } from '../session/todo';
 
 /**
  * Status of the agent/UI.
+ * Errors are no longer a status — they render as messages in chat history.
  */
-export type Status = 'idle' | 'thinking' | 'error';
+export type Status = 'idle' | 'thinking';
 
 /**
  * State machine for tool execution.
@@ -83,6 +84,18 @@ export type CompactionSummaryDisplayMessage = {
 };
 
 /**
+ * Error display message.
+ * Renders agent-level errors inline in the chat history with distinct styling.
+ */
+export type ErrorDisplayMessage = {
+  type: 'error';
+  /** Error category (model_error, max_iterations, loop_detected, tool_error) */
+  errorType: string;
+  /** Full error message */
+  content: string;
+};
+
+/**
  * Display message for TUI rendering.
  * Each message type has a different visual representation.
  */
@@ -90,7 +103,8 @@ export type DisplayMessage =
   | { type: 'user'; content: string; attachedFiles?: string[] }
   | { type: 'assistant'; content: string }
   | ToolDisplayMessage
-  | CompactionSummaryDisplayMessage;
+  | CompactionSummaryDisplayMessage
+  | ErrorDisplayMessage;
 
 /**
  * Props for the main App component.

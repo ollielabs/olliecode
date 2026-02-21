@@ -16,6 +16,7 @@ import {
   ConfigModal,
   ContextInfoNotification,
   ContextStatsModal,
+  ErrorMessage,
   FilePicker,
   InputBox,
   KeyboardShortcutsModal,
@@ -268,7 +269,6 @@ function AppContent(props: AppProps) {
               id="greeting-textarea"
               model={model}
               status={agent.status()}
-              error={agent.error()}
               mode={session.mode()}
               getTextareaRef={getTextareaRef}
               getStatus={getStatus}
@@ -412,6 +412,16 @@ function AppContent(props: AppProps) {
                         />
                       )}
                     </Show>
+                    <Show when={msg.type === 'error' && msg}>
+                      {(
+                        errorMsg: () => import('./types').ErrorDisplayMessage,
+                      ) => (
+                        <ErrorMessage
+                          errorType={errorMsg().errorType}
+                          content={errorMsg().content}
+                        />
+                      )}
+                    </Show>
                   </box>
                 )}
               </For>
@@ -459,7 +469,6 @@ function AppContent(props: AppProps) {
               id="chat-textarea"
               model={model}
               status={agent.status()}
-              error={agent.error()}
               mode={session.mode()}
               getTextareaRef={getTextareaRef}
               getStatus={getStatus}

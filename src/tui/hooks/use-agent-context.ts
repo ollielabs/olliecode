@@ -126,18 +126,21 @@ export function useAgentContext(
       const modelInfo = await fetchModelInfo(model, host);
       const stats = getContextStats(currentHistory, modelInfo.contextLength);
       const level = getCompactionLevel(stats.usagePercent);
+
+      // Pass history directly — no dummy system prompt needed.
+      // classifyMessages() handles the case where index 0 isn't a system
+      // message (it just won't get the system_prompt preservation rule,
+      // which is correct since the system prompt isn't in the history).
       const result = await compactMessages(
-        [{ role: 'system', content: '' }, ...currentHistory],
+        currentHistory,
         level,
         extractCompactionConfig(props.config),
         model,
         host,
       );
-      // Strip the dummy system prompt we prepended
-      const compactedHistory = result.messages.slice(1);
 
       // Convert compacted Message[] to StoredMessage[] for snapshot storage
-      const compactedStored = fromOllamaMessages(compactedHistory);
+      const compactedStored = fromOllamaMessages(result.messages);
 
       // Persist the compaction snapshot and refresh the store
       store.compact(sid, compactedStored, result.originalCount);

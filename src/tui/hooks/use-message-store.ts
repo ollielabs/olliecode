@@ -31,6 +31,7 @@ import {
   toOllamaMessages,
 } from '../../session';
 import type {
+  MessagePart,
   SnapshotType,
   StoredMessage,
   ToolPart,
@@ -83,6 +84,19 @@ export type UseMessageStoreReturn = {
   settleAgentRun: (
     sessionId: string,
     content: string,
+    toolParts: ToolPart[],
+    compaction?: CompactionInfo,
+  ) => void;
+
+  /**
+   * Settle an agent error: persist the error as an assistant message with
+   * an ErrorPart (and any completed tool parts), refresh the store, and
+   * clear pending display. Status returns to idle.
+   */
+  settleAgentError: (
+    sessionId: string,
+    errorType: string,
+    errorMessage: string,
     toolParts: ToolPart[],
     compaction?: CompactionInfo,
   ) => void;
@@ -207,6 +221,37 @@ export function useMessageStore(): UseMessageStoreReturn {
     setPendingDisplayMessages([]);
   };
 
+  const settleAgentError = (
+    sessionId: string,
+    errorType: string,
+    errorMessage: string,
+    toolParts: ToolPart[],
+    compaction?: CompactionInfo,
+  ): void => {
+    // Build parts: completed tool parts first, then the error
+    const parts: MessagePart[] = [
+      ...toolParts,
+      { type: 'error', errorType, content: errorMessage },
+    ];
+
+    // Always persist — errors are part of the conversation record
+    addMessage(sessionId, 'assistant', parts);
+
+    // Persist compaction snapshot if auto-compaction occurred during the run
+    if (compaction) {
+      saveCompactionSnapshot(
+        sessionId,
+        compaction.snapshotType,
+        compaction.messages,
+        compaction.originalCount,
+      );
+    }
+
+    // Refresh from store and clear pending
+    refreshStore(sessionId);
+    setPendingDisplayMessages([]);
+  };
+
   // --- Live display mutations ---
 
   const addPendingToolMessage = (msg: ToolDisplayMessage): void => {
@@ -284,6 +329,7 @@ export function useMessageStore(): UseMessageStoreReturn {
     history,
     appendUserMessage,
     settleAgentRun,
+    settleAgentError,
     addPendingToolMessage,
     updatePendingToolState,
     addPendingAssistantMessage,
