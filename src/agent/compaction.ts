@@ -81,7 +81,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
 /**
  * Compaction levels based on context usage.
  */
-export type CompactionLevel = 'light' | 'medium' | 'aggressive';
+export type CompactionLevel = 'light' | 'medium' | 'aggressive' | 'emergency';
 
 /**
  * Result of a compaction operation.
@@ -105,6 +105,7 @@ export type CompactionResult = {
  * Determine compaction level based on context usage percentage.
  */
 export function getCompactionLevel(usagePercent: number): CompactionLevel {
+  if (usagePercent >= 100) return 'emergency';
   if (usagePercent >= 90) return 'aggressive';
   if (usagePercent >= 85) return 'medium';
   return 'light';
@@ -263,6 +264,10 @@ function truncateToolOutput(content: string, maxLines: number = 50): string {
  * Get max lines for tool output based on compaction level.
  */
 function getToolMaxLines(level: CompactionLevel, preserved: boolean): number {
+  if (level === 'emergency') {
+    // Emergency: absolute minimum — just enough to maintain coherence
+    return preserved ? 5 : 2;
+  }
   if (preserved) {
     // Preserved tools get more generous truncation
     return level === 'aggressive' ? 15 : level === 'medium' ? 30 : 50;
@@ -572,6 +577,14 @@ export async function compactMessages(
   const tokensBefore = estimateMessagesTokens(messages);
   const originalCount = messages.length;
 
+  // Emergency level: override minPreservedMessages to 2 and skip LLM
+  // summary (we're already over the context limit — spending tokens on
+  // a summary call would make things worse or fail entirely).
+  const effectiveConfig =
+    level === 'emergency'
+      ? { ...config, minPreservedMessages: 2, useLLMSummary: false }
+      : config;
+
   log(
     `Compacting messages: level=${level}, count=${originalCount}, tokens=${tokensBefore}`,
   );
@@ -579,7 +592,7 @@ export async function compactMessages(
   // Log classification for debugging
   const classifications = classifyMessages(
     messages,
-    config.minPreservedMessages,
+    effectiveConfig.minPreservedMessages,
   );
   const preservedCount = classifications.filter((c) => c.preserve).length;
   const eligibleCount = classifications.filter((c) => !c.preserve).length;
@@ -598,16 +611,16 @@ export async function compactMessages(
 
   let compactedMessages: Message[];
 
-  if (config.useLLMSummary && model && host) {
+  if (effectiveConfig.useLLMSummary && model && host) {
     compactedMessages = await compactWithSummary(
       messages,
       level,
-      config,
+      effectiveConfig,
       model,
       host,
     );
   } else {
-    compactedMessages = compactSimple(messages, level, config);
+    compactedMessages = compactSimple(messages, level, effectiveConfig);
   }
 
   const tokensAfter = estimateMessagesTokens(compactedMessages);

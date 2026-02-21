@@ -236,6 +236,72 @@ export async function runAgent(
   const abortHandler = () => client.abort();
   args.signal.addEventListener('abort', abortHandler, { once: true });
 
+  /**
+   * Estimate context usage from the current messages array.
+   * Always uses the actual messages (not stale lastPromptTokens) because
+   * tool results added since the last model call change the true size.
+   * Falls back to heuristic when no real token counts are available.
+   */
+  function estimateContextUsage(): number {
+    if (!maxContextTokens) return 0;
+    // Always estimate from actual messages — lastPromptTokens is stale
+    // after tool results are added. The heuristic over-counts slightly
+    // (conservative), which is exactly what we want for compaction checks.
+    const stats = getContextStats(
+      messages,
+      maxContextTokens,
+      OVERHEAD_AGENT_LOOP,
+    );
+    return stats.usagePercent;
+  }
+
+  /**
+   * Run compaction on the messages array if usage exceeds threshold.
+   * Returns true if compaction was performed.
+   */
+  async function maybeCompact(
+    threshold: number,
+    reason: string,
+  ): Promise<boolean> {
+    if (!config.autoCompaction || !maxContextTokens) return false;
+
+    const usagePercent = estimateContextUsage();
+    if (!checkNeedsCompaction(usagePercent, threshold)) return false;
+
+    log(`Context at ${usagePercent}% (threshold ${threshold}%) — ${reason}`);
+    const level = getCompactionLevel(usagePercent);
+    const result = await compactMessages(
+      messages,
+      level,
+      {
+        ...DEFAULT_COMPACTION_CONFIG,
+        temperature: compactionTemperature,
+      },
+      args.model,
+      args.host,
+    );
+    messages.length = 0;
+    messages.push(...result.messages);
+    lastCompaction = result;
+    log(
+      `Compacted (${level}): ${result.originalCount} → ${result.compactedCount} messages`,
+    );
+    return true;
+  }
+
+  /**
+   * Detect "prompt too long" errors from Ollama.
+   */
+  function isPromptTooLong(e: unknown): boolean {
+    if (!(e instanceof Error)) return false;
+    const msg = e.message.toLowerCase();
+    return (
+      msg.includes('prompt too long') ||
+      msg.includes('exceeded max context length') ||
+      msg.includes('context length exceeded')
+    );
+  }
+
   try {
     for (let iteration = 0; iteration < config.maxIterations; iteration++) {
       log(`--- Iteration ${iteration + 1} ---`);
@@ -252,6 +318,13 @@ export async function runAgent(
           compacted: lastCompaction,
         };
       }
+
+      // --- Pre-call compaction check ---
+      // Estimate context from the actual messages array. This catches the
+      // case where the previous iteration's tool results pushed us past
+      // the threshold — the old code only checked AFTER the model call,
+      // which was too late (the call would fail with "prompt too long").
+      await maybeCompact(config.compactionThreshold, 'pre-call compaction');
 
       const stepStartTime = Date.now();
 
@@ -314,13 +387,78 @@ export async function runAgent(
           };
         }
 
-        const message = e instanceof Error ? e.message : String(e);
-        return {
-          type: 'model_error',
-          message,
-          messages: stripSystemPrompt(messages),
-          compacted: lastCompaction,
-        };
+        // --- Retry on "prompt too long" ---
+        // The heuristic may underestimate actual token usage. If the model
+        // rejects with "prompt too long", emergency-compact and retry once.
+        if (isPromptTooLong(e)) {
+          log('Prompt too long — attempting emergency compaction and retry');
+          const emergencyResult = await compactMessages(
+            messages,
+            'emergency',
+            {
+              ...DEFAULT_COMPACTION_CONFIG,
+              temperature: compactionTemperature,
+            },
+            args.model,
+            args.host,
+          );
+          messages.length = 0;
+          messages.push(...emergencyResult.messages);
+          lastCompaction = emergencyResult;
+          log(
+            `Emergency compaction: ${emergencyResult.originalCount} → ${emergencyResult.compactedCount} messages`,
+          );
+
+          // Retry the model call once
+          try {
+            const retryResponse = await client.chat({
+              model: args.model,
+              messages,
+              tools: modeTools,
+              stream: true,
+              options: { temperature },
+            });
+
+            const retryAccumulated = await processStream(
+              retryResponse,
+              {
+                onReasoningToken: args.onReasoningToken,
+                onToolCall: args.onToolCall,
+              },
+              args.signal,
+            );
+
+            content = retryAccumulated.content;
+            toolCalls = retryAccumulated.toolCalls;
+
+            if (retryAccumulated.promptTokens !== undefined) {
+              lastPromptTokens = retryAccumulated.promptTokens;
+            }
+            if (retryAccumulated.completionTokens !== undefined) {
+              lastCompletionTokens = retryAccumulated.completionTokens;
+            }
+
+            log('Retry after emergency compaction succeeded');
+          } catch (retryErr) {
+            log('Retry after emergency compaction also failed:', retryErr);
+            const message =
+              retryErr instanceof Error ? retryErr.message : String(retryErr);
+            return {
+              type: 'model_error',
+              message: `Context still too large after emergency compaction: ${message}`,
+              messages: stripSystemPrompt(messages),
+              compacted: lastCompaction,
+            };
+          }
+        } else {
+          const message = e instanceof Error ? e.message : String(e);
+          return {
+            type: 'model_error',
+            message,
+            messages: stripSystemPrompt(messages),
+            compacted: lastCompaction,
+          };
+        }
       }
 
       // Handle empty response
@@ -505,54 +643,12 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
         }
       }
 
-      // Check for context compaction
-      if (config.autoCompaction && maxContextTokens) {
-        // Use real token count from model when available, fall back to heuristic
-        let usagePercent: number;
-        if (lastPromptTokens !== undefined) {
-          // Real: promptTokens includes everything the model tokenized
-          // (system + history + tools + user). Add completion tokens for
-          // the response that is now part of history.
-          const totalUsed = lastPromptTokens + (lastCompletionTokens ?? 0);
-          usagePercent = Math.round((totalUsed / maxContextTokens) * 100);
-          log('Context usage (real):', `${usagePercent}%`);
-        } else {
-          // messages already includes system prompt, only add tool schema overhead
-          const stats = getContextStats(
-            messages,
-            maxContextTokens,
-            OVERHEAD_AGENT_LOOP,
-          );
-          usagePercent = stats.usagePercent;
-          log('Context usage (estimated):', `${usagePercent}%`);
-        }
-        if (checkNeedsCompaction(usagePercent, config.compactionThreshold)) {
-          log('Context usage at', `${usagePercent}%, triggering compaction`);
-          const level = getCompactionLevel(usagePercent);
-          const result = await compactMessages(
-            messages,
-            level,
-            {
-              ...DEFAULT_COMPACTION_CONFIG,
-              temperature: compactionTemperature,
-            },
-            args.model,
-            args.host,
-          );
-          // Replace messages array with compacted version
-          messages.length = 0;
-          messages.push(...result.messages);
-          // Stash the compaction result so the TUI can persist a snapshot
-          lastCompaction = result;
-          log(
-            'Compacted:',
-            result.originalCount,
-            '→',
-            result.compactedCount,
-            'messages',
-          );
-        }
-      }
+      // --- Post-step compaction check ---
+      // After tool results are added, check again. This handles the case
+      // where a single step's tool results push us past the threshold.
+      // The pre-call check at the top of the next iteration would also
+      // catch this, but checking here keeps context tight between iterations.
+      await maybeCompact(config.compactionThreshold, 'post-step compaction');
     }
 
     // Max iterations reached
