@@ -179,9 +179,10 @@ export type AgentConfig = {
 /**
  * Default agent configuration
  *
- * maxIterations set to 15 to support complex exploration tasks.
- * Complex codebase analysis may need 15-20 iterations to systematically
- * explore structure, read key files, and synthesize findings.
+ * maxIterations set to 50 — high enough for complex multi-file tasks
+ * (read, edit, test, fix cycles), low enough to catch true runaways.
+ * A soft warning is injected at 80% of the limit to nudge the model
+ * to wrap up before the hard stop.
  *
  * loopThreshold of 3 means 3 truly consecutive identical calls trigger detection.
  * The smarter loop detection allows interleaved patterns like read→edit→read.
@@ -189,7 +190,7 @@ export type AgentConfig = {
  * autoCompaction enabled by default at 80% context usage threshold.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  maxIterations: 15,
+  maxIterations: 50,
   loopDetection: true,
   loopThreshold: 3,
   autoCompaction: true,

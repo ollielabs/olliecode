@@ -435,6 +435,22 @@ export async function runAgent(
       steps.push(step);
       args.onStepComplete(step);
 
+      // Soft warning at 80% of maxIterations — nudge the model to wrap up
+      const warningThreshold = Math.floor(config.maxIterations * 0.8);
+      if (iteration === warningThreshold) {
+        log(
+          `Iteration ${iteration + 1} of ${config.maxIterations} — injecting wrap-up warning`,
+        );
+        messages.push({
+          role: 'system',
+          content: `<system-reminder>
+You have used ${iteration + 1} of ${config.maxIterations} allowed iterations.
+Begin wrapping up your current work and provide a final response to the user.
+If you need more steps, prioritize the most important remaining work.
+</system-reminder>`,
+        });
+      }
+
       // Check for loops (both identical and doom loops)
       if (config.loopDetection) {
         // Check for truly consecutive identical loops

@@ -23,7 +23,7 @@ export const PermissionValueSchema = z.enum(['allow', 'ask', 'deny']);
 // === Section schemas ===
 
 const AgentObjectSchema = z.object({
-  maxIterations: z.number().int().min(1).max(100).default(15),
+  maxIterations: z.number().int().min(1).max(200).default(50),
   loopDetection: z.boolean().default(true),
   loopThreshold: z.number().int().min(1).max(20).default(3),
   defaultMode: z.enum(['plan', 'build']).default('build'),
