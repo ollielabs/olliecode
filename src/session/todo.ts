@@ -62,11 +62,18 @@ type TodoRow = {
 };
 
 /**
- * Convert DB row to Todo type
+ * Convert DB row to Todo type.
+ * Strips the session namespace prefix from storage IDs so the model
+ * sees the original IDs it provided.
  */
 function rowToTodo(row: TodoRow): Todo {
+  // Storage IDs are namespaced as `{sessionId}:{originalId}`.
+  // Strip the prefix to return the original ID the model knows about.
+  const colonIdx = row.id.indexOf(':');
+  const id = colonIdx !== -1 ? row.id.slice(colonIdx + 1) : row.id;
+
   return {
-    id: row.id,
+    id,
     sessionId: row.session_id,
     content: row.content,
     status: row.status as TodoStatus,
@@ -112,23 +119,32 @@ export function updateTodos(sessionId: string, todos: TodoInput[]): Todo[] {
   // Get existing todos to preserve created_at
   const existing = new Map(getTodos(sessionId).map((t) => [t.id, t]));
 
+  // Deduplicate: if the model sends the same ID twice, last entry wins
+  const deduped = new Map<string, TodoInput>();
+  for (const todo of todos) {
+    deduped.set(todo.id, todo);
+  }
+
   // Delete all existing todos for this session
   db.run('DELETE FROM todos WHERE session_id = ?', [sessionId]);
 
-  // Insert the new todos
+  // Insert the new todos. Namespace IDs with session prefix to prevent
+  // cross-session collisions (model generates simple IDs like "1", "2").
   const result: Todo[] = [];
   const stmt = db.prepare(
     `INSERT INTO todos (id, session_id, content, status, priority, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
 
-  for (const todo of todos) {
+  for (const todo of deduped.values()) {
+    // Namespace the storage ID, but return the original ID to the model
+    const storageId = `${sessionId}:${todo.id}`;
     const existingTodo = existing.get(todo.id);
     const createdAt = existingTodo?.createdAt ?? now;
     const priority = todo.priority ?? 'medium';
 
     stmt.run(
-      todo.id,
+      storageId,
       sessionId,
       todo.content,
       todo.status,
