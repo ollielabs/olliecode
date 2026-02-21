@@ -18,7 +18,6 @@ import type { ToolContext, ToolDefinition } from '../types';
 const TodoItemSchema = z.object({
   id: z
     .union([z.string(), z.number()])
-    .transform((v) => String(v))
     .describe('Unique identifier for the todo'),
   content: z.string().describe('Description of the task'),
   status: z
@@ -84,7 +83,7 @@ Use this tool proactively for:
     const todoList = Array.isArray(todos) ? todos : [todos];
 
     const todoInputs: TodoInput[] = todoList.map((t) => ({
-      id: t.id ?? `auto_${Date.now()}`,
+      id: String(t.id ?? `auto_${Date.now()}`),
       content: t.content ?? '',
       status: t.status ?? 'pending',
       priority: t.priority,
