@@ -80,6 +80,11 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
         continue;
       }
 
+      // Skip error parts — they're display-only and shouldn't be sent
+      // to the model. An error-only message (no text, no tools) is skipped
+      // entirely. A message with error + tool parts still emits the tools.
+      const hasErrorParts = msg.parts.some((p) => p.type === 'error');
+
       // Regular assistant messages: extract text and tool parts
       const textParts = msg.parts.filter(
         (p): p is MessagePart & { type: 'text' } => p.type === 'text',
@@ -87,6 +92,11 @@ export function toOllamaMessages(messages: StoredMessage[]): Message[] {
       const toolParts = msg.parts.filter(
         (p): p is ToolPart => p.type === 'tool',
       );
+
+      // If this message only has error parts (no text, no tools), skip it
+      if (hasErrorParts && textParts.length === 0 && toolParts.length === 0) {
+        continue;
+      }
 
       const content = textParts.map((p) => p.content).join('\n');
 
@@ -153,6 +163,12 @@ export function toDisplayMessages(messages: StoredMessage[]): DisplayMessage[] {
           content: part.content,
           compactedCount: part.compactedCount,
         });
+      } else if (part.type === 'error') {
+        result.push({
+          type: 'error',
+          errorType: part.errorType,
+          content: part.content,
+        });
       } else if (part.type === 'text' && part.content.trim()) {
         if (msg.role === 'user') {
           // Strip augmented file contents for display, extract file paths
@@ -189,61 +205,174 @@ const VALID_ROLES = new Set<StoredMessage['role']>([
 ]);
 
 /**
+ * Parse tool result content back into a ToolState.
+ *
+ * Reverses the encoding in toOllamaMessages():
+ * - `TOOL_RESULT_PREFIX\n\noutput` → completed with output
+ * - `Error: User denied...` → denied
+ * - `Error: Blocked - ...` → blocked
+ * - `Error: ...` → error
+ * - anything else → completed (treat as raw output)
+ */
+function parseToolResultContent(content: string): ToolPart['state'] {
+  if (content.startsWith(TOOL_RESULT_PREFIX)) {
+    // Strip prefix + the two newlines that follow it
+    const output = content
+      .slice(TOOL_RESULT_PREFIX.length)
+      .replace(/^\n\n/, '');
+    return { status: 'completed', output };
+  }
+  if (content.startsWith('Error: User denied')) {
+    return { status: 'denied', reason: content };
+  }
+  if (content.startsWith('Error: Blocked')) {
+    return {
+      status: 'blocked',
+      reason: content.replace(/^Error: Blocked - /, ''),
+    };
+  }
+  if (content.startsWith('Error: ')) {
+    return { status: 'error', error: content.replace(/^Error: /, '') };
+  }
+  // Fallback: treat as completed output (e.g., truncated tool output after compaction)
+  return { status: 'completed', output: content };
+}
+
+/**
  * Convert Ollama messages back to StoredMessage format.
  *
  * Used for compaction snapshots — compacted Message[] needs to be stored
  * as StoredMessage[] so it can be loaded via getActiveMessages.
  *
- * Detects compaction summary messages (via COMPACTION_SUMMARY_PREFIX) and
- * stores them as CompactionSummaryPart so they're identifiable throughout
- * the pipeline.
- *
- * Filters out messages with invalid roles (e.g., 'tool' messages that
- * survive compaction as standalone entries).
+ * This is the inverse of toOllamaMessages(). It:
+ * - Detects compaction summaries (via COMPACTION_SUMMARY_PREFIX) and stores
+ *   them as CompactionSummaryPart.
+ * - Reconstructs ToolParts from assistant messages with tool_calls and
+ *   their following role:'tool' result messages. This is critical —
+ *   without it, tool call history is silently lost after compaction.
+ * - Filters out orphaned role:'tool' messages (those not following an
+ *   assistant with tool_calls).
  */
 export function fromOllamaMessages(messages: Message[]): StoredMessage[] {
   const baseTimestamp = Date.now();
   const result: StoredMessage[] = [];
+  let i = 0;
 
-  for (let i = 0; i < messages.length; i++) {
+  while (i < messages.length) {
     const msg = messages[i];
-    if (!msg) continue;
+    if (!msg) {
+      i++;
+      continue;
+    }
 
     const content = msg.content ?? '';
     const role = msg.role as string;
 
-    // Filter out invalid roles (e.g., standalone 'tool' messages)
-    if (!VALID_ROLES.has(role as StoredMessage['role'])) {
+    // Skip orphaned tool messages (not following an assistant with tool_calls)
+    if (role === 'tool') {
+      i++;
       continue;
     }
 
-    // Detect compaction summary messages
-    const compactionMatch = content.match(COMPACTION_PREFIX_RE);
-    if (compactionMatch && role === 'assistant') {
-      const compactedCount = Number.parseInt(compactionMatch[1] ?? '0', 10);
-      const summaryContent = compactionMatch[2] ?? '';
+    // Skip invalid roles
+    if (!VALID_ROLES.has(role as StoredMessage['role'])) {
+      i++;
+      continue;
+    }
+
+    // --- Compaction summary ---
+    if (role === 'assistant') {
+      const compactionMatch = content.match(COMPACTION_PREFIX_RE);
+      if (compactionMatch) {
+        const compactedCount = Number.parseInt(compactionMatch[1] ?? '0', 10);
+        const summaryContent = compactionMatch[2] ?? '';
+        result.push({
+          id: `compacted_${i}`,
+          sessionId: '',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'compaction_summary',
+              content: summaryContent,
+              compactedCount,
+            },
+          ],
+          createdAt: baseTimestamp + i,
+        });
+        i++;
+        continue;
+      }
+    }
+
+    // --- Assistant with tool_calls: reconstruct ToolParts ---
+    if (role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      const parts: MessagePart[] = [];
+
+      // Consume following role:'tool' messages — one per tool_call
+      const toolCalls = msg.tool_calls;
+      let toolResultIndex = i + 1;
+
+      for (let tc = 0; tc < toolCalls.length; tc++) {
+        const call = toolCalls[tc];
+        if (!call) continue;
+
+        const toolName = call.function.name;
+        const toolArgs = (call.function.arguments ?? {}) as Record<
+          string,
+          unknown
+        >;
+
+        // Try to find the matching tool result message
+        let state: ToolPart['state'];
+        const toolResultMsg = messages[toolResultIndex];
+        if (toolResultMsg && toolResultMsg.role === 'tool') {
+          state = parseToolResultContent(toolResultMsg.content ?? '');
+          toolResultIndex++;
+        } else {
+          // No matching result — mark as completed with empty output
+          // (can happen if compaction truncated the tail)
+          state = {
+            status: 'completed',
+            output: '[result unavailable after compaction]',
+          };
+        }
+
+        parts.push({
+          type: 'tool',
+          id: `compacted_${i}_tool_${tc}`,
+          name: toolName,
+          args: toolArgs,
+          state,
+        });
+      }
+
+      // Add text content if present
+      if (content.trim()) {
+        parts.push({ type: 'text', content });
+      }
+
       result.push({
         id: `compacted_${i}`,
         sessionId: '',
         role: 'assistant',
-        parts: [
-          {
-            type: 'compaction_summary',
-            content: summaryContent,
-            compactedCount,
-          },
-        ],
+        parts,
         createdAt: baseTimestamp + i,
       });
-    } else {
-      result.push({
-        id: `compacted_${i}`,
-        sessionId: '',
-        role: role as StoredMessage['role'],
-        parts: [{ type: 'text' as const, content }],
-        createdAt: baseTimestamp + i,
-      });
+
+      // Advance past the assistant + all consumed tool results
+      i = toolResultIndex;
+      continue;
     }
+
+    // --- Plain message (user, system, assistant without tool_calls) ---
+    result.push({
+      id: `compacted_${i}`,
+      sessionId: '',
+      role: role as StoredMessage['role'],
+      parts: [{ type: 'text' as const, content }],
+      createdAt: baseTimestamp + i,
+    });
+    i++;
   }
 
   return result;
