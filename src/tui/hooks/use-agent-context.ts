@@ -1,28 +1,31 @@
 /**
  * Hook for managing context stats, compaction, and related operations.
  * Handles sidebar stats, context info notifications, and context manipulation.
+ *
+ * Context operations (clear, forget, compact) are persisted through the
+ * message store, ensuring in-memory and SQLite stay consistent.
  */
 
-import { createEffect, createSignal, type Setter } from 'solid-js';
+import { createEffect, createSignal } from 'solid-js';
 import { compactMessages, getCompactionLevel } from '../../agent/compaction';
 import { extractCompactionConfig } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
+import { fromOllamaMessages } from '../../session/convert';
 import {
   NOTIFICATION_DURATION_LONG,
   NOTIFICATION_DURATION_SHORT,
 } from '../constants';
-import type { ContextStats, DisplayMessage, Message } from '../types';
+import type { ContextStats } from '../types';
+import type { UseMessageStoreReturn } from './use-message-store';
 
 export type UseAgentContextProps = {
-  /** Current message history (signal accessor) */
-  history: () => Message[];
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
   config: ResolvedConfig;
-  /** Setter for history (for compaction and forget) */
-  setHistory: Setter<Message[]>;
-  /** Setter for display messages (for clear and forget) */
-  setDisplayMessages: Setter<DisplayMessage[]>;
+  /** Message store (owns history and provides clear/forget/compact) */
+  store: UseMessageStoreReturn;
+  /** Current session ID getter (for operations that need it) */
+  sessionId: () => string | undefined;
 };
 
 export type UseAgentContextReturn = {
@@ -45,7 +48,17 @@ export type UseAgentContextReturn = {
   /** Close context stats modal */
   handleContextStatsClose: () => void;
   /** Set context info message */
-  setContextInfo: Setter<string | null>;
+  setContextInfo: (info: string | null) => void;
+  /**
+   * Update sidebar stats with real token counts from the model.
+   * Called by use-agent-submit after a successful agent run.
+   */
+  updateRealTokenCounts: (
+    totalTokens: number,
+    maxTokens: number,
+    promptTokens?: number,
+    completionTokens?: number,
+  ) => void;
 };
 
 export function useAgentContext(
@@ -53,6 +66,7 @@ export function useAgentContext(
 ): UseAgentContextReturn {
   const model = props.config.model;
   const host = props.config.host;
+  const store = props.store;
   const [contextInfo, setContextInfo] = createSignal<string | null>(null);
   const [contextStats, setContextStats] = createSignal<ContextStats | null>(
     null,
@@ -64,7 +78,7 @@ export function useAgentContext(
 
   // Update sidebar stats when history changes
   createEffect(() => {
-    const currentHistory = props.history();
+    const currentHistory = store.history();
     if (currentHistory.length === 0) {
       setSidebarStats(null);
       return;
@@ -81,16 +95,28 @@ export function useAgentContext(
   });
 
   const handleClearContext = () => {
-    props.setHistory([]);
-    props.setDisplayMessages([]);
+    const sid = props.sessionId();
+    if (sid) {
+      store.clear(sid);
+    } else {
+      // No session yet — just reset in-memory state
+      store.reset();
+    }
     setContextInfo('Context cleared. Starting fresh conversation.');
     setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
   };
 
   const handleCompact = async () => {
-    const currentHistory = props.history();
+    const currentHistory = store.history();
     if (currentHistory.length === 0) {
       setContextInfo('Nothing to compact - context is empty.');
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
+      return;
+    }
+
+    const sid = props.sessionId();
+    if (!sid) {
+      setContextInfo('No active session to compact.');
       setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
       return;
     }
@@ -100,15 +126,25 @@ export function useAgentContext(
       const modelInfo = await fetchModelInfo(model, host);
       const stats = getContextStats(currentHistory, modelInfo.contextLength);
       const level = getCompactionLevel(stats.usagePercent);
+
+      // Pass history directly — no dummy system prompt needed.
+      // classifyMessages() handles the case where index 0 isn't a system
+      // message (it just won't get the system_prompt preservation rule,
+      // which is correct since the system prompt isn't in the history).
       const result = await compactMessages(
-        [{ role: 'system', content: '' }, ...currentHistory],
+        currentHistory,
         level,
         extractCompactionConfig(props.config),
         model,
         host,
       );
-      const compactedHistory = result.messages.slice(1);
-      props.setHistory(compactedHistory);
+
+      // Convert compacted Message[] to StoredMessage[] for snapshot storage
+      const compactedStored = fromOllamaMessages(result.messages);
+
+      // Persist the compaction snapshot and refresh the store
+      store.compact(sid, compactedStored, result.originalCount);
+
       setContextInfo(
         `Compacted: ${result.originalCount} -> ${result.compactedCount} messages, ` +
           `${result.tokensBefore} -> ${result.tokensAfter} tokens (${Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)}% reduction)`,
@@ -123,7 +159,7 @@ export function useAgentContext(
   };
 
   const handleShowContext = async () => {
-    const currentHistory = props.history();
+    const currentHistory = store.history();
     if (currentHistory.length === 0) {
       setContextInfo('Context is empty.');
       setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
@@ -144,20 +180,23 @@ export function useAgentContext(
   };
 
   const handleForget = (n: number) => {
-    const currentHistory = props.history();
+    const currentHistory = store.history();
     if (currentHistory.length === 0) {
       setContextInfo('Nothing to forget - context is empty.');
       setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
       return;
     }
 
-    const toRemove = Math.min(n, currentHistory.length);
-    props.setHistory((prev) => prev.slice(0, -toRemove));
-    // Approximate: each history message may correspond to ~2 display messages
-    const displayToRemove = Math.min(toRemove * 2, 100);
-    props.setDisplayMessages((prev) => prev.slice(0, -displayToRemove));
+    const sid = props.sessionId();
+    if (!sid) {
+      setContextInfo('No active session.');
+      setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
+      return;
+    }
+
+    const deleted = store.forget(sid, n);
     setContextInfo(
-      `Forgot last ${toRemove} message${toRemove === 1 ? '' : 's'}.`,
+      `Forgot last ${deleted} message${deleted === 1 ? '' : 's'}.`,
     );
     setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
   };
@@ -165,6 +204,30 @@ export function useAgentContext(
   const handleContextStatsClose = () => {
     setShowContextStats(false);
     setContextStats(null);
+  };
+
+  const updateRealTokenCounts = (
+    totalTokens: number,
+    maxTokens: number,
+    promptTokens?: number,
+    completionTokens?: number,
+  ) => {
+    const usagePercent = Math.round((totalTokens / maxTokens) * 100);
+    setSidebarStats({
+      totalTokens,
+      maxTokens,
+      usagePercent,
+      isNearLimit: usagePercent >= 80,
+      isCritical: usagePercent >= 90,
+      byRole: {
+        // Real counts don't provide per-role breakdown
+        // Use total as assistant since that's the dominant category
+        system: 0,
+        user: 0,
+        assistant: promptTokens ?? totalTokens,
+        tool: completionTokens ?? 0,
+      },
+    });
   };
 
   return {
@@ -178,5 +241,6 @@ export function useAgentContext(
     handleForget,
     handleContextStatsClose,
     setContextInfo,
+    updateRealTokenCounts,
   };
 }

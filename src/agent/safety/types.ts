@@ -33,8 +33,7 @@ export type ConfirmationRequest = {
 
 // Preview content for confirmation UI
 export type ConfirmationPreview =
-  | { type: 'diff'; before: string; after: string; filePath: string } // For edit_file
-  | { type: 'content'; content: string; truncated: boolean } // For write_file
+  | { type: 'diff'; before: string; after: string; filePath: string } // For write_file / edit_file
   | { type: 'command'; command: string; cwd: string }; // For run_command
 
 // User's response to confirmation

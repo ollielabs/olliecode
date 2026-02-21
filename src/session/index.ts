@@ -5,28 +5,30 @@
 
 import { randomUUID } from 'node:crypto';
 import {
-  getDatabase,
-  initDatabase,
   closeDatabase,
+  getDatabase,
   getDatabasePath,
   getDataDirectory,
+  initDatabase,
 } from './db';
 import { getProjectName } from './project';
 import type {
-  Session,
-  StoredMessage,
-  MessagePart,
   CreateSessionOptions,
   ListSessionsOptions,
+  MessagePart,
+  MessageSnapshot,
+  Session,
+  SnapshotType,
+  StoredMessage,
   UpdateSessionOptions,
 } from './types';
 
 // Re-export for convenient imports
 export { initDatabase, closeDatabase, getDatabasePath, getDataDirectory };
-export { getProjectName } from './project';
-export * from './types';
 export * from './convert';
+export { getProjectName } from './project';
 export * from './todo';
+export * from './types';
 
 /**
  * Generate a session title from the first user message.
@@ -253,6 +255,210 @@ export function getMessages(sessionId: string): StoredMessage[] {
   return rows.map(rowToMessage);
 }
 
+/**
+ * Get the active messages for a session, respecting compaction snapshots.
+ *
+ * If a snapshot exists, returns:
+ *   snapshot.messages + raw messages added after the snapshot timestamp
+ *
+ * If no snapshot exists, returns all raw messages (same as getMessages).
+ *
+ * This is the primary read function — callers should prefer this over
+ * getMessages() to get the correct view of the conversation.
+ */
+export function getActiveMessages(sessionId: string): StoredMessage[] {
+  const snapshot = getLatestSnapshot(sessionId);
+
+  if (!snapshot) {
+    return getMessages(sessionId);
+  }
+
+  // Get messages added after the snapshot was created
+  const db = getDatabase();
+  const newerRows = db
+    .query(
+      'SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC',
+    )
+    .all(sessionId, snapshot.createdAt) as MessageRow[];
+  const newerMessages = newerRows.map(rowToMessage);
+
+  return [...snapshot.messages, ...newerMessages];
+}
+
+/**
+ * Check if the last message in a session is a user message with the
+ * same content. Used for deduplication on retry — prevents double-persist
+ * when the user retries after an error.
+ *
+ * Only deduplicates if the content matches, so new user messages after
+ * a failed run (where no assistant response was persisted) are correctly
+ * stored as separate entries.
+ */
+export function hasTrailingUserMessage(
+  sessionId: string,
+  content?: string,
+): boolean {
+  const db = getDatabase();
+  const row = db
+    .query(
+      'SELECT role, parts FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
+    )
+    .get(sessionId) as { role: string; parts: string } | null;
+
+  if (row?.role !== 'user') return false;
+  if (content === undefined) return true;
+
+  // Compare content: extract text from stored parts
+  try {
+    const parts = JSON.parse(row.parts) as Array<{
+      type: string;
+      content?: string;
+    }>;
+    const storedContent = parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.content ?? '')
+      .join('\n');
+    return storedContent === content;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete the last N messages from a session (for /forget).
+ * Deletes by created_at DESC order and updates session message count.
+ */
+export function deleteTrailingMessages(
+  sessionId: string,
+  count: number,
+): number {
+  const db = getDatabase();
+
+  // Get the IDs of the last N messages
+  const rows = db
+    .query(
+      'SELECT id FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?',
+    )
+    .all(sessionId, count) as { id: string }[];
+
+  if (rows.length === 0) return 0;
+
+  const ids = rows.map((r) => r.id);
+  const placeholders = ids.map(() => '?').join(',');
+
+  db.run(`DELETE FROM messages WHERE id IN (${placeholders})`, ids);
+
+  // Update session message count
+  const remaining = db
+    .query('SELECT COUNT(*) as count FROM messages WHERE session_id = ?')
+    .get(sessionId) as { count: number };
+
+  db.run('UPDATE sessions SET message_count = ?, updated_at = ? WHERE id = ?', [
+    remaining.count,
+    Date.now(),
+    sessionId,
+  ]);
+
+  return rows.length;
+}
+
+/**
+ * Clear all messages and snapshots for a session.
+ * Resets message_count to 0. Does not delete the session itself.
+ */
+export function clearMessages(sessionId: string): void {
+  const db = getDatabase();
+  const now = Date.now();
+
+  db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
+  db.run('DELETE FROM message_snapshots WHERE session_id = ?', [sessionId]);
+  db.run('UPDATE sessions SET message_count = 0, updated_at = ? WHERE id = ?', [
+    now,
+    sessionId,
+  ]);
+}
+
+// ============================================================================
+// Compaction Snapshots
+// ============================================================================
+
+/**
+ * Save a compaction snapshot for a session.
+ *
+ * Replaces any existing snapshot for the session — only the latest
+ * compaction matters. Original messages are preserved in the messages table.
+ */
+export function saveCompactionSnapshot(
+  sessionId: string,
+  snapshotType: SnapshotType,
+  compactedMessages: StoredMessage[],
+  originalCount: number,
+): MessageSnapshot {
+  const db = getDatabase();
+  const now = Date.now();
+  const id = randomUUID();
+
+  // Remove any existing snapshot for this session (only latest matters)
+  db.run('DELETE FROM message_snapshots WHERE session_id = ?', [sessionId]);
+
+  const snapshot: MessageSnapshot = {
+    id,
+    sessionId,
+    snapshotType,
+    messages: compactedMessages,
+    originalCount,
+    compactedCount: compactedMessages.length,
+    createdAt: now,
+  };
+
+  db.run(
+    `INSERT INTO message_snapshots (id, session_id, snapshot_type, messages, original_count, compacted_count, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      snapshot.id,
+      snapshot.sessionId,
+      snapshot.snapshotType,
+      JSON.stringify(snapshot.messages),
+      snapshot.originalCount,
+      snapshot.compactedCount,
+      snapshot.createdAt,
+    ],
+  );
+
+  return snapshot;
+}
+
+/**
+ * Get the latest compaction snapshot for a session, if any.
+ */
+export function getLatestSnapshot(sessionId: string): MessageSnapshot | null {
+  const db = getDatabase();
+  const row = db
+    .query(
+      'SELECT * FROM message_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
+    )
+    .get(sessionId) as SnapshotRow | null;
+  return row ? rowToSnapshot(row) : null;
+}
+
+/**
+ * Delete the latest compaction snapshot for a session.
+ * Reverts to the full original message history on next load.
+ */
+export function deleteLatestSnapshot(sessionId: string): boolean {
+  const db = getDatabase();
+  const row = db
+    .query(
+      'SELECT id FROM message_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
+    )
+    .get(sessionId) as { id: string } | null;
+
+  if (!row) return false;
+
+  db.run('DELETE FROM message_snapshots WHERE id = ?', [row.id]);
+  return true;
+}
+
 // ============================================================================
 // Internal: DB row types and converters
 // ============================================================================
@@ -299,6 +505,28 @@ function rowToMessage(row: MessageRow): StoredMessage {
     sessionId: row.session_id,
     role: row.role as StoredMessage['role'],
     parts: JSON.parse(row.parts) as MessagePart[],
+    createdAt: row.created_at,
+  };
+}
+
+type SnapshotRow = {
+  id: string;
+  session_id: string;
+  snapshot_type: string;
+  messages: string;
+  original_count: number;
+  compacted_count: number;
+  created_at: number;
+};
+
+function rowToSnapshot(row: SnapshotRow): MessageSnapshot {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    snapshotType: row.snapshot_type as SnapshotType,
+    messages: JSON.parse(row.messages) as StoredMessage[],
+    originalCount: row.original_count,
+    compactedCount: row.compacted_count,
     createdAt: row.created_at,
   };
 }

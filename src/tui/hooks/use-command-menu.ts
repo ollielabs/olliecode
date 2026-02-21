@@ -151,7 +151,7 @@ export function useCommandMenu(
       const ref = props.getTextareaRef();
       if (!ref || ref.isDestroyed) return;
       const currentText = ref.plainText ?? '';
-      if (props.status() === 'idle' && !props.showSessionPicker()) {
+      if (props.status() !== 'thinking' && !props.showSessionPicker()) {
         if (currentText.startsWith('/')) {
           const newFilter = currentText.slice(1);
           if (!showCommandMenu()) setShowCommandMenu(true);

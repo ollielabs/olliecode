@@ -6,14 +6,14 @@
  * This replaces the old separate tool_call + tool_result + ConfirmationDialog pattern.
  */
 
+import { useKeyboard } from '@opentui/solid';
 import type { JSX } from 'solid-js';
 import { Show } from 'solid-js';
-import { useKeyboard } from '@opentui/solid';
+import type { ConfirmationResponse } from '../../agent/safety/types';
 import { useTheme } from '../../design';
 import type { SemanticTokens } from '../../design/tokens';
+import type { ToolDisplayMessage, ToolMetadata, ToolState } from '../types';
 import { DiffView } from './diff-view';
-import type { ToolDisplayMessage, ToolState, ToolMetadata } from '../types';
-import type { ConfirmationResponse } from '../../agent/safety/types';
 
 export type ToolMessageProps = {
   message: ToolDisplayMessage;
@@ -54,7 +54,8 @@ function formatToolHeader(name: string, args: Record<string, unknown>): string {
     case 'task':
       return String(args.description ?? '');
     case 'todo_write': {
-      const todos = args.todos as Array<{ status: string }> | undefined;
+      const raw = args.todos;
+      const todos = Array.isArray(raw) ? (raw as Array<{ status: string }>) : undefined;
       const pending =
         todos?.filter((t) => t.status !== 'completed').length ?? 0;
       return `${pending} active`;
@@ -360,39 +361,17 @@ function ConfirmingView(props: {
               </box>
             </Show>
 
-            <Show when={p().type === 'content'}>
-              <box
-                style={{
-                  backgroundColor: props.tokens.bgBase,
-                  padding: 1,
-                  border: ['left'],
-                  borderStyle: 'single',
-                  borderColor: props.tokens.borderMuted,
-                }}
-              >
-                <text style={{ fg: props.tokens.textBase }}>
-                  {
-                    (
-                      p() as {
-                        type: 'content';
-                        content: string;
-                        truncated?: boolean;
-                      }
-                    ).content
-                  }
-                  {(p() as { type: 'content'; truncated?: boolean })
-                    .truncated && '\n[truncated...]'}
-                </text>
-              </box>
-            </Show>
-
             <Show when={p().type === 'diff'}>
               <DiffView
                 filePath={(p() as { type: 'diff'; filePath: string }).filePath}
                 before={(p() as { type: 'diff'; before: string }).before}
                 after={(p() as { type: 'diff'; after: string }).after}
                 maxHeight={15}
-                view="split"
+                view={
+                  (p() as { type: 'diff'; before: string }).before
+                    ? 'split'
+                    : 'unified'
+                }
               />
             </Show>
           </box>

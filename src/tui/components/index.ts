@@ -9,6 +9,10 @@ export {
 } from './assistant-message';
 // Dialog and modal components
 export { CommandMenu, type SlashCommand } from './command-menu';
+export {
+  CompactionSummary,
+  type CompactionSummaryProps,
+} from './compaction-summary';
 export { ConfigModal, type ConfigModalProps } from './config-modal';
 export {
   ContextInfoNotification,
@@ -17,6 +21,7 @@ export {
 export { ContextStatsModal } from './context-stats-modal';
 // Diff components
 export { DiffView, type DiffViewProps } from './diff-view';
+export { ErrorMessage, type ErrorMessageProps } from './error-message';
 export {
   FilePicker,
   type FilePickerProps,
@@ -29,7 +34,7 @@ export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
 // Layout components
 export { SidePanel } from './side-panel';
-export { type Status, StatusBar } from './status-bar';
+export { StatusBar } from './status-bar';
 export { ThemePicker } from './theme-picker';
 export {
   ToastNotification,

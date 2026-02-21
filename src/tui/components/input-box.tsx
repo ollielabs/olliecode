@@ -2,7 +2,8 @@ import { RGBA, SyntaxStyle, type TextareaRenderable } from '@opentui/core';
 import { createEffect } from 'solid-js';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
-import { type Status, StatusBar } from './status-bar';
+import type { Status } from '../types';
+import { StatusBar } from './status-bar';
 
 const TEXTAREA_KEY_BINDINGS: {
   name: string;
@@ -17,7 +18,6 @@ export type InputBoxProps = {
   id: string;
   model: string;
   status: Status;
-  error: string;
   mode: AgentMode;
   getTextareaRef: () => TextareaRenderable | undefined;
   getStatus: () => Status;
@@ -126,12 +126,7 @@ export function InputBox(props: InputBoxProps) {
         onSubmit={handleSubmit}
         onContentChange={updateMentionHighlights}
       />
-      <StatusBar
-        model={props.model}
-        status={props.status}
-        error={props.error}
-        mode={props.mode}
-      />
+      <StatusBar model={props.model} status={props.status} mode={props.mode} />
     </box>
   );
 }

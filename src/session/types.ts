@@ -22,10 +22,40 @@ export type ToolPart = {
 };
 
 /**
+ * Compaction summary part — identifies a message as a compaction artifact.
+ * Stored as a distinct part type so it can be identified throughout the
+ * pipeline: storage, Ollama conversion, display rendering, and undo-compact.
+ */
+export type CompactionSummaryPart = {
+  type: 'compaction_summary';
+  /** The LLM-generated summary content */
+  content: string;
+  /** Number of messages that were compacted into this summary */
+  compactedCount: number;
+};
+
+/**
+ * Error part — persists agent-level errors as chat history.
+ * Stored on assistant messages so errors survive session reload
+ * and render inline in the conversation.
+ */
+export type ErrorPart = {
+  type: 'error';
+  /** Error category (model_error, max_iterations, loop_detected, tool_error) */
+  errorType: string;
+  /** Full error message */
+  content: string;
+};
+
+/**
  * Message part types (stored as JSON in `parts` column).
  * This is the source of truth for both Ollama messages and display UI.
  */
-export type MessagePart = { type: 'text'; content: string } | ToolPart;
+export type MessagePart =
+  | { type: 'text'; content: string }
+  | ToolPart
+  | CompactionSummaryPart
+  | ErrorPart;
 
 /**
  * Stored message (maps to DB row).
@@ -78,4 +108,28 @@ export type ListSessionsOptions = {
 export type UpdateSessionOptions = {
   title?: string;
   mode?: AgentMode;
+};
+
+/**
+ * Compaction snapshot type — what triggered the snapshot.
+ */
+export type SnapshotType = 'auto_compaction' | 'manual_compaction';
+
+/**
+ * A point-in-time snapshot of compacted messages for a session.
+ *
+ * Original messages are never deleted — the snapshot is an overlay.
+ * On load: active_messages = snapshot.messages + raw messages added after snapshot.
+ */
+export type MessageSnapshot = {
+  id: string;
+  sessionId: string;
+  snapshotType: SnapshotType;
+  /** The compacted message set (full StoredMessage[] as JSON in DB) */
+  messages: StoredMessage[];
+  /** Number of messages before compaction */
+  originalCount: number;
+  /** Number of messages after compaction */
+  compactedCount: number;
+  createdAt: number;
 };

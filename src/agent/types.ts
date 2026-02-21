@@ -1,6 +1,7 @@
 import type { Message, ToolCall } from 'ollama';
 import type { z } from 'zod';
 
+import type { CompactionResult } from './compaction';
 import type { SafetyConfig } from './safety/types';
 
 // Re-export safety types for convenience
@@ -91,9 +92,13 @@ export type AgentStep = {
 
 /**
  * Context usage statistics for the agent run.
+ *
+ * When `promptTokens` is present, `totalTokens` and `usagePercent` are
+ * computed from real model tokenizer counts. Otherwise they fall back to
+ * the character-based heuristic.
  */
 export type ContextUsage = {
-  /** Estimated tokens used at end of run */
+  /** Total tokens used (real if promptTokens available, else estimated) */
   totalTokens: number;
   /** Maximum context window for the model */
   maxTokens: number;
@@ -101,6 +106,10 @@ export type ContextUsage = {
   usagePercent: number;
   /** Whether context exceeded 80% threshold */
   exceededThreshold: boolean;
+  /** Actual prompt tokens from model (undefined if not yet available) */
+  promptTokens?: number;
+  /** Actual completion tokens from model (undefined if not yet available) */
+  completionTokens?: number;
 };
 
 /**
@@ -117,17 +126,42 @@ export type AgentResult = {
   };
   /** Context usage statistics (if available) */
   contextUsage?: ContextUsage;
+  /** If auto-compaction occurred during this run, the compaction result */
+  compacted?: CompactionResult;
 };
 
 /**
  * Error types for agent failures
  */
 export type AgentError =
-  | { type: 'aborted'; messages: Message[] }
-  | { type: 'model_error'; message: string; messages: Message[] }
-  | { type: 'loop_detected'; action: string; attempts: number; messages: Message[] }
-  | { type: 'max_iterations'; iterations: number; lastThought: string; messages: Message[] }
-  | { type: 'tool_error'; tool: string; message: string; messages: Message[] };
+  | { type: 'aborted'; messages: Message[]; compacted?: CompactionResult }
+  | {
+      type: 'model_error';
+      message: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'loop_detected';
+      action: string;
+      attempts: number;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'max_iterations';
+      iterations: number;
+      lastThought: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    }
+  | {
+      type: 'tool_error';
+      tool: string;
+      message: string;
+      messages: Message[];
+      compacted?: CompactionResult;
+    };
 
 /**
  * Configuration for the agent
@@ -145,9 +179,10 @@ export type AgentConfig = {
 /**
  * Default agent configuration
  *
- * maxIterations set to 15 to support complex exploration tasks.
- * Complex codebase analysis may need 15-20 iterations to systematically
- * explore structure, read key files, and synthesize findings.
+ * maxIterations set to 50 — high enough for complex multi-file tasks
+ * (read, edit, test, fix cycles), low enough to catch true runaways.
+ * A soft warning is injected at 80% of the limit to nudge the model
+ * to wrap up before the hard stop.
  *
  * loopThreshold of 3 means 3 truly consecutive identical calls trigger detection.
  * The smarter loop detection allows interleaved patterns like read→edit→read.
@@ -155,7 +190,7 @@ export type AgentConfig = {
  * autoCompaction enabled by default at 80% context usage threshold.
  */
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  maxIterations: 15,
+  maxIterations: 50,
   loopDetection: true,
   loopThreshold: 3,
   autoCompaction: true,

@@ -1,13 +1,11 @@
-import { Show, createMemo, mergeProps } from 'solid-js';
+import { createMemo, mergeProps, Show } from 'solid-js';
 import type { AgentMode } from '../../agent/modes';
 import { useTheme } from '../../design';
-
-export type Status = 'idle' | 'thinking' | 'error';
+import type { Status } from '../types';
 
 export type StatusBarProps = {
   model: string;
   status: Status;
-  error: string;
   mode?: AgentMode;
 };
 
@@ -35,9 +33,6 @@ export function StatusBar(rawProps: StatusBarProps) {
         <text style={{ fg: tokens.textMuted }}> • {props.model}</text>
         <Show when={props.status === 'thinking'}>
           <text style={{ fg: tokens.primaryBase }}> • Thinking...</text>
-        </Show>
-        <Show when={props.status === 'error'}>
-          <text style={{ fg: tokens.error }}> • Error: {props.error}</text>
         </Show>
       </box>
       <box style={{ flexDirection: 'row' }}>

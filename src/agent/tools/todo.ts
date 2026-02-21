@@ -4,19 +4,21 @@
  */
 
 import { z } from 'zod';
-import type { ToolDefinition, ToolContext } from '../types';
 import {
-  getTodos,
-  updateTodos,
   formatTodos,
+  getTodos,
   type TodoInput,
+  updateTodos,
 } from '../../session/todo';
+import type { ToolContext, ToolDefinition } from '../types';
 
 /**
  * Schema for a single todo item
  */
 const TodoItemSchema = z.object({
-  id: z.string().describe('Unique identifier for the todo'),
+  id: z
+    .union([z.string(), z.number()])
+    .describe('Unique identifier for the todo'),
   content: z.string().describe('Description of the task'),
   status: z
     .enum(['pending', 'in_progress', 'completed', 'cancelled'])
@@ -77,10 +79,13 @@ Use this tool proactively for:
     // Session ID is injected from context, not provided by the LLM
     const sessionId = context?.sessionId ?? 'default';
 
-    const todoInputs: TodoInput[] = todos.map((t) => ({
-      id: t.id,
-      content: t.content,
-      status: t.status,
+    // Normalize: models sometimes send a single object instead of an array
+    const todoList = Array.isArray(todos) ? todos : [todos];
+
+    const todoInputs: TodoInput[] = todoList.map((t) => ({
+      id: String(t.id ?? `auto_${Date.now()}`),
+      content: t.content ?? '',
+      status: t.status ?? 'pending',
       priority: t.priority,
     }));
 
