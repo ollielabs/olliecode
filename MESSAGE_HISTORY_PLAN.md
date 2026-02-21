@@ -329,3 +329,174 @@ Phase 4 (integration) has the highest regression risk — do it incrementally:
 - Compaction currently replaces `messages` in-place via `messages.length = 0; messages.push(...)`
 - `toOllamaMessages` reconstructs `{ role: 'tool', content }` without TOOL_RESULT_PREFIX — divergence
 - `augmentMessageWithFiles` appends `<attached-files>` XML block — parseable for stripping
+
+---
+
+## Phase 7: Post-Integration Bug Fixes
+
+Discovered during testing after Phases 1-5 were committed. These are regressions
+introduced by the new persistence pipeline, plus a pre-existing token counting problem
+that the new store made more visible.
+
+### Issue A: Compaction destroys assistant messages (CRITICAL — data loss)
+
+**Symptoms**: After /compact, all assistant messages disappear from chat. Only some
+user messages remain. Persists across exit/restart.
+
+**Root cause chain**:
+1. `compactWithSummary()` (`compaction.ts:266-268`) emits summaries as `role: 'system'`
+2. `fromOllamaMessages()` (`convert.ts:164-172`) converts these to `StoredMessage[]`
+3. `toDisplayMessages()` (`convert.ts:136`) drops system-role messages: `// System messages are not displayed in the UI`
+4. So compaction summaries (condensed assistant responses) become permanently invisible
+
+**Why this is a regression**: Before Phases 3-4, compaction happened in-memory during the
+agent loop. The compacted `Message[]` was used directly by Ollama — no `StoredMessage[]`
+conversion, no `toDisplayMessages()` filter. The new persistence pipeline introduced the
+system-role filtering.
+
+**Additional bugs found**:
+- `compactSimple()` line 226-227: empty block in aggressive mode silently drops messages
+  (no summary, no placeholder — just gone)
+- `shouldPreserve()` has keyword matching for user messages ("please", "fix", "create")
+  but NO equivalent for assistant messages — biased preservation
+- `fromOllamaMessages()` casts `role: 'tool'` via `as StoredMessage['role']` which is
+  `'user' | 'assistant' | 'system'` — tool-role messages get an invalid type and are
+  lost in display
+
+**Fix (3 files)**:
+
+1. `compaction.ts` — Change `compactWithSummary()` lines 266-269 to emit summaries as
+   `role: 'assistant'` with markdown structure:
+   ```
+   ---
+   **Compaction**
+
+   ## Summary
+
+   ${summary}
+
+   ---
+   ```
+   Same change for `compactSimple()` aggressive mode — emit assistant-role placeholder
+   instead of silently dropping.
+
+2. `convert.ts` `fromOllamaMessages()`:
+   - Use incrementing `Date.now() + index` for `createdAt` instead of hardcoded `0`
+   - Filter out `role: 'tool'` messages (they shouldn't survive compaction as standalone)
+   - Validate role is one of `'user' | 'assistant' | 'system'`
+
+3. `compaction.ts` `shouldPreserve()` — Add preservation rule for assistant messages
+   that immediately follow preserved user messages (keeps Q/A pairs together)
+
+**Commit**: `fix: emit compaction summaries as assistant role to prevent display loss`
+
+### Issue B: Token counting wildly inaccurate (causes "prompt too long" at 39% sidebar)
+
+**Symptoms**: Sidebar shows 39% (78.4k / 202.8k) but Ollama rejects with "prompt too
+long; exceeded max context length by 492 tokens". Auto-compaction never triggers.
+
+**Root cause**: Token estimation uses `chars / 3.5` heuristic that misses large chunks:
+
+| Missing from estimate | Approx. tokens |
+|---|---|
+| System prompt (build mode + AGENTS.md) | ~4,000-6,000 |
+| Tool definition schemas (10 tools via `tools: modeTools`) | ~2,000-4,000 |
+| Heuristic ratio too generous for code-heavy content | ~15% undercount |
+| Current user message (not in sidebar until settled) | variable |
+| Messages accumulated during active agent loop | variable |
+
+Meanwhile, Ollama returns **exact** token counts on every response that we ignore:
+- `prompt_eval_count` — exact tokens in the full prompt (system + history + tools + user)
+- `eval_count` — exact tokens generated
+
+These are in `ChatResponse` from the ollama SDK but our `OllamaChunk` type in
+`stream-handler.ts` doesn't include them. The `processStream()` function breaks on
+`chunk.done === true` without reading the stats from the final chunk.
+
+**Fix (4 files)**:
+
+1. `stream-handler.ts`:
+   - Widen `OllamaChunk` to include `prompt_eval_count?: number`, `eval_count?: number`
+   - Add `promptTokens?: number`, `completionTokens?: number` to `AccumulatedResponse`
+   - In `processStream()`, when `chunk.done === true`, capture stats before breaking
+
+2. `agent/types.ts`:
+   - Update `ContextUsage` to include actual vs estimated distinction
+   - Add `promptTokens` and `completionTokens` to `ContextUsage`
+
+3. `agent/index.ts`:
+   - After each `processStream()`, read `accumulated.promptTokens`
+   - Use real count for compaction threshold check when available
+   - Include real counts in `AgentResult.contextUsage`
+
+4. `use-agent-context.ts`:
+   - Add signal for last-known real token count from agent responses
+   - Sidebar displays real count when available, falls back to heuristic for first message
+   - `use-agent-submit.ts` updates the real count signal after each agent run
+
+**Commit**: `feat: capture real token counts from Ollama for accurate context tracking`
+
+### Issue C: @ and / commands blocked in error state (catch-22)
+
+**Symptoms**: After "prompt too long" error, status is `'error'`. User can type but
+@ file picker and / command menu don't activate. Can't run /compact to fix the
+context problem without exiting and re-entering the session.
+
+**Root cause**: Three hooks gate on `status() === 'idle'`:
+- `use-file-picker.ts:54` — `props.status() !== 'idle'`
+- `use-command-menu.ts:154` — `props.status() === 'idle'`
+- `use-keyboard-shortcuts.ts:90` — `props.status() === 'idle'`
+
+After any error, `use-agent-submit.ts` sets `status('error')` and never resets to idle.
+The only escape is submitting a new plain-text prompt — but you can't use / commands.
+
+**Fix (3 one-line changes)**:
+- `use-file-picker.ts:54`: `props.status() !== 'idle'` → `props.status() === 'thinking'`
+- `use-command-menu.ts:154`: `props.status() === 'idle'` → `props.status() !== 'thinking'`
+- `use-keyboard-shortcuts.ts:90`: `props.status() === 'idle'` → `props.status() !== 'thinking'`
+
+Allows @, /, and Tab in both idle and error states. Blocks during thinking (correct).
+
+**Commit**: `fix: allow @ and / commands in error state`
+
+### Issue D: write_file confirmation shows raw text instead of diff (enhancement)
+
+**Symptoms**: write_file confirmation modal shows raw content text box instead of
+syntax-highlighted diff view.
+
+**Changes (already applied, not yet committed)**:
+- `safety/index.ts` `buildPreview`: write_file returns `{ type: 'diff' }` with
+  existing file content as `before`, new content as `after`
+- `safety/index.ts` dangerous overwrite guard: same — returns diff instead of content
+- `safety/types.ts`: Removed `content` variant from `ConfirmationPreview` union
+- `tool-message.tsx` `ConfirmingView`: Removed `content` preview branch, added
+  unified/split logic (new files → unified, existing files → split)
+
+**Commit**: `fix: write_file confirmation shows diff preview instead of raw text`
+
+### Commit Order
+
+| # | Issue | Description | Risk |
+|---|---|---|---|
+| 1 | C | Allow @ / commands in error state | Low (3 one-line changes) |
+| 2 | A | Compaction summaries as assistant role | Medium (compaction + convert) |
+| 3 | B | Real token counts from Ollama | Medium (stream handler + agent) |
+| 4 | D | write_file diff preview | Low (already applied + tested) |
+
+### Key Files for Phase 7
+
+| File | Issues |
+|---|---|
+| `src/agent/compaction.ts` | A (summary role, aggressive mode, preservation) |
+| `src/session/convert.ts` | A (fromOllamaMessages role/timestamp fixes) |
+| `src/agent/stream-handler.ts` | B (capture prompt_eval_count) |
+| `src/agent/index.ts` | B (use real counts for compaction + context usage) |
+| `src/agent/types.ts` | B (ContextUsage fields) |
+| `src/tui/hooks/use-agent-context.ts` | B (sidebar real count signal) |
+| `src/tui/hooks/use-agent-submit.ts` | B (pass real counts to sidebar) |
+| `src/tui/hooks/use-file-picker.ts` | C (status gate) |
+| `src/tui/hooks/use-command-menu.ts` | C (status gate) |
+| `src/tui/hooks/use-keyboard-shortcuts.ts` | C (status gate) |
+| `src/agent/safety/index.ts` | D (buildPreview diff) |
+| `src/agent/safety/types.ts` | D (remove content preview type) |
+| `src/tui/components/tool-message.tsx` | D (ConfirmingView unified/split) |
