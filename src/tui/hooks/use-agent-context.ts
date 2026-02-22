@@ -6,7 +6,7 @@
  * message store, ensuring in-memory and SQLite stay consistent.
  */
 
-import { createEffect, createSignal } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { summarizeConversation } from '../../agent/compaction';
 import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
@@ -74,43 +74,13 @@ export function useAgentContext(
     null,
   );
 
-  // Track whether sidebar is showing real token counts from the model.
-  // When true, skip heuristic updates from createEffect to avoid
-  // overwriting accurate counts with stale estimates.
-  let hasRealCounts = false;
-  // Track message count to detect when new messages are added after
-  // real counts were set — those counts are stale for the new history.
-  let realCountsMessageCount = 0;
-
-  // Update sidebar stats when history changes
-  createEffect(() => {
-    const currentHistory = store.history();
-    if (currentHistory.length === 0) {
-      setSidebarStats(null);
-      hasRealCounts = false;
-      return;
-    }
-
-    // If we have real counts and the history length hasn't changed
-    // beyond what the real counts covered, skip the heuristic update.
-    // The real counts are still accurate.
-    if (hasRealCounts && currentHistory.length <= realCountsMessageCount) {
-      return;
-    }
-
-    // History changed beyond real counts — fall back to heuristic
-    hasRealCounts = false;
-
-    void (async () => {
-      try {
-        const modelInfo = await fetchModelInfo(model, host);
-        const stats = getContextStats(currentHistory, modelInfo.contextLength);
-        setSidebarStats(stats);
-      } catch {
-        setSidebarStats(null);
-      }
-    })();
-  });
+  // Sidebar stats are updated ONLY when real token counts arrive from
+  // the model (via updateRealTokenCounts). No heuristic estimation.
+  //
+  // This matches opencode's approach: display the last known real counts
+  // from prompt_eval_count/eval_count. Before the first model response,
+  // the sidebar shows null (no data). This is more robust than estimating
+  // with a character heuristic that overestimates by 33-60%.
 
   const handleClearContext = () => {
     const sid = props.sessionId();
@@ -120,6 +90,7 @@ export function useAgentContext(
       // No session yet — just reset in-memory state
       store.reset();
     }
+    setSidebarStats(null);
     setContextInfo('Context cleared. Starting fresh conversation.');
     setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_SHORT);
   };
@@ -157,7 +128,11 @@ export function useAgentContext(
 
       const summarizedCount = store.summarize(sid, summaryText);
 
-      // Get new stats after summarization
+      // Clear stale real counts — they no longer reflect the compacted history.
+      // The next model call will provide fresh real counts.
+      setSidebarStats(null);
+
+      // Get new stats after summarization (estimate for notification only)
       const newHistory = store.history();
       let statsMsg = '';
       try {
@@ -217,6 +192,7 @@ export function useAgentContext(
     }
 
     const deleted = store.forget(sid, n);
+    setSidebarStats(null);
     setContextInfo(
       `Forgot last ${deleted} message${deleted === 1 ? '' : 's'}.`,
     );
@@ -234,25 +210,18 @@ export function useAgentContext(
     promptTokens?: number,
     completionTokens?: number,
   ) => {
-    const usagePercent = Math.round((totalTokens / maxTokens) * 100);
+    const usagePercent =
+      maxTokens > 0 ? Math.round((totalTokens / maxTokens) * 100) : 0;
     setSidebarStats({
       totalTokens,
       maxTokens,
       usagePercent,
       isNearLimit: usagePercent >= 80,
       isCritical: usagePercent >= 90,
-      byRole: {
-        system: 0,
-        user: 0,
-        assistant: promptTokens ?? totalTokens,
-        tool: completionTokens ?? 0,
-      },
+      // Per-role breakdown is not available from Ollama's prompt_eval_count/eval_count.
+      // These are aggregate counts, not per-role. Set all to zero.
+      byRole: { system: 0, user: 0, assistant: 0, tool: 0 },
     });
-
-    // Mark that we have real counts — prevent the heuristic effect
-    // from overwriting these accurate values on the next history change.
-    hasRealCounts = true;
-    realCountsMessageCount = store.history().length;
   };
 
   return {

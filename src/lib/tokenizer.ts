@@ -13,7 +13,7 @@
  * - JSON: ~3.5 characters per token
  */
 
-import type { Message } from 'ollama';
+import type { Message, Tool } from 'ollama';
 
 /**
  * Average characters per token for different content types.
@@ -139,6 +139,35 @@ export function estimateMessagesTokens(messages: Message[]): number {
 }
 
 /**
+ * Parse num_ctx from Ollama's /api/show `parameters` string and compute
+ * the effective context length.
+ *
+ * The `parameters` field is a multiline string from the Modelfile, e.g.:
+ *   "num_ctx 32768\ntemperature 0.7\nstop <|im_end|>\n"
+ *
+ * When `num_ctx` is present and lower than the architecture `context_length`,
+ * it represents the operational limit and should be used instead.
+ *
+ * @param archContextLength - Architecture context_length from model_info
+ * @param parameters - Raw parameters string from /api/show (may be undefined)
+ * @returns Effective context length (min of arch limit and num_ctx)
+ */
+export function resolveContextLength(
+  archContextLength: number,
+  parameters?: string,
+): number {
+  if (!parameters) return archContextLength;
+
+  const match = parameters.match(/^num_ctx\s+"?(\d+)"?/m);
+  if (!match?.[1]) return archContextLength;
+
+  const numCtx = Number.parseInt(match[1], 10);
+  if (numCtx <= 0) return archContextLength;
+
+  return Math.min(archContextLength, numCtx);
+}
+
+/**
  * Fetch model info from Ollama API.
  *
  * @param model - Model name
@@ -174,6 +203,7 @@ export async function fetchModelInfo(
       model_info?: Record<string, unknown>;
       details?: { family?: string; parameter_size?: string };
       capabilities?: string[];
+      parameters?: string;
     };
 
     // Extract context length from model_info
@@ -182,19 +212,25 @@ export async function fetchModelInfo(
     const family = data.details?.family ?? '';
 
     // Find context_length key - could be "{family}.context_length" or just "context_length"
-    let contextLength = 0;
+    let archContextLength = 0;
     for (const [key, value] of Object.entries(modelInfo)) {
       if (key.endsWith('.context_length') || key === 'context_length') {
-        contextLength = value as number;
+        archContextLength = value as number;
         break;
       }
     }
 
-    if (contextLength === 0) {
+    if (archContextLength === 0) {
       throw new Error(
         `Could not find context_length in model info for ${model}`,
       );
     }
+
+    // Parse num_ctx from parameters string and compute effective context length
+    const contextLength = resolveContextLength(
+      archContextLength,
+      data.parameters,
+    );
 
     const info: ModelInfo = {
       contextLength,
@@ -238,23 +274,46 @@ export function clearModelInfoCache(): void {
 }
 
 /**
- * Estimated token overhead for components NOT included in the message
- * history but always present in the actual Ollama request.
+ * Static fallback overhead constants.
  *
- * SIDEBAR overhead (history excludes system prompt):
- * - System prompt (build mode + AGENTS.md): ~4,000-6,000 tokens
- * - Tool schemas (10 tools with Zod JSON schemas): ~3,000-5,000 tokens
- * - ChatML formatting overhead: ~500 tokens
- *
- * AGENT LOOP overhead (messages includes system prompt, but not tool schemas):
- * - Tool schemas (10 tools with nested JSON schemas): ~4,000-6,000 tokens
- * - ChatML formatting overhead: ~500 tokens
+ * Prefer {@link computeOverhead} when tool schemas are available, which
+ * measures overhead dynamically. These constants are retained as fallbacks
+ * for paths that don't have access to tool schemas (e.g., context stats modal).
  *
  * When real token counts are available (from prompt_eval_count), they
- * supersede this entirely.
+ * supersede overhead estimates entirely.
  */
 export const OVERHEAD_SIDEBAR = 10_000;
 export const OVERHEAD_AGENT_LOOP = 6_000;
+
+/** Fixed token overhead for ChatML framing (role markers, delimiters). */
+const CHATML_FRAMING_TOKENS = 50;
+
+/**
+ * Compute token overhead for components NOT included in the message
+ * history but always present in the actual Ollama request.
+ *
+ * In the agent loop, the system prompt IS in the messages array,
+ * so only tool schemas contribute to unmeasured overhead. This function
+ * estimates the token cost of the serialized tool schemas + ChatML framing.
+ *
+ * Only used in the agent loop's heuristic fallback path (before real
+ * prompt_eval_count is available). Once real counts arrive, they supersede
+ * this entirely.
+ *
+ * @param toolSchemas - Ollama tool schemas sent with each request
+ * @returns Estimated overhead in tokens
+ */
+export function computeOverhead(toolSchemas: Tool[]): number {
+  let overhead = CHATML_FRAMING_TOKENS;
+
+  if (toolSchemas.length > 0) {
+    const toolsJson = JSON.stringify(toolSchemas);
+    overhead += estimateTokens(toolsJson, 'json');
+  }
+
+  return overhead;
+}
 
 /**
  * Calculate context usage statistics.
