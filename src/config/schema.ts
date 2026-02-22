@@ -36,9 +36,6 @@ export const AgentSchema = AgentObjectSchema.default(() =>
 const CompactionObjectSchema = z.object({
   auto: z.boolean().default(true),
   threshold: z.number().int().min(50).max(100).default(80),
-  minPreservedMessages: z.number().int().min(1).max(50).default(6),
-  useLLMSummary: z.boolean().default(true),
-  maxSummaryTokens: z.number().int().min(50).max(1000).default(200),
   temperature: z.number().min(0).max(2).default(0.3),
 });
 

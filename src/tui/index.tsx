@@ -107,6 +107,7 @@ function AppContent(props: AppProps) {
     store,
     setSidebarTodos: session.setSidebarTodos,
     updateRealTokenCounts: context.updateRealTokenCounts,
+    setContextInfo: context.setContextInfo,
   });
 
   // Status getter for InputBox

@@ -20,7 +20,9 @@ function ProgressBar(props: {
   emptyColor: string;
 }) {
   const barWidth = createMemo(() => props.width ?? 30);
-  const filled = createMemo(() => Math.round((props.percent / 100) * barWidth()));
+  const filled = createMemo(() =>
+    Math.round((props.percent / 100) * barWidth()),
+  );
   const empty = createMemo(() => barWidth() - filled());
 
   return (

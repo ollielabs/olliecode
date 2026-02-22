@@ -16,9 +16,7 @@ import type {
   CreateSessionOptions,
   ListSessionsOptions,
   MessagePart,
-  MessageSnapshot,
   Session,
-  SnapshotType,
   StoredMessage,
   UpdateSessionOptions,
 } from './types';
@@ -73,6 +71,7 @@ export async function createSession(
     model: opts.model,
     host: opts.host,
     messageCount: 0,
+    summaryMessageId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -256,33 +255,13 @@ export function getMessages(sessionId: string): StoredMessage[] {
 }
 
 /**
- * Get the active messages for a session, respecting compaction snapshots.
+ * Get the active messages for a session.
  *
- * If a snapshot exists, returns:
- *   snapshot.messages + raw messages added after the snapshot timestamp
- *
- * If no snapshot exists, returns all raw messages (same as getMessages).
- *
- * This is the primary read function — callers should prefer this over
- * getMessages() to get the correct view of the conversation.
+ * Returns all messages in chronological order. Chat history is never
+ * altered by compaction — this always returns the full conversation.
  */
 export function getActiveMessages(sessionId: string): StoredMessage[] {
-  const snapshot = getLatestSnapshot(sessionId);
-
-  if (!snapshot) {
-    return getMessages(sessionId);
-  }
-
-  // Get messages added after the snapshot was created
-  const db = getDatabase();
-  const newerRows = db
-    .query(
-      'SELECT * FROM messages WHERE session_id = ? AND created_at > ? ORDER BY created_at ASC',
-    )
-    .all(sessionId, snapshot.createdAt) as MessageRow[];
-  const newerMessages = newerRows.map(rowToMessage);
-
-  return [...snapshot.messages, ...newerMessages];
+  return getMessages(sessionId);
 }
 
 /**
@@ -363,100 +342,52 @@ export function deleteTrailingMessages(
 }
 
 /**
- * Clear all messages and snapshots for a session.
- * Resets message_count to 0. Does not delete the session itself.
+ * Clear all messages for a session.
+ * Resets message_count and summary_message_id. Does not delete the session itself.
  */
 export function clearMessages(sessionId: string): void {
   const db = getDatabase();
   const now = Date.now();
 
   db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
-  db.run('DELETE FROM message_snapshots WHERE session_id = ?', [sessionId]);
-  db.run('UPDATE sessions SET message_count = 0, updated_at = ? WHERE id = ?', [
-    now,
-    sessionId,
-  ]);
-}
-
-// ============================================================================
-// Compaction Snapshots
-// ============================================================================
-
-/**
- * Save a compaction snapshot for a session.
- *
- * Replaces any existing snapshot for the session — only the latest
- * compaction matters. Original messages are preserved in the messages table.
- */
-export function saveCompactionSnapshot(
-  sessionId: string,
-  snapshotType: SnapshotType,
-  compactedMessages: StoredMessage[],
-  originalCount: number,
-): MessageSnapshot {
-  const db = getDatabase();
-  const now = Date.now();
-  const id = randomUUID();
-
-  // Remove any existing snapshot for this session (only latest matters)
-  db.run('DELETE FROM message_snapshots WHERE session_id = ?', [sessionId]);
-
-  const snapshot: MessageSnapshot = {
-    id,
-    sessionId,
-    snapshotType,
-    messages: compactedMessages,
-    originalCount,
-    compactedCount: compactedMessages.length,
-    createdAt: now,
-  };
-
   db.run(
-    `INSERT INTO message_snapshots (id, session_id, snapshot_type, messages, original_count, compacted_count, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      snapshot.id,
-      snapshot.sessionId,
-      snapshot.snapshotType,
-      JSON.stringify(snapshot.messages),
-      snapshot.originalCount,
-      snapshot.compactedCount,
-      snapshot.createdAt,
-    ],
+    'UPDATE sessions SET message_count = 0, summary_message_id = NULL, updated_at = ? WHERE id = ?',
+    [now, sessionId],
   );
+}
 
-  return snapshot;
+// ============================================================================
+// Compaction Summary Pointer
+// ============================================================================
+
+/**
+ * Get the summary message ID for a session.
+ * Returns null if no summary exists.
+ */
+export function getSummaryMessageId(sessionId: string): string | null {
+  const db = getDatabase();
+  const row = db
+    .query('SELECT summary_message_id FROM sessions WHERE id = ?')
+    .get(sessionId) as { summary_message_id: string | null } | null;
+  return row?.summary_message_id ?? null;
 }
 
 /**
- * Get the latest compaction snapshot for a session, if any.
+ * Set (or clear) the summary message ID for a session.
+ * Points to the latest compaction summary message in the messages table.
+ *
+ * When building model context, everything before this message is dropped
+ * and the summary is sent as context. Chat history is never altered.
  */
-export function getLatestSnapshot(sessionId: string): MessageSnapshot | null {
+export function setSummaryMessageId(
+  sessionId: string,
+  messageId: string | null,
+): void {
   const db = getDatabase();
-  const row = db
-    .query(
-      'SELECT * FROM message_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
-    )
-    .get(sessionId) as SnapshotRow | null;
-  return row ? rowToSnapshot(row) : null;
-}
-
-/**
- * Delete the latest compaction snapshot for a session.
- * Reverts to the full original message history on next load.
- */
-export function deleteLatestSnapshot(sessionId: string): boolean {
-  const db = getDatabase();
-  const row = db
-    .query(
-      'SELECT id FROM message_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
-    )
-    .get(sessionId) as { id: string } | null;
-
-  if (!row) return false;
-
-  db.run('DELETE FROM message_snapshots WHERE id = ?', [row.id]);
-  return true;
+  db.run(
+    'UPDATE sessions SET summary_message_id = ?, updated_at = ? WHERE id = ?',
+    [messageId, Date.now(), sessionId],
+  );
 }
 
 // ============================================================================
@@ -472,6 +403,7 @@ type SessionRow = {
   model: string;
   host: string;
   message_count: number;
+  summary_message_id: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -494,6 +426,7 @@ function rowToSession(row: SessionRow): Session {
     model: row.model,
     host: row.host,
     messageCount: row.message_count,
+    summaryMessageId: row.summary_message_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -505,28 +438,6 @@ function rowToMessage(row: MessageRow): StoredMessage {
     sessionId: row.session_id,
     role: row.role as StoredMessage['role'],
     parts: JSON.parse(row.parts) as MessagePart[],
-    createdAt: row.created_at,
-  };
-}
-
-type SnapshotRow = {
-  id: string;
-  session_id: string;
-  snapshot_type: string;
-  messages: string;
-  original_count: number;
-  compacted_count: number;
-  created_at: number;
-};
-
-function rowToSnapshot(row: SnapshotRow): MessageSnapshot {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    snapshotType: row.snapshot_type as SnapshotType,
-    messages: JSON.parse(row.messages) as StoredMessage[],
-    originalCount: row.original_count,
-    compactedCount: row.compacted_count,
     createdAt: row.created_at,
   };
 }

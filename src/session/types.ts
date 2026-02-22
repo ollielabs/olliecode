@@ -80,6 +80,8 @@ export type Session = {
   model: string;
   host: string;
   messageCount: number;
+  /** ID of the latest compaction summary message, or null if no summary exists */
+  summaryMessageId: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -108,28 +110,4 @@ export type ListSessionsOptions = {
 export type UpdateSessionOptions = {
   title?: string;
   mode?: AgentMode;
-};
-
-/**
- * Compaction snapshot type — what triggered the snapshot.
- */
-export type SnapshotType = 'auto_compaction' | 'manual_compaction';
-
-/**
- * A point-in-time snapshot of compacted messages for a session.
- *
- * Original messages are never deleted — the snapshot is an overlay.
- * On load: active_messages = snapshot.messages + raw messages added after snapshot.
- */
-export type MessageSnapshot = {
-  id: string;
-  sessionId: string;
-  snapshotType: SnapshotType;
-  /** The compacted message set (full StoredMessage[] as JSON in DB) */
-  messages: StoredMessage[];
-  /** Number of messages before compaction */
-  originalCount: number;
-  /** Number of messages after compaction */
-  compactedCount: number;
-  createdAt: number;
 };

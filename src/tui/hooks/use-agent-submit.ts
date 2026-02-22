@@ -8,11 +8,16 @@
  * All message persistence and display state is managed through the
  * message store (useMessageStore), ensuring in-memory and SQLite
  * never diverge at rest.
+ *
+ * When the agent signals that summarization is needed (context usage
+ * exceeds threshold or "prompt too long"), this hook runs the
+ * summarizer after settlement and optionally retries the user's message.
  */
 
 import type { ToolCall } from 'ollama';
 import { createSignal, type Setter } from 'solid-js';
 import { runAgent } from '../../agent';
+import { summarizeConversation } from '../../agent/compaction';
 import type { AgentStep, ToolResult } from '../../agent/types';
 import {
   extractAgentConfig,
@@ -20,7 +25,6 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
-import { fromOllamaMessages } from '../../session/convert';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -41,10 +45,7 @@ import type {
   ToolMetadata,
   ToolState,
 } from '../types';
-import type {
-  CompactionInfo,
-  UseMessageStoreReturn,
-} from './use-message-store';
+import type { UseMessageStoreReturn } from './use-message-store';
 
 export type UseAgentSubmitProps = {
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
@@ -66,6 +67,8 @@ export type UseAgentSubmitProps = {
     promptTokens?: number,
     completionTokens?: number,
   ) => void;
+  /** Show a context info notification */
+  setContextInfo?: (info: string | null) => void;
 };
 
 export type UseAgentSubmitReturn = {
@@ -91,6 +94,10 @@ export type UseAgentSubmitReturn = {
 function generateToolId(): string {
   return `tool_${Date.now()}_${Math.random().toString(TOOL_ID_RADIX).slice(TOOL_ID_SLICE_START, TOOL_ID_SLICE_END)}`;
 }
+
+/** Notification durations (ms) */
+const NOTIFICATION_SHORT = 3000;
+const NOTIFICATION_LONG = 8000;
 
 export function useAgentSubmit(
   props: UseAgentSubmitProps,
@@ -123,8 +130,37 @@ export function useAgentSubmit(
     }
     // Defer clearing confirmingToolId so the textarea doesn't re-focus
     // in the same tick as the 'y'/'n' keypress that triggered confirmation.
-    // Without this, the keypress leaks into the textarea.
     queueMicrotask(() => setConfirmingToolId(null));
+  };
+
+  /**
+   * Run summarization after an agent run when context exceeds threshold.
+   * Returns true if summarization succeeded.
+   */
+  const runSummarization = async (sessionId: string): Promise<boolean> => {
+    props.setContextInfo?.('Summarizing context...');
+
+    const summaryText = await summarizeConversation(
+      store.history(),
+      model,
+      host,
+      props.config.compaction.temperature,
+    );
+
+    if (!summaryText) {
+      props.setContextInfo?.(
+        'Context summarization failed — continuing without summary.',
+      );
+      setTimeout(() => props.setContextInfo?.(null), NOTIFICATION_LONG);
+      return false;
+    }
+
+    const summarizedCount = store.summarize(sessionId, summaryText);
+    props.setContextInfo?.(
+      `Context summarized (${summarizedCount} messages). Model context has been condensed.`,
+    );
+    setTimeout(() => props.setContextInfo?.(null), NOTIFICATION_LONG);
+    return true;
   };
 
   const handleSubmit = async (prompt: string) => {
@@ -140,8 +176,6 @@ export function useAgentSubmit(
     // Persist augmented prompt (with file contents) so the model gets
     // full context on session reload. Display shows the raw prompt with
     // file badges (stripFileAugmentation runs in toDisplayMessages).
-    // Dedup: skips persistence if the last stored message is already
-    // a user message (handles retry after error).
     store.appendUserMessage(
       session.id,
       prompt,
@@ -176,7 +210,6 @@ export function useAgentSubmit(
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
-      compactionTemperature: props.config.compaction.temperature,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
@@ -311,35 +344,13 @@ export function useAgentSubmit(
       return indexA - indexB;
     });
 
-    // Build compaction info if auto-compaction occurred during the run
-    let compaction: CompactionInfo | undefined;
-    if (result.compacted) {
-      // Strip system prompt from compacted messages — the agent loop's
-      // messages array includes it at index 0, but the snapshot should
-      // only contain conversation messages (system prompt is added fresh
-      // each turn by buildInitialMessages).
-      const compactedHistory =
-        result.compacted.messages.length > 0 &&
-        result.compacted.messages[0]?.role === 'system'
-          ? result.compacted.messages.slice(1)
-          : result.compacted.messages;
-
-      compaction = {
-        snapshotType: 'auto_compaction',
-        messages: fromOllamaMessages(compactedHistory),
-        originalCount: result.compacted.originalCount,
-      };
-    }
-
     if ('type' in result) {
       // Error/abort path — persist the error as a message in chat history.
-      // Errors are first-class display messages, not ephemeral UI state.
 
       switch (result.type) {
         case 'aborted':
           // Abort is special — not an error, just a cancellation.
-          // Settle any partial tool results, show interrupted content.
-          store.settleAgentRun(session.id, '', completedToolParts, compaction);
+          store.settleAgentRun(session.id, '', completedToolParts);
           setStreamingContent((prev) => {
             if (prev.trim()) {
               store.addPendingAssistantMessage(`${prev}\n\n[interrupted]`);
@@ -348,13 +359,38 @@ export function useAgentSubmit(
           });
           break;
         case 'model_error':
-          store.settleAgentError(
-            session.id,
-            'model_error',
-            result.message,
-            completedToolParts,
-            compaction,
-          );
+          // If "prompt too long", summarize and auto-retry
+          if (result.promptTooLong) {
+            store.settleAgentRun(session.id, '', completedToolParts);
+            const summarized = await runSummarization(session.id);
+            if (summarized) {
+              // Retry the user's original message with summarized context
+              props.setContextInfo?.('Retrying with summarized context...');
+              setTimeout(
+                () => props.setContextInfo?.(null),
+                NOTIFICATION_SHORT,
+              );
+              setStreamingContent('');
+              setStatus('idle');
+              // Re-submit with the same prompt (recursive call)
+              void handleSubmit(prompt);
+              return;
+            }
+            // Summarization failed — fall through to show error
+            store.settleAgentError(
+              session.id,
+              'model_error',
+              result.message,
+              [],
+            );
+          } else {
+            store.settleAgentError(
+              session.id,
+              'model_error',
+              result.message,
+              completedToolParts,
+            );
+          }
           break;
         case 'max_iterations':
           store.settleAgentError(
@@ -362,7 +398,6 @@ export function useAgentSubmit(
             'max_iterations',
             `Reached ${result.iterations} iterations without completing. Last thought: ${result.lastThought}`,
             completedToolParts,
-            compaction,
           );
           break;
         case 'loop_detected':
@@ -371,7 +406,6 @@ export function useAgentSubmit(
             'loop_detected',
             `Loop detected: ${result.action} called ${result.attempts} times consecutively`,
             completedToolParts,
-            compaction,
           );
           break;
         case 'tool_error':
@@ -380,19 +414,13 @@ export function useAgentSubmit(
             'tool_error',
             `Tool error (${result.tool}): ${result.message}`,
             completedToolParts,
-            compaction,
           );
           break;
       }
       setStatus('idle');
     } else {
-      // Success path — settle with final answer + tool parts + compaction snapshot
-      store.settleAgentRun(
-        session.id,
-        result.finalAnswer,
-        completedToolParts,
-        compaction,
-      );
+      // Success path — settle with final answer + tool parts
+      store.settleAgentRun(session.id, result.finalAnswer, completedToolParts);
       setStatus('idle');
 
       // Update sidebar with real token counts from the model
@@ -403,6 +431,11 @@ export function useAgentSubmit(
           result.contextUsage.promptTokens,
           result.contextUsage.completionTokens,
         );
+      }
+
+      // Auto-summarize if the agent flagged it
+      if (result.needsSummarization) {
+        void runSummarization(session.id);
       }
 
       props.setSidebarTodos(getTodos(session.id));

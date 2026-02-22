@@ -1,55 +1,19 @@
 /**
- * Context compaction for managing conversation history size.
+ * Context compaction via conversation summarization.
  *
- * Compaction reduces context size while preserving essential information.
- * See docs/context-compaction.md for the full strategy.
+ * Compaction never alters chat history. It creates a summary message
+ * that is appended to the conversation. When building model context,
+ * everything before the summary is dropped and the summary is sent
+ * as context. The full chat history is always preserved for display.
  *
- * Design invariants:
- * 1. Compaction summaries are ALWAYS preserved — never re-compacted.
- * 2. If LLM summarization fails, original messages are kept (fail-safe).
- * 3. System prompt (index 0) is always preserved.
- * 4. Recent messages (tail window) are always preserved.
- * 5. The first user message is always preserved (task context).
- * 6. Tool messages are paired with their assistant call — never orphaned.
+ * Summarization uses a separate Ollama call with a focused system
+ * prompt and no tools — it runs on a fresh context, not the
+ * nearly-full agent context.
  */
 
 import type { Message } from 'ollama';
 import { Ollama } from 'ollama';
-import { estimateMessagesTokens } from '../lib/tokenizer';
 import { log } from './logger';
-
-/**
- * Prefix used to identify compaction summary messages in the Ollama Message[]
- * pipeline. This allows fromOllamaMessages() to detect summaries and store
- * them as CompactionSummaryPart instead of plain text.
- *
- * Format: `[compaction:N]` where N is the number of messages compacted.
- */
-export const COMPACTION_SUMMARY_PREFIX = '[compaction:';
-
-/**
- * Check if a message is a compaction summary (has the prefix).
- */
-function isCompactionSummary(message: Message): boolean {
-  return (
-    message.role === 'assistant' &&
-    typeof message.content === 'string' &&
-    message.content.startsWith(COMPACTION_SUMMARY_PREFIX)
-  );
-}
-
-/**
- * Build a compaction summary message with the identifiable prefix.
- */
-function buildCompactionSummaryMessage(
-  summary: string,
-  compactedCount: number,
-): Message {
-  return {
-    role: 'assistant',
-    content: `${COMPACTION_SUMMARY_PREFIX}${compactedCount}]\n${summary}`,
-  };
-}
 
 /**
  * Compaction configuration options.
@@ -57,12 +21,6 @@ function buildCompactionSummaryMessage(
 export type CompactionConfig = {
   /** Threshold to trigger compaction (0-100), default 80 */
   threshold: number;
-  /** Minimum recent messages to keep uncompacted, default 6 */
-  minPreservedMessages: number;
-  /** Use LLM for summarization vs simple truncation, default true */
-  useLLMSummary: boolean;
-  /** Maximum tokens for summaries, default 200 */
-  maxSummaryTokens: number;
   /** Temperature for summarization LLM calls, default 0.3 */
   temperature: number;
 };
@@ -72,575 +30,198 @@ export type CompactionConfig = {
  */
 export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   threshold: 80,
-  minPreservedMessages: 6,
-  useLLMSummary: true,
-  maxSummaryTokens: 200,
   temperature: 0.3,
 };
 
 /**
- * Compaction levels based on context usage.
+ * System prompt for the summarizer.
+ * Focused on extracting actionable context for the coding agent.
  */
-export type CompactionLevel = 'light' | 'medium' | 'aggressive' | 'emergency';
+const SUMMARIZER_SYSTEM_PROMPT = `You are a conversation summarizer for an AI coding assistant.
+Your job is to create a detailed summary that preserves the essential context needed to continue the conversation.
+
+Produce a structured summary with these sections:
+
+## Task
+What the user asked for and the overall goal.
+
+## Completed
+What was accomplished, with specific file paths, function names, and changes made.
+
+## Current State
+Where things stand right now — what's working, what's partially done.
+
+## Remaining
+What still needs to be done, if anything was mentioned.
+
+## Key Decisions
+Important choices made and their rationale (if any).
+
+## Errors & Fixes
+Any errors encountered and how they were resolved.
+
+Be specific about file paths, function names, and technical details.
+Do NOT include greetings, filler, or meta-commentary.
+Write in past tense as a factual record.`;
 
 /**
- * Result of a compaction operation.
+ * Maximum character budget for the conversation text sent to the summarizer.
+ * This prevents the summarizer call itself from exceeding the context window.
+ * ~60k chars ≈ ~20k tokens, leaving room for system prompt + output.
  */
-export type CompactionResult = {
-  /** Compacted messages */
-  messages: Message[];
-  /** Number of messages before compaction */
-  originalCount: number;
-  /** Number of messages after compaction */
-  compactedCount: number;
-  /** Estimated tokens before */
-  tokensBefore: number;
-  /** Estimated tokens after */
-  tokensAfter: number;
-  /** Compaction level applied */
-  level: CompactionLevel;
-};
+const MAX_SUMMARIZER_INPUT_CHARS = 60_000;
 
 /**
- * Determine compaction level based on context usage percentage.
- */
-export function getCompactionLevel(usagePercent: number): CompactionLevel {
-  if (usagePercent >= 100) return 'emergency';
-  if (usagePercent >= 90) return 'aggressive';
-  if (usagePercent >= 85) return 'medium';
-  return 'light';
-}
-
-// ============================================================================
-// Preservation logic
-// ============================================================================
-
-// Note: preservation logic is handled entirely by classifyMessages()
-// which has access to the full message array for proper context
-// (first user message detection, tool pairing, etc.).
-
-/**
- * Classification result for each message in the array.
- */
-type MessageClassification = {
-  /** Whether this message should be preserved */
-  preserve: boolean;
-  /** Reason for the classification (for logging) */
-  reason: string;
-};
-
-/**
- * Classify all messages into preserve vs. compact-eligible.
+ * Build a compact text representation of the conversation for the summarizer.
  *
- * This is the single source of truth for what survives compaction.
- * It handles tool-message pairing (tool results must stay with their
- * assistant call) and ensures we never break the message sequence.
+ * Strategy:
+ * - User messages: include full content (usually short)
+ * - Assistant messages: include full content (reasoning is important)
+ * - Tool messages: heavily truncated — the summarizer only needs to know
+ *   what tool was called and a brief result, not 200 lines of file content
+ * - Assistant tool_calls: list which tools were called with key args
+ *
+ * If the total exceeds MAX_SUMMARIZER_INPUT_CHARS, progressively truncate
+ * from the oldest messages.
  */
-function classifyMessages(
-  messages: Message[],
-  minPreserved: number,
-): MessageClassification[] {
-  const total = messages.length;
-  const result: MessageClassification[] = new Array(total);
+function buildSummarizerInput(messages: Message[]): string {
+  const parts: string[] = [];
 
-  // Find the first user message index
-  let firstUserIndex = -1;
-  for (let i = 0; i < total; i++) {
-    if (messages[i]?.role === 'user') {
-      firstUserIndex = i;
-      break;
-    }
-  }
+  for (const m of messages) {
+    const role = m.role.charAt(0).toUpperCase() + m.role.slice(1);
+    const content = m.content ?? '';
 
-  // First pass: apply position-based rules
-  for (let i = 0; i < total; i++) {
-    const msg = messages[i];
-    if (!msg) {
-      result[i] = { preserve: false, reason: 'null' };
-      continue;
-    }
-
-    // System prompt
-    if (i === 0 && msg.role === 'system') {
-      result[i] = { preserve: true, reason: 'system_prompt' };
-      continue;
-    }
-
-    // Existing compaction summaries — never re-compact
-    if (isCompactionSummary(msg)) {
-      result[i] = { preserve: true, reason: 'compaction_summary' };
-      continue;
-    }
-
-    // First user message
-    if (i === firstUserIndex) {
-      result[i] = { preserve: true, reason: 'first_user_message' };
-      continue;
-    }
-
-    // Tail window (recent messages)
-    if (i >= total - minPreserved) {
-      result[i] = { preserve: true, reason: 'recent' };
-      continue;
-    }
-
-    // Default: eligible for compaction
-    result[i] = { preserve: false, reason: 'eligible' };
-  }
-
-  // Second pass: tool-message pairing
-  // If an assistant message with tool_calls is preserved, its following
-  // tool-result messages must also be preserved (they form a unit).
-  // Conversely, if a tool message is in the tail window but its parent
-  // assistant message isn't preserved, preserve the parent too.
-  for (let i = 0; i < total; i++) {
-    const msg = messages[i];
-    const cls = result[i];
-    if (!msg || !cls) continue;
-
-    // If a preserved assistant message has tool_calls, preserve following tool results
-    if (
-      cls.preserve &&
-      msg.role === 'assistant' &&
-      msg.tool_calls &&
-      msg.tool_calls.length > 0
+    if (m.role === 'tool') {
+      // Tool results: very brief — first 200 chars + line count
+      const lineCount = content.split('\n').length;
+      const preview = content.slice(0, 200);
+      const truncated =
+        content.length > 200
+          ? `${preview}... (${lineCount} lines total)`
+          : preview;
+      parts.push(`Tool result: ${truncated}`);
+    } else if (
+      m.role === 'assistant' &&
+      m.tool_calls &&
+      m.tool_calls.length > 0
     ) {
-      // Preserve all immediately following tool messages
-      for (let j = i + 1; j < total; j++) {
-        const nextMsg = messages[j];
-        if (!nextMsg || nextMsg.role !== 'tool') break;
-        const nextCls = result[j];
-        if (nextCls && !nextCls.preserve) {
-          nextCls.preserve = true;
-          nextCls.reason = 'tool_pair_forward';
-        }
-      }
+      // Assistant with tool calls: show reasoning + which tools were called
+      const toolNames = m.tool_calls.map((tc) => {
+        const args = tc.function.arguments as Record<string, unknown>;
+        // Include key identifying args (path, command, pattern)
+        const keyArg =
+          args.path ?? args.command ?? args.pattern ?? args.query ?? '';
+        const argStr = keyArg ? ` "${String(keyArg).slice(0, 80)}"` : '';
+        return `${tc.function.name}${argStr}`;
+      });
+      const reasoning = content.slice(0, 500);
+      parts.push(`Assistant [calls: ${toolNames.join(', ')}]: ${reasoning}`);
+    } else if (m.role === 'user') {
+      // User messages: include more (usually the task description)
+      parts.push(`User: ${content.slice(0, 1000)}`);
+    } else if (m.role === 'assistant') {
+      // Plain assistant messages: include full reasoning
+      parts.push(`Assistant: ${content.slice(0, 1000)}`);
+    } else if (m.role === 'system') {
     }
+  }
 
-    // If a tool message is preserved, ensure its parent assistant is too
-    if (cls.preserve && msg.role === 'tool') {
-      // Walk backward to find the assistant message with tool_calls
-      for (let j = i - 1; j >= 0; j--) {
-        const prevMsg = messages[j];
-        if (!prevMsg) continue;
-        if (prevMsg.role === 'tool') continue; // Skip other tool results
-        if (
-          prevMsg.role === 'assistant' &&
-          prevMsg.tool_calls &&
-          prevMsg.tool_calls.length > 0
-        ) {
-          const prevCls = result[j];
-          if (prevCls && !prevCls.preserve) {
-            prevCls.preserve = true;
-            prevCls.reason = 'tool_pair_backward';
-          }
-        }
-        break; // Stop at first non-tool message
-      }
+  let result = parts.join('\n\n');
+
+  // If still too large, progressively drop older entries
+  if (result.length > MAX_SUMMARIZER_INPUT_CHARS) {
+    log(
+      `[summarize] Input too large (${result.length} chars), truncating from start`,
+    );
+    // Keep the first few entries (task context) and the last entries (recent work)
+    const keepStart = Math.floor(parts.length * 0.2); // First 20%
+    const keepEnd = Math.floor(parts.length * 0.5); // Last 50%
+    const startParts = parts.slice(0, keepStart);
+    const endParts = parts.slice(parts.length - keepEnd);
+    const dropped = parts.length - keepStart - keepEnd;
+
+    result = [
+      ...startParts,
+      `\n[... ${dropped} messages omitted for brevity ...]\n`,
+      ...endParts,
+    ].join('\n\n');
+
+    // Final hard cap
+    if (result.length > MAX_SUMMARIZER_INPUT_CHARS) {
+      result = result.slice(0, MAX_SUMMARIZER_INPUT_CHARS) + '\n[truncated]';
     }
   }
 
   return result;
 }
 
-// ============================================================================
-// Tool output truncation
-// ============================================================================
-
 /**
- * Truncate tool output to a maximum number of lines.
- */
-function truncateToolOutput(content: string, maxLines: number = 50): string {
-  const lines = content.split('\n');
-  if (lines.length <= maxLines) {
-    return content;
-  }
-
-  const truncated = lines.slice(0, maxLines).join('\n');
-  return `${truncated}\n... (truncated ${lines.length - maxLines} more lines)`;
-}
-
-/**
- * Get max lines for tool output based on compaction level.
- */
-function getToolMaxLines(level: CompactionLevel, preserved: boolean): number {
-  if (level === 'emergency') {
-    // Emergency: absolute minimum — just enough to maintain coherence
-    return preserved ? 5 : 2;
-  }
-  if (preserved) {
-    // Preserved tools get more generous truncation
-    return level === 'aggressive' ? 15 : level === 'medium' ? 30 : 50;
-  }
-  // Non-preserved tool outputs (kept for context but heavily truncated)
-  return level === 'aggressive' ? 5 : level === 'medium' ? 10 : 20;
-}
-
-// ============================================================================
-// LLM Summarization
-// ============================================================================
-
-/**
- * Create a summary for a group of messages using the LLM.
+ * Summarize a conversation history using a fresh LLM call.
  *
- * Returns null on failure — callers must handle the failure case
- * by keeping the original messages (fail-safe).
+ * This is the core compaction operation. It sends a compact
+ * representation of the conversation to a separate Ollama call
+ * (no tools, non-streaming) and returns a structured summary.
+ * The caller is responsible for persisting the summary as a message
+ * and updating the session's summary pointer.
+ *
+ * @param messages - Full conversation history in Ollama Message[] format
+ * @param model - Model name for the summarization call
+ * @param host - Ollama host URL
+ * @param temperature - Sampling temperature (default 0.3 for focused output)
+ * @returns Summary text, or null if summarization failed
  */
-async function createSummary(
+export async function summarizeConversation(
   messages: Message[],
   model: string,
   host: string,
-  maxTokens: number,
   temperature: number = 0.3,
 ): Promise<string | null> {
-  // Build a prompt for summarization — give the LLM more context per message
-  // than before (1000 chars instead of 500) for better summaries.
-  const conversationText = messages
-    .map((m) => {
-      const role = m.role.charAt(0).toUpperCase() + m.role.slice(1);
-      const content = m.content?.slice(0, 1000) ?? '[no content]';
-      const toolInfo =
-        m.tool_calls && m.tool_calls.length > 0
-          ? ` [called: ${m.tool_calls.map((tc) => tc.function.name).join(', ')}]`
-          : '';
-      return `${role}${toolInfo}: ${content}`;
-    })
-    .join('\n\n');
+  if (messages.length === 0) return null;
 
-  const summaryPrompt = `Summarize this conversation segment concisely.
-Focus on: what was accomplished, what files were modified, key decisions made, any errors encountered.
-Be specific about file names and changes. Do not include greetings or filler.
+  log(
+    `[summarize] Starting summarization of ${messages.length} messages with model ${model}`,
+  );
 
-Conversation:
-${conversationText}
-
-Summary:`;
+  const conversationText = buildSummarizerInput(messages);
+  log(
+    `[summarize] Summarizer input: ${conversationText.length} chars from ${messages.length} messages`,
+  );
 
   try {
     const client = new Ollama({ host });
     const response = await client.chat({
       model,
-      messages: [{ role: 'user', content: summaryPrompt }],
+      messages: [
+        { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `Summarize this coding session conversation:\n\n${conversationText}`,
+        },
+      ],
       options: {
         temperature,
-        num_predict: maxTokens,
+        num_predict: 2048,
       },
     });
 
     const summary = response.message.content?.trim();
     if (!summary) {
-      log('LLM returned empty summary');
+      log('[summarize] LLM returned empty summary');
       return null;
     }
 
+    log(
+      `[summarize] Summary generated: ${summary.length} chars for ${messages.length} messages`,
+    );
     return summary;
   } catch (error) {
-    log('Error creating summary:', error);
+    log('[summarize] Error during summarization:', error);
     return null;
   }
 }
 
-// ============================================================================
-// Compaction strategies
-// ============================================================================
-
 /**
- * Simple compaction without LLM (truncation + dropping).
- *
- * Uses classifyMessages for deterministic preservation.
- * Non-preserved messages are either truncated (tool) or counted
- * as dropped and replaced with a summary placeholder.
- */
-function compactSimple(
-  messages: Message[],
-  level: CompactionLevel,
-  config: CompactionConfig,
-): Message[] {
-  const classifications = classifyMessages(
-    messages,
-    config.minPreservedMessages,
-  );
-  const result: Message[] = [];
-  let droppedCount = 0;
-
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    const cls = classifications[i];
-    if (!message || !cls) continue;
-
-    if (cls.preserve) {
-      // Flush any accumulated dropped count
-      if (droppedCount > 0) {
-        result.push(
-          buildCompactionSummaryMessage(
-            `${droppedCount} earlier messages compacted`,
-            droppedCount,
-          ),
-        );
-        droppedCount = 0;
-      }
-
-      // Preserve the message, truncating tool output if needed
-      if (message.role === 'tool') {
-        const maxLines = getToolMaxLines(level, true);
-        result.push({
-          ...message,
-          content: truncateToolOutput(message.content ?? '', maxLines),
-        });
-      } else {
-        result.push(message);
-      }
-    } else if (message.role === 'tool') {
-      // Non-preserved tool: still keep it but heavily truncate
-      // (removing it entirely would break the assistant→tool pairing)
-      const maxLines = getToolMaxLines(level, false);
-      result.push({
-        ...message,
-        content: truncateToolOutput(message.content ?? '', maxLines),
-      });
-    } else {
-      // Non-preserved, non-tool message: count as dropped
-      droppedCount++;
-    }
-  }
-
-  // Flush trailing dropped count
-  if (droppedCount > 0) {
-    result.push(
-      buildCompactionSummaryMessage(
-        `${droppedCount} earlier messages compacted`,
-        droppedCount,
-      ),
-    );
-  }
-
-  return result;
-}
-
-/**
- * Compact messages using LLM summarization.
- *
- * Key design decisions:
- * - Uses classifyMessages for deterministic preservation.
- * - Groups consecutive non-preserved messages for summarization.
- * - If LLM summarization fails for a group, the original messages
- *   are kept (fail-safe — never silently eat messages).
- * - Compaction summaries are always preserved, never re-summarized.
- */
-async function compactWithSummary(
-  messages: Message[],
-  level: CompactionLevel,
-  config: CompactionConfig,
-  model: string,
-  host: string,
-): Promise<Message[]> {
-  const classifications = classifyMessages(
-    messages,
-    config.minPreservedMessages,
-  );
-  const result: Message[] = [];
-  const toSummarize: Message[] = [];
-
-  // Process messages, grouping non-preserved ones for summarization
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    const cls = classifications[i];
-    if (!message || !cls) continue;
-
-    if (cls.preserve) {
-      // Flush any pending messages to summarize
-      if (toSummarize.length > 0) {
-        await flushSummarizeGroup(
-          toSummarize,
-          result,
-          level,
-          model,
-          host,
-          config,
-        );
-        toSummarize.length = 0;
-      }
-
-      // Add preserved message (with tool output truncation)
-      if (message.role === 'tool') {
-        const maxLines = getToolMaxLines(level, true);
-        result.push({
-          ...message,
-          content: truncateToolOutput(message.content ?? '', maxLines),
-        });
-      } else {
-        result.push(message);
-      }
-    } else {
-      // Queue for summarization
-      toSummarize.push(message);
-    }
-  }
-
-  // Flush any remaining messages to summarize
-  if (toSummarize.length > 0) {
-    await flushSummarizeGroup(toSummarize, result, level, model, host, config);
-  }
-
-  return result;
-}
-
-/**
- * Flush a group of non-preserved messages: try LLM summary, fall back
- * to keeping originals with truncation if summary fails (fail-safe).
- */
-async function flushSummarizeGroup(
-  group: Message[],
-  result: Message[],
-  level: CompactionLevel,
-  model: string,
-  host: string,
-  config: CompactionConfig,
-): Promise<void> {
-  // Filter out tool messages — they should be kept (truncated) separately
-  // to avoid breaking message pairing. Only non-tool messages get summarized.
-  const nonToolMessages = group.filter((m) => m.role !== 'tool');
-  const toolMessages = group.filter((m) => m.role === 'tool');
-
-  if (nonToolMessages.length === 0) {
-    // Only tool messages in this group — just truncate and keep
-    for (const msg of toolMessages) {
-      const maxLines = getToolMaxLines(level, false);
-      result.push({
-        ...msg,
-        content: truncateToolOutput(msg.content ?? '', maxLines),
-      });
-    }
-    return;
-  }
-
-  // Try LLM summarization for non-tool messages
-  const summary = await createSummary(
-    nonToolMessages,
-    model,
-    host,
-    config.maxSummaryTokens,
-    config.temperature,
-  );
-
-  if (summary !== null) {
-    // Success: emit summary + truncated tool messages
-    result.push(buildCompactionSummaryMessage(summary, nonToolMessages.length));
-    for (const msg of toolMessages) {
-      const maxLines = getToolMaxLines(level, false);
-      result.push({
-        ...msg,
-        content: truncateToolOutput(msg.content ?? '', maxLines),
-      });
-    }
-  } else {
-    // FAIL-SAFE: LLM summary failed — keep ALL original messages
-    // (truncate tool outputs but don't lose anything).
-    log(
-      `Summary failed for ${group.length} messages — keeping originals (fail-safe)`,
-    );
-    for (const msg of group) {
-      if (msg.role === 'tool') {
-        const maxLines = getToolMaxLines(level, false);
-        result.push({
-          ...msg,
-          content: truncateToolOutput(msg.content ?? '', maxLines),
-        });
-      } else {
-        result.push(msg);
-      }
-    }
-  }
-}
-
-// ============================================================================
-// Public API
-// ============================================================================
-
-/**
- * Compact conversation messages to reduce context size.
- *
- * @param messages - Current conversation messages (system prompt + history)
- * @param level - Compaction aggressiveness level
- * @param config - Compaction configuration
- * @param model - Model name (for LLM summarization)
- * @param host - Ollama host URL
- * @returns Compaction result with new messages
- */
-export async function compactMessages(
-  messages: Message[],
-  level: CompactionLevel,
-  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
-  model?: string,
-  host?: string,
-): Promise<CompactionResult> {
-  const tokensBefore = estimateMessagesTokens(messages);
-  const originalCount = messages.length;
-
-  // Emergency level: override minPreservedMessages to 2 and skip LLM
-  // summary (we're already over the context limit — spending tokens on
-  // a summary call would make things worse or fail entirely).
-  const effectiveConfig =
-    level === 'emergency'
-      ? { ...config, minPreservedMessages: 2, useLLMSummary: false }
-      : config;
-
-  log(
-    `Compacting messages: level=${level}, count=${originalCount}, tokens=${tokensBefore}`,
-  );
-
-  // Log classification for debugging
-  const classifications = classifyMessages(
-    messages,
-    effectiveConfig.minPreservedMessages,
-  );
-  const preservedCount = classifications.filter((c) => c.preserve).length;
-  const eligibleCount = classifications.filter((c) => !c.preserve).length;
-  log(
-    `Classification: ${preservedCount} preserved, ${eligibleCount} eligible for compaction`,
-  );
-  for (let i = 0; i < classifications.length; i++) {
-    const cls = classifications[i];
-    const msg = messages[i];
-    if (cls && msg) {
-      log(
-        `  [${i}] ${msg.role} ${cls.preserve ? 'KEEP' : 'COMPACT'} (${cls.reason}) content=${(msg.content ?? '').slice(0, 60)}...`,
-      );
-    }
-  }
-
-  let compactedMessages: Message[];
-
-  if (effectiveConfig.useLLMSummary && model && host) {
-    compactedMessages = await compactWithSummary(
-      messages,
-      level,
-      effectiveConfig,
-      model,
-      host,
-    );
-  } else {
-    compactedMessages = compactSimple(messages, level, effectiveConfig);
-  }
-
-  const tokensAfter = estimateMessagesTokens(compactedMessages);
-
-  log(
-    `Compaction complete: ${originalCount} -> ${compactedMessages.length} messages, ${tokensBefore} -> ${tokensAfter} tokens`,
-  );
-
-  return {
-    messages: compactedMessages,
-    originalCount,
-    compactedCount: compactedMessages.length,
-    tokensBefore,
-    tokensAfter,
-    level,
-  };
-}
-
-/**
- * Check if compaction is needed based on current usage.
+ * Check if compaction is needed based on current usage percentage.
  */
 export function needsCompaction(
   usagePercent: number,

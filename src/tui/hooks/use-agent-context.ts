@@ -7,11 +7,9 @@
  */
 
 import { createEffect, createSignal } from 'solid-js';
-import { compactMessages, getCompactionLevel } from '../../agent/compaction';
-import { extractCompactionConfig } from '../../config/resolve';
+import { summarizeConversation } from '../../agent/compaction';
 import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
-import { fromOllamaMessages } from '../../session/convert';
 import {
   NOTIFICATION_DURATION_LONG,
   NOTIFICATION_DURATION_SHORT,
@@ -22,7 +20,7 @@ import type { UseMessageStoreReturn } from './use-message-store';
 export type UseAgentContextProps = {
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
   config: ResolvedConfig;
-  /** Message store (owns history and provides clear/forget/compact) */
+  /** Message store (owns history and provides clear/forget/summarize) */
   store: UseMessageStoreReturn;
   /** Current session ID getter (for operations that need it) */
   sessionId: () => string | undefined;
@@ -76,13 +74,33 @@ export function useAgentContext(
     null,
   );
 
+  // Track whether sidebar is showing real token counts from the model.
+  // When true, skip heuristic updates from createEffect to avoid
+  // overwriting accurate counts with stale estimates.
+  let hasRealCounts = false;
+  // Track message count to detect when new messages are added after
+  // real counts were set — those counts are stale for the new history.
+  let realCountsMessageCount = 0;
+
   // Update sidebar stats when history changes
   createEffect(() => {
     const currentHistory = store.history();
     if (currentHistory.length === 0) {
       setSidebarStats(null);
+      hasRealCounts = false;
       return;
     }
+
+    // If we have real counts and the history length hasn't changed
+    // beyond what the real counts covered, skip the heuristic update.
+    // The real counts are still accurate.
+    if (hasRealCounts && currentHistory.length <= realCountsMessageCount) {
+      return;
+    }
+
+    // History changed beyond real counts — fall back to heuristic
+    hasRealCounts = false;
+
     void (async () => {
       try {
         const modelInfo = await fetchModelInfo(model, host);
@@ -122,37 +140,41 @@ export function useAgentContext(
     }
 
     try {
-      setContextInfo('Compacting context...');
-      const modelInfo = await fetchModelInfo(model, host);
-      const stats = getContextStats(currentHistory, modelInfo.contextLength);
-      const level = getCompactionLevel(stats.usagePercent);
+      setContextInfo('Summarizing context...');
 
-      // Pass history directly — no dummy system prompt needed.
-      // classifyMessages() handles the case where index 0 isn't a system
-      // message (it just won't get the system_prompt preservation rule,
-      // which is correct since the system prompt isn't in the history).
-      const result = await compactMessages(
+      const summaryText = await summarizeConversation(
         currentHistory,
-        level,
-        extractCompactionConfig(props.config),
         model,
         host,
+        props.config.compaction.temperature,
       );
 
-      // Convert compacted Message[] to StoredMessage[] for snapshot storage
-      const compactedStored = fromOllamaMessages(result.messages);
+      if (!summaryText) {
+        setContextInfo('Summarization failed — context unchanged.');
+        setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
+        return;
+      }
 
-      // Persist the compaction snapshot and refresh the store
-      store.compact(sid, compactedStored, result.originalCount);
+      const summarizedCount = store.summarize(sid, summaryText);
+
+      // Get new stats after summarization
+      const newHistory = store.history();
+      let statsMsg = '';
+      try {
+        const modelInfo = await fetchModelInfo(model, host);
+        const newStats = getContextStats(newHistory, modelInfo.contextLength);
+        statsMsg = ` Model context: ${newStats.totalTokens.toLocaleString()} tokens (${newStats.usagePercent}%)`;
+      } catch {
+        // Stats unavailable — that's fine
+      }
 
       setContextInfo(
-        `Compacted: ${result.originalCount} -> ${result.compactedCount} messages, ` +
-          `${result.tokensBefore} -> ${result.tokensAfter} tokens (${Math.round((1 - result.tokensAfter / result.tokensBefore) * 100)}% reduction)`,
+        `Summarized ${summarizedCount} messages into context summary.${statsMsg}`,
       );
       setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
     } catch (e) {
       setContextInfo(
-        `Compaction failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Summarization failed: ${e instanceof Error ? e.message : String(e)}`,
       );
       setTimeout(() => setContextInfo(null), NOTIFICATION_DURATION_LONG);
     }
@@ -220,14 +242,17 @@ export function useAgentContext(
       isNearLimit: usagePercent >= 80,
       isCritical: usagePercent >= 90,
       byRole: {
-        // Real counts don't provide per-role breakdown
-        // Use total as assistant since that's the dominant category
         system: 0,
         user: 0,
         assistant: promptTokens ?? totalTokens,
         tool: completionTokens ?? 0,
       },
     });
+
+    // Mark that we have real counts — prevent the heuristic effect
+    // from overwriting these accurate values on the next history change.
+    hasRealCounts = true;
+    realCountsMessageCount = store.history().length;
   };
 
   return {

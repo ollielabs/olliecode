@@ -10,13 +10,7 @@ import {
   getContextStats,
   OVERHEAD_AGENT_LOOP,
 } from '../lib/tokenizer';
-import {
-  type CompactionResult,
-  needsCompaction as checkNeedsCompaction,
-  compactMessages,
-  DEFAULT_COMPACTION_CONFIG,
-  getCompactionLevel,
-} from './compaction';
+import { needsCompaction } from './compaction';
 import { log } from './logger';
 import {
   detectConsecutiveLoop,
@@ -87,9 +81,6 @@ export type RunAgentArgs = {
   /** Chat temperature (default 0.2) */
   temperature?: number;
 
-  /** Compaction temperature (default 0.3, separate from chat temperature) */
-  compactionTemperature?: number;
-
   /** Override the system prompt (used by subagents) */
   systemPromptOverride?: string;
 };
@@ -121,33 +112,6 @@ function stripSystemPrompt(messages: Message[]): Message[] {
 }
 
 /**
- * Creates the final result when the agent completes successfully.
- */
-function buildFinalResult(
-  steps: AgentStep[],
-  finalAnswer: string,
-  messages: Message[],
-  iteration: number,
-  totalToolCalls: number,
-  startTime: number,
-  contextUsage?: ContextUsage,
-  compacted?: CompactionResult,
-): AgentResult {
-  return {
-    steps,
-    finalAnswer,
-    messages: stripSystemPrompt(messages),
-    stats: {
-      totalIterations: iteration + 1,
-      totalToolCalls,
-      totalDurationMs: Date.now() - startTime,
-    },
-    contextUsage,
-    compacted,
-  };
-}
-
-/**
  * Nudges the model when it returns an empty response.
  */
 function createNudgeMessage(): Message {
@@ -156,6 +120,56 @@ function createNudgeMessage(): Message {
     content:
       '[System: Please provide an answer or use a tool to gather more information.]',
   };
+}
+
+/**
+ * Build context usage from real token counts or heuristic fallback.
+ */
+function buildContextUsage(
+  lastPromptTokens: number | undefined,
+  lastCompletionTokens: number | undefined,
+  messages: Message[],
+  maxContextTokens: number,
+  compactionThreshold: number,
+): ContextUsage {
+  if (lastPromptTokens !== undefined) {
+    // Real counts from model
+    const totalTokens = lastPromptTokens + (lastCompletionTokens ?? 0);
+    const usagePercent = Math.round((totalTokens / maxContextTokens) * 100);
+    return {
+      totalTokens,
+      maxTokens: maxContextTokens,
+      usagePercent,
+      exceededThreshold: usagePercent >= compactionThreshold,
+      promptTokens: lastPromptTokens,
+      completionTokens: lastCompletionTokens,
+    };
+  }
+  // Heuristic fallback
+  const stats = getContextStats(
+    messages,
+    maxContextTokens,
+    OVERHEAD_AGENT_LOOP,
+  );
+  return {
+    totalTokens: stats.totalTokens,
+    maxTokens: stats.maxTokens,
+    usagePercent: stats.usagePercent,
+    exceededThreshold: stats.isNearLimit,
+  };
+}
+
+/**
+ * Detect "prompt too long" errors from Ollama.
+ */
+function isPromptTooLong(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const msg = e.message.toLowerCase();
+  return (
+    msg.includes('prompt too long') ||
+    msg.includes('exceeded max context length') ||
+    msg.includes('context length exceeded')
+  );
 }
 
 /**
@@ -168,6 +182,10 @@ function createNudgeMessage(): Message {
  * 4. If tool calls, executes them with safety checks
  * 5. Adds results to history and repeats
  *
+ * Compaction is NOT performed in the agent loop. If context usage
+ * exceeds the threshold, the result includes `needsSummarization: true`
+ * and the caller handles summarization after settlement.
+ *
  * @param args - Agent configuration and callbacks
  * @returns Final result or error
  */
@@ -178,7 +196,6 @@ export async function runAgent(
   const safetyLayer = new SafetyLayer(args.safetyConfig);
   const mode = args.mode ?? DEFAULT_MODE;
   const temperature = args.temperature ?? 0.2;
-  const compactionTemperature = args.compactionTemperature ?? 0.3;
 
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
@@ -210,7 +227,6 @@ export async function runAgent(
     log('Model context window:', maxContextTokens, 'tokens');
   } catch (e) {
     log('Could not fetch model info for context tracking:', e);
-    // Continue without context tracking
   }
 
   const client = new Ollama({ host: args.host });
@@ -226,7 +242,6 @@ export async function runAgent(
   const steps: AgentStep[] = [];
   const startTime = Date.now();
   let totalToolCalls = 0;
-  let lastCompaction: CompactionResult | undefined;
   /** Last known actual prompt token count from model (from processStream) */
   let lastPromptTokens: number | undefined;
   /** Last known actual completion token count from model */
@@ -235,72 +250,6 @@ export async function runAgent(
   // Wire up abort signal
   const abortHandler = () => client.abort();
   args.signal.addEventListener('abort', abortHandler, { once: true });
-
-  /**
-   * Estimate context usage from the current messages array.
-   * Always uses the actual messages (not stale lastPromptTokens) because
-   * tool results added since the last model call change the true size.
-   * Falls back to heuristic when no real token counts are available.
-   */
-  function estimateContextUsage(): number {
-    if (!maxContextTokens) return 0;
-    // Always estimate from actual messages — lastPromptTokens is stale
-    // after tool results are added. The heuristic over-counts slightly
-    // (conservative), which is exactly what we want for compaction checks.
-    const stats = getContextStats(
-      messages,
-      maxContextTokens,
-      OVERHEAD_AGENT_LOOP,
-    );
-    return stats.usagePercent;
-  }
-
-  /**
-   * Run compaction on the messages array if usage exceeds threshold.
-   * Returns true if compaction was performed.
-   */
-  async function maybeCompact(
-    threshold: number,
-    reason: string,
-  ): Promise<boolean> {
-    if (!config.autoCompaction || !maxContextTokens) return false;
-
-    const usagePercent = estimateContextUsage();
-    if (!checkNeedsCompaction(usagePercent, threshold)) return false;
-
-    log(`Context at ${usagePercent}% (threshold ${threshold}%) — ${reason}`);
-    const level = getCompactionLevel(usagePercent);
-    const result = await compactMessages(
-      messages,
-      level,
-      {
-        ...DEFAULT_COMPACTION_CONFIG,
-        temperature: compactionTemperature,
-      },
-      args.model,
-      args.host,
-    );
-    messages.length = 0;
-    messages.push(...result.messages);
-    lastCompaction = result;
-    log(
-      `Compacted (${level}): ${result.originalCount} → ${result.compactedCount} messages`,
-    );
-    return true;
-  }
-
-  /**
-   * Detect "prompt too long" errors from Ollama.
-   */
-  function isPromptTooLong(e: unknown): boolean {
-    if (!(e instanceof Error)) return false;
-    const msg = e.message.toLowerCase();
-    return (
-      msg.includes('prompt too long') ||
-      msg.includes('exceeded max context length') ||
-      msg.includes('context length exceeded')
-    );
-  }
 
   try {
     for (let iteration = 0; iteration < config.maxIterations; iteration++) {
@@ -315,16 +264,8 @@ export async function runAgent(
         return {
           type: 'aborted',
           messages: stripSystemPrompt(messages),
-          compacted: lastCompaction,
         };
       }
-
-      // --- Pre-call compaction check ---
-      // Estimate context from the actual messages array. This catches the
-      // case where the previous iteration's tool results pushed us past
-      // the threshold — the old code only checked AFTER the model call,
-      // which was too late (the call would fail with "prompt too long").
-      await maybeCompact(config.compactionThreshold, 'pre-call compaction');
 
       const stepStartTime = Date.now();
 
@@ -383,82 +324,35 @@ export async function runAgent(
           return {
             type: 'aborted',
             messages: stripSystemPrompt(messages),
-            compacted: lastCompaction,
           };
         }
 
-        // --- Retry on "prompt too long" ---
-        // The heuristic may underestimate actual token usage. If the model
-        // rejects with "prompt too long", emergency-compact and retry once.
+        // "Prompt too long" — signal the caller to summarize and retry
+        const message = e instanceof Error ? e.message : String(e);
         if (isPromptTooLong(e)) {
-          log('Prompt too long — attempting emergency compaction and retry');
-          const emergencyResult = await compactMessages(
-            messages,
-            'emergency',
-            {
-              ...DEFAULT_COMPACTION_CONFIG,
-              temperature: compactionTemperature,
-            },
-            args.model,
-            args.host,
-          );
-          messages.length = 0;
-          messages.push(...emergencyResult.messages);
-          lastCompaction = emergencyResult;
-          log(
-            `Emergency compaction: ${emergencyResult.originalCount} → ${emergencyResult.compactedCount} messages`,
-          );
-
-          // Retry the model call once
-          try {
-            const retryResponse = await client.chat({
-              model: args.model,
-              messages,
-              tools: modeTools,
-              stream: true,
-              options: { temperature },
-            });
-
-            const retryAccumulated = await processStream(
-              retryResponse,
-              {
-                onReasoningToken: args.onReasoningToken,
-                onToolCall: args.onToolCall,
-              },
-              args.signal,
-            );
-
-            content = retryAccumulated.content;
-            toolCalls = retryAccumulated.toolCalls;
-
-            if (retryAccumulated.promptTokens !== undefined) {
-              lastPromptTokens = retryAccumulated.promptTokens;
-            }
-            if (retryAccumulated.completionTokens !== undefined) {
-              lastCompletionTokens = retryAccumulated.completionTokens;
-            }
-
-            log('Retry after emergency compaction succeeded');
-          } catch (retryErr) {
-            log('Retry after emergency compaction also failed:', retryErr);
-            const message =
-              retryErr instanceof Error ? retryErr.message : String(retryErr);
-            return {
-              type: 'model_error',
-              message: `Context still too large after emergency compaction: ${message}`,
-              messages: stripSystemPrompt(messages),
-              compacted: lastCompaction,
-            };
-          }
-        } else {
-          const message = e instanceof Error ? e.message : String(e);
+          log('Prompt too long — signaling caller for summarization');
           return {
             type: 'model_error',
             message,
             messages: stripSystemPrompt(messages),
-            compacted: lastCompaction,
+            contextUsage: maxContextTokens
+              ? buildContextUsage(
+                  lastPromptTokens,
+                  lastCompletionTokens,
+                  messages,
+                  maxContextTokens,
+                  config.compactionThreshold,
+                )
+              : undefined,
+            promptTooLong: true,
           };
         }
+
+        return {
+          type: 'model_error',
+          message,
+          messages: stripSystemPrompt(messages),
+        };
       }
 
       // Handle empty response
@@ -477,52 +371,45 @@ export async function runAgent(
           content,
         });
 
-        // Calculate final context usage — prefer real token counts from model
+        // Build context usage from real counts or heuristic
         let contextUsage: ContextUsage | undefined;
+        let shouldSummarize = false;
         if (maxContextTokens) {
-          if (lastPromptTokens !== undefined) {
-            // Use real counts: promptTokens is the total input tokens
-            // (system + history + user + tool schemas — everything).
-            // Add completionTokens for the response we just generated.
-            const totalTokens = lastPromptTokens + (lastCompletionTokens ?? 0);
-            const usagePercent = Math.round(
-              (totalTokens / maxContextTokens) * 100,
-            );
-            contextUsage = {
-              totalTokens,
-              maxTokens: maxContextTokens,
-              usagePercent,
-              exceededThreshold: usagePercent >= 80,
-              promptTokens: lastPromptTokens,
-              completionTokens: lastCompletionTokens,
-            };
-          } else {
-            // Fallback to heuristic estimate (messages includes system prompt)
-            const stats = getContextStats(
-              messages,
-              maxContextTokens,
-              OVERHEAD_AGENT_LOOP,
-            );
-            contextUsage = {
-              totalTokens: stats.totalTokens,
-              maxTokens: stats.maxTokens,
-              usagePercent: stats.usagePercent,
-              exceededThreshold: stats.isNearLimit,
-            };
-          }
+          contextUsage = buildContextUsage(
+            lastPromptTokens,
+            lastCompletionTokens,
+            messages,
+            maxContextTokens,
+            config.compactionThreshold,
+          );
           log('Final context usage:', `${contextUsage.usagePercent}%`);
+          // Signal caller to summarize if threshold exceeded
+          if (
+            config.autoCompaction &&
+            needsCompaction(
+              contextUsage.usagePercent,
+              config.compactionThreshold,
+            )
+          ) {
+            shouldSummarize = true;
+            log(
+              `Context at ${contextUsage.usagePercent}% exceeds ${config.compactionThreshold}% — flagging for summarization`,
+            );
+          }
         }
 
-        return buildFinalResult(
+        return {
           steps,
-          content,
-          messages,
-          iteration,
-          totalToolCalls,
-          startTime,
+          finalAnswer: content,
+          messages: stripSystemPrompt(messages),
+          stats: {
+            totalIterations: iteration + 1,
+            totalToolCalls,
+            totalDurationMs: Date.now() - startTime,
+          },
           contextUsage,
-          lastCompaction,
-        );
+          needsSummarization: shouldSummarize || undefined,
+        };
       }
 
       // Add assistant message with tool calls to history
@@ -592,7 +479,6 @@ If you need more steps, prioritize the most important remaining work.
       // Check for loops (both identical and doom loops)
       if (config.loopDetection) {
         // Check for truly consecutive identical loops
-        // This allows read→edit→read patterns but catches read→read→read
         const loopCheck = detectConsecutiveLoop(steps, config.loopThreshold);
         if (loopCheck.detected) {
           log('Consecutive loop detected:', loopCheck.signature);
@@ -601,20 +487,16 @@ If you need more steps, prioritize the most important remaining work.
             action: loopCheck.action ?? 'unknown',
             attempts: config.loopThreshold,
             messages: stripSystemPrompt(messages),
-            compacted: lastCompaction,
           };
         }
 
         // Check for not-found patterns BEFORE doom loops
-        // This prevents treating "searching for nonexistent item" as a doom loop
         const notFoundCheck = detectNotFoundPattern(
           steps,
           config.loopThreshold,
         );
         if (notFoundCheck.detected) {
           log('Not-found pattern detected:', notFoundCheck.searchTerm);
-          // Inject a system reminder to help the agent give up gracefully
-          // Don't return an error - give the agent a chance to report "not found"
           messages.push({
             role: 'system',
             content: `<system-reminder>
@@ -624,11 +506,8 @@ Report this finding to the user rather than continuing to search.
 A response like "I couldn't find X in this codebase" is helpful and valid.
 </system-reminder>`,
           });
-          // Don't check doom loops when not-found is detected
-          // The agent should respond with "not found" on the next iteration
         } else {
           // Check for doom loops (error patterns, oscillations)
-          // Only check if NOT already handling a not-found pattern
           const doomCheck = detectDoomLoop(steps, config.loopThreshold + 1);
           if (doomCheck.detected) {
             log('Doom loop detected:', doomCheck.type, doomCheck.suggestion);
@@ -637,18 +516,10 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
               action: doomCheck.tool ?? 'unknown',
               attempts: config.loopThreshold,
               messages: stripSystemPrompt(messages),
-              compacted: lastCompaction,
             };
           }
         }
       }
-
-      // --- Post-step compaction check ---
-      // After tool results are added, check again. This handles the case
-      // where a single step's tool results push us past the threshold.
-      // The pre-call check at the top of the next iteration would also
-      // catch this, but checking here keeps context tight between iterations.
-      await maybeCompact(config.compactionThreshold, 'post-step compaction');
     }
 
     // Max iterations reached
@@ -658,7 +529,6 @@ A response like "I couldn't find X in this codebase" is helpful and valid.
       iterations: config.maxIterations,
       lastThought: steps[steps.length - 1]?.thought ?? '',
       messages: stripSystemPrompt(messages),
-      compacted: lastCompaction,
     };
   } finally {
     args.signal.removeEventListener('abort', abortHandler);

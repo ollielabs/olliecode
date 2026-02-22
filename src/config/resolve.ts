@@ -125,9 +125,6 @@ export function extractCompactionConfig(
 ): CompactionConfig {
   return {
     threshold: config.compaction.threshold,
-    minPreservedMessages: config.compaction.minPreservedMessages,
-    useLLMSummary: config.compaction.useLLMSummary,
-    maxSummaryTokens: config.compaction.maxSummaryTokens,
     temperature: config.compaction.temperature,
   };
 }
