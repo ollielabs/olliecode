@@ -55,7 +55,9 @@ function formatToolHeader(name: string, args: Record<string, unknown>): string {
       return String(args.description ?? '');
     case 'todo_write': {
       const raw = args.todos;
-      const todos = Array.isArray(raw) ? (raw as Array<{ status: string }>) : undefined;
+      const todos = Array.isArray(raw)
+        ? (raw as Array<{ status: string }>)
+        : undefined;
       const pending =
         todos?.filter((t) => t.status !== 'completed').length ?? 0;
       return `${pending} active`;

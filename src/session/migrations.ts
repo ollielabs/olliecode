@@ -99,6 +99,21 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_snapshots_session ON message_snapshots(session_id);
     `,
   },
+  {
+    version: 4,
+    name: 'compaction_redesign',
+    sql: `
+      -- Compaction redesign: summary pointer replaces snapshot overlay.
+      -- Chat history is never altered. Compaction only affects model context.
+      -- summary_message_id points to the latest summary message in the
+      -- messages table. When building model context, everything before the
+      -- summary is dropped and the summary is sent as context.
+      ALTER TABLE sessions ADD COLUMN summary_message_id TEXT;
+
+      -- Drop the snapshot system — no longer needed.
+      DROP TABLE IF EXISTS message_snapshots;
+    `,
+  },
 ];
 
 /**

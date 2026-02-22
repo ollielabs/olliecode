@@ -27,8 +27,8 @@ export function DiffView(rawProps: DiffViewProps) {
   const { tokens, syntaxStyle } = useTheme();
 
   // Use pre-computed diff if provided, otherwise generate from before/after
-  const diffString = createMemo(() =>
-    props.diff || generateDiff(props.filePath, props.before, props.after),
+  const diffString = createMemo(
+    () => props.diff || generateDiff(props.filePath, props.before, props.after),
   );
   const filetype = createMemo(() => getFiletype(props.filePath));
 

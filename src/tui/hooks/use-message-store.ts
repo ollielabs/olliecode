@@ -2,9 +2,10 @@
  * Central message store hook.
  *
  * Owns all message state and provides the single source of truth:
- * - storedMessages (from SQLite) is the canonical state
- * - history (Ollama format) is derived from storedMessages
- * - displayMessages is derived from storedMessages + pendingDisplayMessages
+ * - allMessages (from SQLite) is the full, unaltered chat history
+ * - displayMessages is derived from allMessages + pendingDisplayMessages
+ * - history (Ollama format) is derived from allMessages, sliced at
+ *   the summary message when one exists
  *
  * Two-tier approach:
  * - At rest (no agent running): pendingDisplayMessages is empty,
@@ -12,8 +13,8 @@
  * - During an agent run: pendingDisplayMessages accumulates live tool
  *   state updates. On settlement, the store is refreshed and pending cleared.
  *
- * All mutations that affect persisted state go through this hook,
- * ensuring in-memory and SQLite never diverge at rest.
+ * Chat history is NEVER altered by compaction. Compaction only affects
+ * what gets sent to the model (the history() signal).
  */
 
 import type { Message } from 'ollama';
@@ -25,40 +26,25 @@ import {
   fromAssistantResponse,
   fromUserInput,
   getActiveMessages,
+  getSummaryMessageId,
   hasTrailingUserMessage,
-  saveCompactionSnapshot,
+  setSummaryMessageId,
   toDisplayMessages,
   toOllamaMessages,
 } from '../../session';
-import type {
-  MessagePart,
-  SnapshotType,
-  StoredMessage,
-  ToolPart,
-} from '../../session/types';
+import type { MessagePart, StoredMessage, ToolPart } from '../../session/types';
 import type { DisplayMessage, ToolDisplayMessage, ToolState } from '../types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-/**
- * Compaction info passed to settleAgentRun when auto-compaction occurred.
- */
-export type CompactionInfo = {
-  snapshotType: SnapshotType;
-  /** Compacted messages in StoredMessage format */
-  messages: StoredMessage[];
-  /** Number of messages before compaction */
-  originalCount: number;
-};
-
 export type UseMessageStoreReturn = {
   // --- Derived read-only signals ---
 
   /** Display messages for TUI rendering (store-derived + pending during runs) */
   displayMessages: () => DisplayMessage[];
-  /** Ollama message history for agent calls (derived from store) */
+  /** Ollama message history for agent calls (summary-aware slice) */
   history: () => Message[];
 
   // --- Persist + update mutations ---
@@ -76,8 +62,8 @@ export type UseMessageStoreReturn = {
   ) => void;
 
   /**
-   * Settle an agent run: persist the assistant message, optionally save
-   * a compaction snapshot, refresh the store, and clear pending display.
+   * Settle an agent run: persist the assistant message,
+   * refresh the store, and clear pending display.
    *
    * After this call, displayMessages is purely derived from SQLite.
    */
@@ -85,7 +71,6 @@ export type UseMessageStoreReturn = {
     sessionId: string,
     content: string,
     toolParts: ToolPart[],
-    compaction?: CompactionInfo,
   ) => void;
 
   /**
@@ -98,7 +83,6 @@ export type UseMessageStoreReturn = {
     errorType: string,
     errorMessage: string,
     toolParts: ToolPart[],
-    compaction?: CompactionInfo,
   ) => void;
 
   // --- Live display mutations (in-memory only, during agent run) ---
@@ -114,19 +98,16 @@ export type UseMessageStoreReturn = {
 
   // --- Context operations (persist + update) ---
 
-  /** Clear all messages and snapshots for a session */
+  /** Clear all messages for a session */
   clear: (sessionId: string) => void;
   /** Delete the last N messages from a session */
   forget: (sessionId: string, count: number) => number;
   /**
-   * Save a compaction snapshot. Original messages are preserved in the
-   * messages table; the snapshot is an overlay used on next load.
+   * Save a compaction summary: appends the summary as an assistant message
+   * with a CompactionSummaryPart, then updates the session's summary pointer.
+   * Returns the number of messages that are now summarized.
    */
-  compact: (
-    sessionId: string,
-    compactedMessages: StoredMessage[],
-    originalCount: number,
-  ) => void;
+  summarize: (sessionId: string, summaryText: string) => number;
 
   // --- Session lifecycle ---
 
@@ -141,8 +122,11 @@ export type UseMessageStoreReturn = {
 // ============================================================================
 
 export function useMessageStore(): UseMessageStoreReturn {
-  // Canonical persisted state — refreshed from SQLite at settlement points
-  const [storedMessages, setStoredMessages] = createSignal<StoredMessage[]>([]);
+  // Full persisted state — all messages, never altered by compaction
+  const [allMessages, setAllMessages] = createSignal<StoredMessage[]>([]);
+
+  // Summary message ID — points to the latest compaction summary
+  const [summaryMsgId, setSummaryMsgId] = createSignal<string | null>(null);
 
   // Ephemeral display state — accumulates during agent runs, cleared on settle
   const [pendingDisplayMessages, setPendingDisplayMessages] = createSignal<
@@ -151,21 +135,64 @@ export function useMessageStore(): UseMessageStoreReturn {
 
   // --- Derived signals ---
 
+  /** Display: always full history + pending */
   const displayMessages = createMemo<DisplayMessage[]>(() => {
-    const base = toDisplayMessages(storedMessages());
+    const base = toDisplayMessages(allMessages());
     const pending = pendingDisplayMessages();
     if (pending.length === 0) return base;
     return [...base, ...pending];
   });
 
-  const history = createMemo<Message[]>(() =>
-    toOllamaMessages(storedMessages()),
-  );
+  /**
+   * History for model context: summary-aware slice.
+   *
+   * When a summary exists, the model sees:
+   *   [summary as user message] + [messages after the summary]
+   *
+   * When no summary exists, the model sees all messages.
+   */
+  const history = createMemo<Message[]>(() => {
+    const all = allMessages();
+    const sumId = summaryMsgId();
+
+    if (!sumId) {
+      return toOllamaMessages(all);
+    }
+
+    const sumIndex = all.findIndex((m) => m.id === sumId);
+    if (sumIndex === -1) {
+      // Summary message not found — return all (safety fallback)
+      return toOllamaMessages(all);
+    }
+
+    // Extract summary text from the CompactionSummaryPart
+    const summaryMsg = all[sumIndex];
+    const summaryText = summaryMsg
+      ? summaryMsg.parts
+          .filter((p) => p.type === 'compaction_summary')
+          .map((p) => ('content' in p ? (p.content as string) : ''))
+          .join('\n')
+      : '';
+
+    // Messages after the summary (convert to Ollama format)
+    const afterSummary = all.slice(sumIndex + 1);
+    const afterMessages = toOllamaMessages(afterSummary);
+
+    // Summary becomes a user message so the model treats it as context
+    return [
+      {
+        role: 'user' as const,
+        content: `[Previous conversation summary]\n${summaryText}`,
+      },
+      ...afterMessages,
+    ];
+  });
 
   // --- Internal helpers ---
 
   function refreshStore(sessionId: string): void {
-    setStoredMessages(getActiveMessages(sessionId));
+    setAllMessages(getActiveMessages(sessionId));
+    setSummaryMsgId(getSummaryMessageId(sessionId));
   }
 
   // --- Persist + update mutations ---
@@ -178,14 +205,12 @@ export function useMessageStore(): UseMessageStoreReturn {
   ): void => {
     // Dedup: if last stored message is already a user message with the
     // same content (from a failed previous attempt), skip re-persisting.
-    // Different content means a genuinely new message after a failed run.
     if (!hasTrailingUserMessage(sessionId, augmentedPrompt)) {
       addMessage(sessionId, 'user', fromUserInput(augmentedPrompt));
     }
 
-    // Refresh the store — the user message is now in storedMessages,
-    // so displayMessages derives it automatically. No need to add to
-    // pending (that would cause a duplicate).
+    // Refresh the store — the user message is now in allMessages,
+    // so displayMessages derives it automatically.
     refreshStore(sessionId);
   };
 
@@ -193,7 +218,6 @@ export function useMessageStore(): UseMessageStoreReturn {
     sessionId: string,
     content: string,
     toolParts: ToolPart[],
-    compaction?: CompactionInfo,
   ): void => {
     // Persist assistant message (only if there's content or tool parts)
     if (content.trim() || toolParts.length > 0) {
@@ -204,17 +228,7 @@ export function useMessageStore(): UseMessageStoreReturn {
       );
     }
 
-    // Persist compaction snapshot if auto-compaction occurred during the run
-    if (compaction) {
-      saveCompactionSnapshot(
-        sessionId,
-        compaction.snapshotType,
-        compaction.messages,
-        compaction.originalCount,
-      );
-    }
-
-    // Refresh from store — this makes storedMessages the source of truth
+    // Refresh from store — this makes allMessages the source of truth
     refreshStore(sessionId);
 
     // Clear pending — display is now fully derived from the store
@@ -226,7 +240,6 @@ export function useMessageStore(): UseMessageStoreReturn {
     errorType: string,
     errorMessage: string,
     toolParts: ToolPart[],
-    compaction?: CompactionInfo,
   ): void => {
     // Build parts: completed tool parts first, then the error
     const parts: MessagePart[] = [
@@ -236,16 +249,6 @@ export function useMessageStore(): UseMessageStoreReturn {
 
     // Always persist — errors are part of the conversation record
     addMessage(sessionId, 'assistant', parts);
-
-    // Persist compaction snapshot if auto-compaction occurred during the run
-    if (compaction) {
-      saveCompactionSnapshot(
-        sessionId,
-        compaction.snapshotType,
-        compaction.messages,
-        compaction.originalCount,
-      );
-    }
 
     // Refresh from store and clear pending
     refreshStore(sessionId);
@@ -286,7 +289,8 @@ export function useMessageStore(): UseMessageStoreReturn {
 
   const clear = (sessionId: string): void => {
     clearMessages(sessionId);
-    setStoredMessages([]);
+    setAllMessages([]);
+    setSummaryMsgId(null);
     setPendingDisplayMessages([]);
   };
 
@@ -297,30 +301,41 @@ export function useMessageStore(): UseMessageStoreReturn {
     return deleted;
   };
 
-  const compact = (
-    sessionId: string,
-    compactedMessages: StoredMessage[],
-    originalCount: number,
-  ): void => {
-    saveCompactionSnapshot(
-      sessionId,
-      'manual_compaction',
-      compactedMessages,
-      originalCount,
-    );
+  const summarize = (sessionId: string, summaryText: string): number => {
+    // Count messages being summarized (everything before the summary)
+    const current = allMessages();
+    const summarizedCount = current.length;
+
+    // Append the summary as an assistant message with CompactionSummaryPart
+    const summaryMessage = addMessage(sessionId, 'assistant', [
+      {
+        type: 'compaction_summary',
+        content: summaryText,
+        compactedCount: summarizedCount,
+      },
+    ]);
+
+    // Update the session's summary pointer
+    setSummaryMessageId(sessionId, summaryMessage.id);
+
+    // Refresh store
     refreshStore(sessionId);
     setPendingDisplayMessages([]);
+
+    return summarizedCount;
   };
 
   // --- Session lifecycle ---
 
   const loadSession = (sessionId: string): void => {
-    setStoredMessages(getActiveMessages(sessionId));
+    setAllMessages(getActiveMessages(sessionId));
+    setSummaryMsgId(getSummaryMessageId(sessionId));
     setPendingDisplayMessages([]);
   };
 
   const reset = (): void => {
-    setStoredMessages([]);
+    setAllMessages([]);
+    setSummaryMsgId(null);
     setPendingDisplayMessages([]);
   };
 
@@ -336,7 +351,7 @@ export function useMessageStore(): UseMessageStoreReturn {
     getPendingDisplayMessages,
     clear,
     forget,
-    compact,
+    summarize,
     loadSession,
     reset,
   };

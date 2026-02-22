@@ -33,9 +33,7 @@ export function Modal(rawProps: ModalProps) {
   const leftOffset = createMemo(() =>
     Math.max(0, Math.floor((dimensions().width - modalWidth()) / 2)),
   );
-  const topOffset = createMemo(() =>
-    Math.floor(dimensions().height / 4),
-  );
+  const topOffset = createMemo(() => Math.floor(dimensions().height / 4));
 
   return (
     <>

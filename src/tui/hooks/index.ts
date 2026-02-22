@@ -28,7 +28,6 @@ export {
   useKeyboardShortcuts,
 } from './use-keyboard-shortcuts';
 export {
-  type CompactionInfo,
   type UseMessageStoreReturn,
   useMessageStore,
 } from './use-message-store';

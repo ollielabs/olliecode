@@ -1,7 +1,6 @@
 import type { Message, ToolCall } from 'ollama';
 import type { z } from 'zod';
 
-import type { CompactionResult } from './compaction';
 import type { SafetyConfig } from './safety/types';
 
 // Re-export safety types for convenience
@@ -126,41 +125,47 @@ export type AgentResult = {
   };
   /** Context usage statistics (if available) */
   contextUsage?: ContextUsage;
-  /** If auto-compaction occurred during this run, the compaction result */
-  compacted?: CompactionResult;
+  /** Whether the caller should run summarization after settling */
+  needsSummarization?: boolean;
 };
 
 /**
  * Error types for agent failures
  */
 export type AgentError =
-  | { type: 'aborted'; messages: Message[]; compacted?: CompactionResult }
+  | {
+      type: 'aborted';
+      messages: Message[];
+      contextUsage?: ContextUsage;
+    }
   | {
       type: 'model_error';
       message: string;
       messages: Message[];
-      compacted?: CompactionResult;
+      contextUsage?: ContextUsage;
+      /** If true, the error was "prompt too long" — caller should summarize and retry */
+      promptTooLong?: boolean;
     }
   | {
       type: 'loop_detected';
       action: string;
       attempts: number;
       messages: Message[];
-      compacted?: CompactionResult;
+      contextUsage?: ContextUsage;
     }
   | {
       type: 'max_iterations';
       iterations: number;
       lastThought: string;
       messages: Message[];
-      compacted?: CompactionResult;
+      contextUsage?: ContextUsage;
     }
   | {
       type: 'tool_error';
       tool: string;
       message: string;
       messages: Message[];
-      compacted?: CompactionResult;
+      contextUsage?: ContextUsage;
     };
 
 /**

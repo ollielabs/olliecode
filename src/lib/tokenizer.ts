@@ -24,7 +24,7 @@ const CHARS_PER_TOKEN = {
   text: 3.5,
   code: 2.5,
   json: 3,
-  mixed: 3, // Default — conservative for code-heavy conversations
+  mixed: 2.5, // Conservative — code-heavy conversations average 2-2.5 chars/token
 } as const;
 
 type ContentType = keyof typeof CHARS_PER_TOKEN;
@@ -247,14 +247,14 @@ export function clearModelInfoCache(): void {
  * - ChatML formatting overhead: ~500 tokens
  *
  * AGENT LOOP overhead (messages includes system prompt, but not tool schemas):
- * - Tool schemas: ~3,000-5,000 tokens
+ * - Tool schemas (10 tools with nested JSON schemas): ~4,000-6,000 tokens
  * - ChatML formatting overhead: ~500 tokens
  *
  * When real token counts are available (from prompt_eval_count), they
  * supersede this entirely.
  */
 export const OVERHEAD_SIDEBAR = 10_000;
-export const OVERHEAD_AGENT_LOOP = 4_000;
+export const OVERHEAD_AGENT_LOOP = 6_000;
 
 /**
  * Calculate context usage statistics.
