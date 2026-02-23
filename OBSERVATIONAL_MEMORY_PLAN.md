@@ -28,13 +28,24 @@ Tool call completes
   → extractObservations(toolName, args, result, sessionId) → Observation[]
   → addObservations(observations) → SQLite `observations` table
 
-Before each LLM call
+Before each runAgent call (per turn, not per iteration)
   → buildObservationBlock(sessionId) → string | null
   → Passed as observationBlock on RunAgentArgs
   → Injected into SystemPromptContext
   → Placed after environment block in system prompt
   → [system+observations, ...history, userMsg]
 ```
+
+### Known limitation: observation block freshness
+
+The observation block is built once per turn (before `runAgent`), not rebuilt per
+iteration within the agent loop. Observations from tool calls within the current
+turn are stored in SQLite but not visible to the model until the next turn. This
+means observations are always one turn behind.
+
+This is acceptable for Phase 0. Per-iteration freshness would require passing a
+builder function into `runAgent` instead of a static string — a straightforward
+change if needed later.
 
 ## New Files
 

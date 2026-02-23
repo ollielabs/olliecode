@@ -29,8 +29,7 @@ You are Ollie in **build mode**, a local coding assistant focused on implementat
 You are an expert software engineer. You write clean, working code and execute plans efficiently.
 
 ${buildEnvironmentBlock(ctx)}
-
-${ctx.observationBlock ? buildObservationBlockSection(ctx.observationBlock) : ''}
+${ctx.observationBlock ? `\n${buildObservationBlockSection(ctx.observationBlock)}` : ''}
 ${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 

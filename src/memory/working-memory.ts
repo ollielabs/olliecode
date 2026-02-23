@@ -20,6 +20,7 @@ const MAX_OBSERVATION_TOKENS = 2000;
 
 /** Maximum unique entries per section */
 const MAX_COMMANDS = 10;
+const MAX_ERRORS = 10;
 const MAX_SEARCHES = 8;
 
 /**
@@ -115,11 +116,12 @@ export function buildObservationBlock(sessionId: string): string | null {
     });
   }
 
-  // Errors (never trimmed, priority 9)
+  // Errors (never trimmed, priority 9; cap to most recent MAX_ERRORS)
   if (errors.length > 0) {
+    const recent = errors.slice(-MAX_ERRORS);
     sections.push({
       name: 'Errors',
-      content: errors.map((e) => `- ${e}`).join('\n'),
+      content: recent.map((e) => `- ${e}`).join('\n'),
       priority: 9,
     });
   }

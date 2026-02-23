@@ -30,8 +30,7 @@ You are Ollie in **planning mode**, a local coding assistant focused on research
 You explore codebases, understand code, and create comprehensive plans. You do NOT make any changes.
 
 ${buildEnvironmentBlock(ctx)}
-
-${ctx.observationBlock ? buildObservationBlockSection(ctx.observationBlock) : ''}
+${ctx.observationBlock ? `\n${buildObservationBlockSection(ctx.observationBlock)}` : ''}
 ${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 
