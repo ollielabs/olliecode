@@ -256,6 +256,9 @@ export async function runAgent(
 
   log('Initial messages count:', messages.length);
   log('System prompt length:', systemPrompt.length, 'chars');
+  if (args.observationBlock) {
+    log('Observation block injected:', args.observationBlock.length, 'chars');
+  }
 
   const steps: AgentStep[] = [];
   const startTime = Date.now();
