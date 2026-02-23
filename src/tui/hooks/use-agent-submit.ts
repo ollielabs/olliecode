@@ -198,6 +198,8 @@ export function useAgentSubmit(
     const previewsByToolId = new Map<string, ConfirmationRequest['preview']>();
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
+    // Args captured at onToolCall time for observation extraction (W1 fix)
+    const argsByIndex = new Map<number, Record<string, unknown>>();
 
     // Build observation block from observational memory (if any observations exist)
     const observationBlock = buildObservationBlock(session.id) ?? undefined;
@@ -229,6 +231,8 @@ export function useAgentSubmit(
         indexByToolId.set(toolId, index);
         // Store by name (secondary - for confirmation/blocked which only have name)
         toolIdsByName.set(toolName, toolId);
+        // Capture args for observation extraction (avoids fragile store lookup)
+        argsByIndex.set(index, toolArgs);
 
         store.addPendingToolMessage({
           type: 'tool',
@@ -286,23 +290,19 @@ export function useAgentSubmit(
           props.setSidebarTodos(getTodos(session.id));
         }
 
-        // Extract observations for observational memory
-        const toolArgs = toolIdsByIndex.has(index)
-          ? (store
-              .getPendingDisplayMessages()
-              .find(
-                (m): m is ToolDisplayMessage =>
-                  m.type === 'tool' && m.id === toolId,
-              )?.args ?? {})
-          : {};
-        const observations = extractObservations(
-          result.tool,
-          toolArgs,
-          result,
-          session.id,
-        );
-        if (observations.length > 0) {
-          addObservations(observations);
+        // Extract observations for observational memory (non-critical — never crash agent)
+        try {
+          const observations = extractObservations(
+            result.tool,
+            argsByIndex.get(index) ?? {},
+            result,
+            session.id,
+          );
+          if (observations.length > 0) {
+            addObservations(observations);
+          }
+        } catch {
+          // Observation storage is an enhancement — log silently and continue
         }
 
         // Build the ToolPart for persistence from the pending display state
