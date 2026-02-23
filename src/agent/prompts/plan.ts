@@ -7,18 +7,19 @@
  */
 
 import {
-  type SystemPromptContext,
   buildEnvironmentBlock,
+  buildObservationBlockSection,
   buildProjectInstructionsBlock,
-  COMMUNICATION_STYLE,
-  SCOPE_DISCIPLINE,
-  READ_ONLY_TOOLS_DOC,
-  TOOL_RESULT_NOTE,
-  PARALLEL_TOOL_CALLS,
-  EXPLORATION_STRATEGY,
   CODE_REFERENCE_PATTERN,
-  TODO_TOOLS_DOC,
+  COMMUNICATION_STYLE,
+  EXPLORATION_STRATEGY,
+  PARALLEL_TOOL_CALLS,
+  READ_ONLY_TOOLS_DOC,
+  SCOPE_DISCIPLINE,
   SEARCH_GUIDANCE,
+  type SystemPromptContext,
+  TODO_TOOLS_DOC,
+  TOOL_RESULT_NOTE,
 } from './shared';
 
 export function buildPlanModePrompt(ctx: SystemPromptContext): string {
@@ -29,7 +30,7 @@ You are Ollie in **planning mode**, a local coding assistant focused on research
 You explore codebases, understand code, and create comprehensive plans. You do NOT make any changes.
 
 ${buildEnvironmentBlock(ctx)}
-
+${ctx.observationBlock ? `\n${buildObservationBlockSection(ctx.observationBlock)}` : ''}
 ${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 

@@ -25,6 +25,9 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
+import { extractObservations } from '../../memory/extractors';
+import { addObservations } from '../../memory/store';
+import { buildObservationBlock } from '../../memory/working-memory';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -195,6 +198,11 @@ export function useAgentSubmit(
     const previewsByToolId = new Map<string, ConfirmationRequest['preview']>();
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
+    // Args captured at onToolCall time for observation extraction (W1 fix)
+    const argsByIndex = new Map<number, Record<string, unknown>>();
+
+    // Build observation block from observational memory (if any observations exist)
+    const observationBlock = buildObservationBlock(session.id) ?? undefined;
 
     // Read current signal values directly — no stale closure risk in Solid
     const result = await runAgent({
@@ -210,6 +218,7 @@ export function useAgentSubmit(
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
+      observationBlock,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
@@ -222,6 +231,8 @@ export function useAgentSubmit(
         indexByToolId.set(toolId, index);
         // Store by name (secondary - for confirmation/blocked which only have name)
         toolIdsByName.set(toolName, toolId);
+        // Capture args for observation extraction (avoids fragile store lookup)
+        argsByIndex.set(index, toolArgs);
 
         store.addPendingToolMessage({
           type: 'tool',
@@ -277,6 +288,21 @@ export function useAgentSubmit(
         // Refresh sidebar todos in real-time when todo_write completes
         if (result.tool === 'todo_write' && !result.error) {
           props.setSidebarTodos(getTodos(session.id));
+        }
+
+        // Extract observations for observational memory (non-critical — never crash agent)
+        try {
+          const observations = extractObservations(
+            result.tool,
+            argsByIndex.get(index) ?? {},
+            result,
+            session.id,
+          );
+          if (observations.length > 0) {
+            addObservations(observations);
+          }
+        } catch {
+          // Observation storage is an enhancement — log silently and continue
         }
 
         // Build the ToolPart for persistence from the pending display state

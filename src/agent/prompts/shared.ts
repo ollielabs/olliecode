@@ -13,6 +13,8 @@ export type SystemPromptContext = {
   platform: string;
   date: string;
   projectInstructions?: string;
+  /** Observation block from observational memory (injected after environment) */
+  observationBlock?: string;
 };
 
 /**
@@ -548,3 +550,16 @@ When searching for files, functions, or patterns:
 4. **Suggest alternatives if appropriate**
    - "X doesn't exist, but I found Y which might be related"
    - "There's no database/connection.ts, but database logic is in src/db/"`;
+
+/**
+ * Observation block section — wraps the observation block content
+ * from observational memory for inclusion in the system prompt.
+ */
+export function buildObservationBlockSection(block: string): string {
+  return `# Session Observations
+
+The following observations were automatically extracted from tool calls in this session.
+Use them to maintain context about what has been done, what files were changed, and any errors encountered.
+
+${block}`;
+}

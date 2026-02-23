@@ -114,6 +114,33 @@ const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS message_snapshots;
     `,
   },
+  {
+    version: 5,
+    name: 'add_observations',
+    sql: `
+      -- Observational memory: structured observations extracted from tool calls.
+      -- Session-scoped. Survives compaction (separate from message history).
+      -- source column future-proofs for LLM-based extraction (fast-follow).
+      CREATE TABLE IF NOT EXISTS observations (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        importance INTEGER NOT NULL DEFAULT 5,
+        source TEXT NOT NULL DEFAULT 'programmatic',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_observations_session
+        ON observations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_observations_session_type
+        ON observations(session_id, type);
+      CREATE INDEX IF NOT EXISTS idx_observations_session_importance
+        ON observations(session_id, importance DESC);
+    `,
+  },
 ];
 
 /**

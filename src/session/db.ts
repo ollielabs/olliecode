@@ -5,8 +5,8 @@
 
 import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { runMigrations } from './migrations';
 
 /**
@@ -81,4 +81,18 @@ export function closeDatabase(): void {
     db.close();
     db = null;
   }
+}
+
+/**
+ * Replace the database singleton for testing.
+ * Returns the previous database instance (or null) so callers can restore it.
+ *
+ * @internal Only for use in tests.
+ */
+export function setDatabaseForTesting(
+  testDb: Database | null,
+): Database | null {
+  const previous = db;
+  db = testDb;
+  return previous;
 }
