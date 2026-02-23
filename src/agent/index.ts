@@ -6,6 +6,8 @@
 import type { Message, ToolCall } from 'ollama';
 import { Ollama } from 'ollama';
 import {
+  computeOverhead,
+  estimateMessagesTokens,
   fetchModelInfo,
   getContextStats,
   OVERHEAD_AGENT_LOOP,
@@ -124,6 +126,9 @@ function createNudgeMessage(): Message {
 
 /**
  * Build context usage from real token counts or heuristic fallback.
+ *
+ * @param overheadTokens - Dynamically computed overhead for tool schemas.
+ *   Falls back to OVERHEAD_AGENT_LOOP when not provided.
  */
 function buildContextUsage(
   lastPromptTokens: number | undefined,
@@ -131,9 +136,10 @@ function buildContextUsage(
   messages: Message[],
   maxContextTokens: number,
   compactionThreshold: number,
+  overheadTokens?: number,
 ): ContextUsage {
   if (lastPromptTokens !== undefined) {
-    // Real counts from model
+    // Real counts from model — overhead is already included in prompt_eval_count
     const totalTokens = lastPromptTokens + (lastCompletionTokens ?? 0);
     const usagePercent = Math.round((totalTokens / maxContextTokens) * 100);
     return {
@@ -145,11 +151,11 @@ function buildContextUsage(
       completionTokens: lastCompletionTokens,
     };
   }
-  // Heuristic fallback
+  // Heuristic fallback — use dynamic overhead if available
   const stats = getContextStats(
     messages,
     maxContextTokens,
-    OVERHEAD_AGENT_LOOP,
+    overheadTokens ?? OVERHEAD_AGENT_LOOP,
   );
   return {
     totalTokens: stats.totalTokens,
@@ -206,6 +212,11 @@ export async function runAgent(
       getDefaultContext(args.safetyConfig.projectRoot, args.configInstructions),
     );
 
+  // Compute tool schema overhead dynamically (for heuristic fallback path).
+  // In the agent loop, the system prompt IS included in the messages array,
+  // so only tool schemas contribute to overhead not captured by the heuristic.
+  const toolSchemaOverhead = computeOverhead(modeTools);
+
   log(
     'Starting agent with model:',
     args.model,
@@ -218,6 +229,7 @@ export async function runAgent(
     'Tools available:',
     modeTools.map((t) => t.function.name),
   );
+  log('Tool schema overhead:', toolSchemaOverhead, 'tokens (estimated)');
 
   // Fetch model info for context tracking (non-blocking, best effort)
   let maxContextTokens: number | undefined;
@@ -305,6 +317,25 @@ export async function runAgent(
         if (accumulated.completionTokens !== undefined) {
           lastCompletionTokens = accumulated.completionTokens;
         }
+
+        // Debug: compare heuristic estimate against real counts
+        if (accumulated.promptTokens !== undefined) {
+          const estimatedTokens =
+            estimateMessagesTokens(messages) + toolSchemaOverhead;
+          const realTokens = accumulated.promptTokens;
+          const totalChars = messages.reduce(
+            (sum, m) => sum + (m.content?.length ?? 0),
+            0,
+          );
+          const charsPerToken =
+            realTokens > 0 ? (totalChars / realTokens).toFixed(2) : 'N/A';
+          const delta = estimatedTokens - realTokens;
+          const deltaPercent =
+            realTokens > 0 ? ((delta / realTokens) * 100).toFixed(1) : 'N/A';
+          log(
+            `Token accuracy: estimated=${estimatedTokens} real=${realTokens} delta=${delta} (${deltaPercent}%) chars=${totalChars} chars/token=${charsPerToken}`,
+          );
+        }
       } catch (e) {
         log('Error during chat:', e);
         if (e instanceof Error) {
@@ -342,6 +373,7 @@ export async function runAgent(
                   messages,
                   maxContextTokens,
                   config.compactionThreshold,
+                  toolSchemaOverhead,
                 )
               : undefined,
             promptTooLong: true,
@@ -381,6 +413,7 @@ export async function runAgent(
             messages,
             maxContextTokens,
             config.compactionThreshold,
+            toolSchemaOverhead,
           );
           log('Final context usage:', `${contextUsage.usagePercent}%`);
           // Signal caller to summarize if threshold exceeded
