@@ -85,6 +85,9 @@ export type RunAgentArgs = {
 
   /** Override the system prompt (used by subagents) */
   systemPromptOverride?: string;
+
+  /** Observation block from observational memory (injected into system prompt) */
+  observationBlock?: string;
 };
 
 /**
@@ -205,12 +208,15 @@ export async function runAgent(
 
   // Get mode-specific tools and prompt
   const modeTools = getToolsForMode(mode);
+  const ctx = getDefaultContext(
+    args.safetyConfig.projectRoot,
+    args.configInstructions,
+  );
+  if (args.observationBlock) {
+    ctx.observationBlock = args.observationBlock;
+  }
   const systemPrompt =
-    args.systemPromptOverride ??
-    getSystemPromptForMode(
-      mode,
-      getDefaultContext(args.safetyConfig.projectRoot, args.configInstructions),
-    );
+    args.systemPromptOverride ?? getSystemPromptForMode(mode, ctx);
 
   // Compute tool schema overhead dynamically (for heuristic fallback path).
   // In the agent loop, the system prompt IS included in the messages array,

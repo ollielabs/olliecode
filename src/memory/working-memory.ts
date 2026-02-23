@@ -13,7 +13,7 @@
 
 import { estimateTokens } from '../lib/tokenizer';
 import { getObservationsBySession } from './store';
-import type { Observation, ObservationType } from './types';
+import type { Observation } from './types';
 
 /** Maximum estimated tokens for the observation block */
 const MAX_OBSERVATION_TOKENS = 2000;
@@ -214,7 +214,9 @@ function enforceTokenBudget(
   // Trim lowest-priority sections until within budget
   while (tokens > MAX_OBSERVATION_TOKENS && sorted.length > 0) {
     // Find lowest priority section
-    const lowestPriority = sorted[sorted.length - 1]!.priority;
+    const lastSection = sorted[sorted.length - 1];
+    if (!lastSection) break;
+    const lowestPriority = lastSection.priority;
 
     // Never trim files (10) or errors (9)
     if (lowestPriority >= 9) break;

@@ -7,17 +7,18 @@
  */
 
 import {
-  type SystemPromptContext,
-  buildEnvironmentBlock,
-  buildProjectInstructionsBlock,
-  COMMUNICATION_STYLE,
-  SCOPE_DISCIPLINE,
   ALL_TOOLS_DOC,
-  TOOL_RESULT_NOTE,
-  PARALLEL_TOOL_CALLS,
+  buildEnvironmentBlock,
+  buildObservationBlockSection,
+  buildProjectInstructionsBlock,
   CODE_REFERENCE_PATTERN,
-  TODO_TOOLS_DOC,
+  COMMUNICATION_STYLE,
+  PARALLEL_TOOL_CALLS,
+  SCOPE_DISCIPLINE,
   SEARCH_GUIDANCE,
+  type SystemPromptContext,
+  TODO_TOOLS_DOC,
+  TOOL_RESULT_NOTE,
 } from './shared';
 
 export function buildBuildModePrompt(ctx: SystemPromptContext): string {
@@ -29,6 +30,7 @@ You are an expert software engineer. You write clean, working code and execute p
 
 ${buildEnvironmentBlock(ctx)}
 
+${ctx.observationBlock ? buildObservationBlockSection(ctx.observationBlock) : ''}
 ${ctx.projectInstructions ? buildProjectInstructionsBlock(ctx.projectInstructions) : ''}
 ${COMMUNICATION_STYLE}
 

@@ -25,6 +25,9 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
+import { extractObservations } from '../../memory/extractors';
+import { addObservations } from '../../memory/store';
+import { buildObservationBlock } from '../../memory/working-memory';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -196,6 +199,9 @@ export function useAgentSubmit(
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
 
+    // Build observation block from observational memory (if any observations exist)
+    const observationBlock = buildObservationBlock(session.id) ?? undefined;
+
     // Read current signal values directly — no stale closure risk in Solid
     const result = await runAgent({
       model,
@@ -210,6 +216,7 @@ export function useAgentSubmit(
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
+      observationBlock,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
@@ -277,6 +284,25 @@ export function useAgentSubmit(
         // Refresh sidebar todos in real-time when todo_write completes
         if (result.tool === 'todo_write' && !result.error) {
           props.setSidebarTodos(getTodos(session.id));
+        }
+
+        // Extract observations for observational memory
+        const toolArgs = toolIdsByIndex.has(index)
+          ? (store
+              .getPendingDisplayMessages()
+              .find(
+                (m): m is ToolDisplayMessage =>
+                  m.type === 'tool' && m.id === toolId,
+              )?.args ?? {})
+          : {};
+        const observations = extractObservations(
+          result.tool,
+          toolArgs,
+          result,
+          session.id,
+        );
+        if (observations.length > 0) {
+          addObservations(observations);
         }
 
         // Build the ToolPart for persistence from the pending display state
