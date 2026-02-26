@@ -23,10 +23,13 @@ import {
   optimizeObservationsForContext,
   parseObserverOutput,
 } from './observer';
+import { runReflector } from './reflector';
 import {
   getOrCreateOMRecord,
   setObservingFlag,
+  setReflectingFlag,
   updateAfterObservation,
+  updateAfterReflection,
   updatePendingTokens,
 } from './store';
 import { countMessagesTokens, countTextTokens } from './token-counter';
@@ -65,6 +68,17 @@ export function shouldObserve(
   config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
 ): boolean {
   return unobservedTokens >= config.observation.messageTokens;
+}
+
+/**
+ * Check if reflection should be triggered based on observation token count.
+ * Returns true if observations exceed the reflection threshold.
+ */
+export function shouldReflect(
+  observationTokenCount: number,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): boolean {
+  return observationTokenCount >= config.reflection.observationTokens;
 }
 
 /**
@@ -230,6 +244,76 @@ export async function runSyncObservation(
 }
 
 /**
+ * Run synchronous reflection. Calls the Reflector LLM to condense
+ * observations when they grow too large.
+ *
+ * Uses compression escalation: if the first attempt doesn't compress
+ * enough, the Reflector retries with progressively stronger guidance.
+ */
+export async function runSyncReflection(
+  sessionId: string,
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): Promise<{
+  success: boolean;
+  record: ObservationalMemoryRecord;
+}> {
+  const record = getOrCreateOMRecord(sessionId);
+
+  if (!record.activeObservations) {
+    return { success: false, record };
+  }
+
+  // Don't reflect if already reflecting
+  if (record.isReflecting) {
+    log('[OM] Reflection already in progress, skipping');
+    return { success: false, record };
+  }
+
+  setReflectingFlag(sessionId, true);
+
+  try {
+    log(
+      `[OM] Running sync reflection: ${record.observationTokenCount} observation tokens, generation ${record.generationCount}`,
+    );
+
+    const result = await runReflector(
+      record.activeObservations,
+      model,
+      host,
+      config.reflection.temperature,
+    );
+
+    if (!result || !result.observations) {
+      log('[OM] Reflection produced no output');
+      setReflectingFlag(sessionId, false);
+      return { success: false, record };
+    }
+
+    const newTokenCount = countTextTokens(result.observations);
+
+    log(
+      `[OM] Reflection complete: ${record.observationTokenCount} -> ${newTokenCount} tokens (gen ${record.generationCount + 1})`,
+    );
+
+    updateAfterReflection(sessionId, {
+      activeObservations: result.observations,
+      observationTokenCount: newTokenCount,
+      currentTask: result.currentTask ?? record.currentTask,
+      suggestedResponse: result.suggestedResponse ?? record.suggestedResponse,
+    });
+
+    const updatedRecord = getOrCreateOMRecord(sessionId);
+    return { success: true, record: updatedRecord };
+  } catch (error) {
+    log('[OM] Reflection failed:', error);
+    setReflectingFlag(sessionId, false);
+    return { success: false, record };
+  }
+}
+
+/**
  * Build the observation block for the Actor's context window.
  *
  * Returns a formatted string containing:
@@ -270,15 +354,22 @@ export function getContinuationHint(): string {
 
 /**
  * Process a step in the agent loop: check if observation is needed,
- * run it if so, and return the updated context.
+ * run it if so, check if reflection is needed, and return the updated context.
  *
  * This is the main entry point called from the agent loop on each iteration.
+ *
+ * Pipeline:
+ * 1. Check unobserved message tokens -> run Observer if threshold exceeded
+ * 2. Check observation token count -> run Reflector if threshold exceeded
+ * 3. Build observation block and continuation hint for the Actor
+ * 4. Filter messages to only include unobserved ones
  *
  * Returns:
  * - observationBlock: string to inject into system context (or null)
  * - continuationHint: string to inject as system message (or null)
  * - filteredMessages: messages with observed ones removed
  * - didObserve: whether observation ran this step
+ * - didReflect: whether reflection ran this step
  */
 export async function processOMStep(
   sessionId: string,
@@ -291,6 +382,7 @@ export async function processOMStep(
   continuationHint: string | null;
   filteredMessages: Message[];
   didObserve: boolean;
+  didReflect: boolean;
 }> {
   const record = getOrCreateOMRecord(sessionId);
 
@@ -303,6 +395,7 @@ export async function processOMStep(
 
   // Check if observation is needed
   let didObserve = false;
+  let didReflect = false;
   let currentRecord = record;
 
   if (shouldObserve(unobservedTokens, config)) {
@@ -322,6 +415,28 @@ export async function processOMStep(
     currentRecord = result.record;
   }
 
+  // Check if reflection is needed (observations too large)
+  if (
+    currentRecord.activeObservations &&
+    shouldReflect(currentRecord.observationTokenCount, config)
+  ) {
+    log(
+      `[OM] Reflection threshold exceeded: ${currentRecord.observationTokenCount} tokens > ${config.reflection.observationTokens}`,
+    );
+
+    const reflectResult = await runSyncReflection(
+      sessionId,
+      model,
+      host,
+      config,
+    );
+
+    if (reflectResult.success) {
+      didReflect = true;
+      currentRecord = reflectResult.record;
+    }
+  }
+
   // Build context for the Actor
   const observationBlock = buildObservationContextBlock(currentRecord);
   const continuationHint = observationBlock ? getContinuationHint() : null;
@@ -334,5 +449,6 @@ export async function processOMStep(
     continuationHint,
     filteredMessages,
     didObserve,
+    didReflect,
   };
 }

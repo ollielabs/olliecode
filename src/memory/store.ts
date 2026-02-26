@@ -248,6 +248,59 @@ export function updatePendingTokens(
 }
 
 /**
+ * Set the isReflecting lock flag.
+ */
+export function setReflectingFlag(
+  sessionId: string,
+  isReflecting: boolean,
+): void {
+  const db = getDatabase();
+  db.run(
+    'UPDATE observational_memory SET is_reflecting = ?, updated_at = ? WHERE session_id = ?',
+    [isReflecting ? 1 : 0, Date.now(), sessionId],
+  );
+}
+
+/**
+ * Update the OM record after a successful reflection.
+ *
+ * Creates a new generation: replaces activeObservations with the
+ * condensed reflection output, increments generationCount, sets
+ * originType to 'reflection'.
+ */
+export function updateAfterReflection(
+  sessionId: string,
+  opts: {
+    activeObservations: string;
+    observationTokenCount: number;
+    currentTask: string | null;
+    suggestedResponse: string | null;
+  },
+): void {
+  const db = getDatabase();
+  db.run(
+    `UPDATE observational_memory SET
+      active_observations = ?,
+      observation_token_count = ?,
+      origin_type = 'reflection',
+      generation_count = generation_count + 1,
+      current_task = ?,
+      suggested_response = ?,
+      is_reflecting = 0,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [
+      opts.activeObservations,
+      opts.observationTokenCount,
+      opts.currentTask,
+      opts.suggestedResponse,
+      Date.now(),
+      sessionId,
+    ],
+  );
+}
+
+/**
  * Delete the OM record for a session.
  * Used by /new or session clear.
  */

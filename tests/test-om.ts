@@ -9,7 +9,10 @@
  * - Token counting (countTextTokens, countMessagesTokens)
  * - Message formatting (formatMessagesForObserver)
  * - OM store CRUD (getOrCreateOMRecord, updateAfterObservation, etc.)
- * - OM orchestrator logic (shouldObserve, getUnobservedMessages, buildObservationContextBlock)
+ * - OM orchestrator logic (shouldObserve, shouldReflect, getUnobservedMessages, buildObservationContextBlock)
+ * - Reflector output parsing (parseReflectorOutput)
+ * - Reflector prompt building (buildReflectorPrompt, getReflectorSystemPrompt)
+ * - Reflector store operations (updateAfterReflection, setReflectingFlag)
  * - Config extraction (extractMemoryConfig)
  *
  * Run with: bun test tests/test-om.ts
@@ -31,13 +34,21 @@ import {
   getContinuationHint,
   getUnobservedMessages,
   shouldObserve,
+  shouldReflect,
 } from '../src/memory/om';
+import {
+  buildReflectorPrompt,
+  getReflectorSystemPrompt,
+  parseReflectorOutput,
+} from '../src/memory/reflector';
 import {
   deleteOMRecord,
   getOMRecord,
   getOrCreateOMRecord,
   setObservingFlag,
+  setReflectingFlag,
   updateAfterObservation,
+  updateAfterReflection,
   updatePendingTokens,
 } from '../src/memory/store';
 import {
@@ -735,5 +746,297 @@ describe('extractMemoryConfig', () => {
     expect(memConfig.observation.messageTokens).toBe(50_000);
     expect(memConfig.observation.temperature).toBe(0.5);
     expect(memConfig.reflection.observationTokens).toBe(80_000);
+  });
+});
+
+// ============================================================================
+// Reflector output parsing
+// ============================================================================
+
+describe('parseReflectorOutput', () => {
+  test('parses complete XML output', () => {
+    const output = `
+<observations>
+Date: Feb 25, 2026
+* HIGH (14:00) User wants observational memory implemented
+* MED (14:30) Agent completed foundation modules (types, store, observer, om)
+</observations>
+
+<current-task>
+Phase 2: Reflector implementation
+</current-task>
+
+<suggested-response>
+Continue with compression escalation tests
+</suggested-response>`;
+
+    const result = parseReflectorOutput(output);
+    expect(result.observations).toContain('User wants observational memory');
+    expect(result.observations).toContain('completed foundation modules');
+    expect(result.currentTask).toBe('Phase 2: Reflector implementation');
+    expect(result.suggestedResponse).toBe(
+      'Continue with compression escalation tests',
+    );
+    expect(result.degenerate).toBeUndefined();
+  });
+
+  test('falls back to list items when no XML tags', () => {
+    const output = `Condensed observations:
+* HIGH (14:00) User goal: full OM v2 implementation
+* MED (14:30) Foundation complete — 6 files committed`;
+
+    const result = parseReflectorOutput(output);
+    expect(result.observations).toContain('User goal');
+    expect(result.observations).toContain('Foundation complete');
+  });
+
+  test('detects degenerate repetition', () => {
+    const repeated = 'This observation repeats endlessly.\n'.repeat(200);
+    const result = parseReflectorOutput(repeated);
+    expect(result.degenerate).toBe(true);
+    expect(result.observations).toBe('');
+  });
+
+  test('returns empty for garbage input', () => {
+    const result = parseReflectorOutput('Just random text.');
+    expect(result.observations).toBe('');
+  });
+});
+
+// ============================================================================
+// Reflector prompt building
+// ============================================================================
+
+describe('buildReflectorPrompt', () => {
+  const sampleObservations = `Date: Feb 25, 2026
+* HIGH (14:00) User wants OM v2
+* MED (14:30) Foundation modules committed`;
+
+  test('includes observations in prompt', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 0);
+    expect(prompt).toContain('User wants OM v2');
+    expect(prompt).toContain('Observations to Reflect On');
+  });
+
+  test('level 0 has no compression guidance', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 0);
+    expect(prompt).not.toContain('COMPRESSION REQUIRED');
+  });
+
+  test('level 1 includes compression guidance', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 1);
+    expect(prompt).toContain('COMPRESSION REQUIRED');
+    expect(prompt).toContain('8/10 detail');
+  });
+
+  test('level 2 includes aggressive compression guidance', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 2);
+    expect(prompt).toContain('AGGRESSIVE COMPRESSION');
+    expect(prompt).toContain('6/10 detail');
+  });
+
+  test('level 3 includes critical compression guidance', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 3);
+    expect(prompt).toContain('CRITICAL COMPRESSION');
+    expect(prompt).toContain('4/10 detail');
+  });
+
+  test('includes target tokens when provided', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 0, 5000);
+    expect(prompt).toContain('5000 tokens');
+  });
+
+  test('clamps to max level for out-of-range values', () => {
+    const prompt = buildReflectorPrompt(sampleObservations, 99);
+    expect(prompt).toContain('CRITICAL COMPRESSION');
+  });
+});
+
+describe('getReflectorSystemPrompt', () => {
+  test('returns non-empty prompt', () => {
+    const prompt = getReflectorSystemPrompt();
+    expect(prompt.length).toBeGreaterThan(0);
+  });
+
+  test('embeds observer instructions', () => {
+    const prompt = getReflectorSystemPrompt();
+    expect(prompt).toContain('<observational-memory-instruction>');
+    expect(prompt).toContain('</observational-memory-instruction>');
+  });
+
+  test('contains key reflector directives', () => {
+    const prompt = getReflectorSystemPrompt();
+    expect(prompt).toContain('ENTIRETY');
+    expect(prompt).toContain('memory consolidation');
+    expect(prompt).toContain('USER ASSERTIONS');
+  });
+});
+
+// ============================================================================
+// shouldReflect
+// ============================================================================
+
+describe('shouldReflect', () => {
+  test('returns false below threshold', () => {
+    expect(shouldReflect(1000, DEFAULT_MEMORY_CONFIG)).toBe(false);
+  });
+
+  test('returns true at threshold', () => {
+    expect(
+      shouldReflect(
+        DEFAULT_MEMORY_CONFIG.reflection.observationTokens,
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('returns true above threshold', () => {
+    expect(
+      shouldReflect(
+        DEFAULT_MEMORY_CONFIG.reflection.observationTokens + 5000,
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('respects custom config', () => {
+    const config = {
+      ...DEFAULT_MEMORY_CONFIG,
+      reflection: {
+        ...DEFAULT_MEMORY_CONFIG.reflection,
+        observationTokens: 10_000,
+      },
+    };
+    expect(shouldReflect(9999, config)).toBe(false);
+    expect(shouldReflect(10_000, config)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Reflector store operations
+// ============================================================================
+
+describe('Reflector store operations', () => {
+  const sessionId = 'test-reflector-session';
+
+  test('setReflectingFlag toggles the lock', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    setReflectingFlag(sessionId, true);
+    expect(getOMRecord(sessionId)?.isReflecting).toBe(true);
+
+    setReflectingFlag(sessionId, false);
+    expect(getOMRecord(sessionId)?.isReflecting).toBe(false);
+  });
+
+  test('updateAfterReflection condenses observations and increments generation', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // First, simulate an observation
+    updateAfterObservation(sessionId, {
+      activeObservations:
+        '* HIGH (14:00) Original observation 1\n* MED (14:05) Original observation 2',
+      observationTokenCount: 50_000,
+      lastObservedAt: Date.now(),
+      observedMessageIds: ['0', '1', '2'],
+      pendingMessageTokens: 0,
+      totalTokensObserved: 1000,
+      currentTask: 'Old task',
+      suggestedResponse: 'Old suggestion',
+    });
+
+    const beforeReflection = getOMRecord(sessionId);
+    expect(beforeReflection?.originType).toBe('observation');
+    expect(beforeReflection?.generationCount).toBe(0);
+
+    // Now simulate a reflection
+    updateAfterReflection(sessionId, {
+      activeObservations:
+        '* HIGH (14:00) Condensed: OM v2 implementation in progress',
+      observationTokenCount: 500,
+      currentTask: 'Phase 2: Reflector',
+      suggestedResponse: 'Continue testing',
+    });
+
+    const afterReflection = getOMRecord(sessionId);
+    expect(afterReflection?.originType).toBe('reflection');
+    expect(afterReflection?.generationCount).toBe(1);
+    expect(afterReflection?.observationTokenCount).toBe(500);
+    expect(afterReflection?.activeObservations).toContain('Condensed');
+    expect(afterReflection?.currentTask).toBe('Phase 2: Reflector');
+    expect(afterReflection?.isReflecting).toBe(false);
+  });
+
+  test('multiple reflections increment generation count', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // First reflection
+    updateAfterReflection(sessionId, {
+      activeObservations: 'gen 1',
+      observationTokenCount: 100,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+    expect(getOMRecord(sessionId)?.generationCount).toBe(1);
+
+    // Second reflection
+    updateAfterReflection(sessionId, {
+      activeObservations: 'gen 2',
+      observationTokenCount: 80,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+    expect(getOMRecord(sessionId)?.generationCount).toBe(2);
+
+    // Third reflection
+    updateAfterReflection(sessionId, {
+      activeObservations: 'gen 3',
+      observationTokenCount: 60,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+    expect(getOMRecord(sessionId)?.generationCount).toBe(3);
+  });
+
+  test('reflection preserves observed message tracking', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // Set up observed messages via observation
+    updateAfterObservation(sessionId, {
+      activeObservations: 'lots of observations',
+      observationTokenCount: 50_000,
+      lastObservedAt: Date.now(),
+      observedMessageIds: ['0', '1', '2', '3', '4'],
+      pendingMessageTokens: 0,
+      totalTokensObserved: 5000,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    // Reflect — should NOT change observedMessageIds or lastObservedAt
+    const beforeReflection = getOMRecord(sessionId);
+    updateAfterReflection(sessionId, {
+      activeObservations: 'condensed',
+      observationTokenCount: 500,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    const afterReflection = getOMRecord(sessionId);
+    expect(afterReflection?.observedMessageIds).toEqual([
+      '0',
+      '1',
+      '2',
+      '3',
+      '4',
+    ]);
+    expect(afterReflection?.lastObservedAt).toBe(
+      beforeReflection?.lastObservedAt ?? null,
+    );
+    expect(afterReflection?.totalTokensObserved).toBe(5000);
   });
 });
