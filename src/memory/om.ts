@@ -23,6 +23,7 @@ import {
   needsSyncFallback,
   recordBufferingTrigger,
   registerBufferingOp,
+  resetSessionBoundary,
   resolveBlockAfter,
   selectChunksForActivation,
   shouldTriggerAsyncBuffering,
@@ -510,6 +511,11 @@ export async function processOMStep(
 
     didObserve = result.success;
     currentRecord = result.record;
+
+    // Reset buffering boundary so intervals start fresh after sync observation
+    if (result.success) {
+      resetSessionBoundary(sessionId);
+    }
   }
   // === Zone 2: at/above messageTokens — try activate buffered chunks ===
   else if (shouldObserve(unobservedTokens, config)) {
@@ -564,6 +570,7 @@ export async function processOMStep(
 
         currentRecord = getOrCreateOMRecord(sessionId);
         didObserve = true;
+        resetSessionBoundary(sessionId);
 
         log(
           `[OM] Activated ${chunksToActivate.length} chunks, ${remainingChunks.length} remaining`,
@@ -587,6 +594,10 @@ export async function processOMStep(
 
       didObserve = result.success;
       currentRecord = result.record;
+
+      if (result.success) {
+        resetSessionBoundary(sessionId);
+      }
     }
   }
   // === Zone 1: below threshold — check if async buffering should fire ===

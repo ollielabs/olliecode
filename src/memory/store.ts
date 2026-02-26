@@ -202,6 +202,8 @@ export function updateAfterObservation(
       current_task = ?,
       suggested_response = ?,
       is_observing = 0,
+      last_buffered_at_tokens = 0,
+      buffered_observation_chunks = '[]',
       updated_at = ?
     WHERE session_id = ?`,
     [

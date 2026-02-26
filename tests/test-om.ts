@@ -1239,16 +1239,32 @@ describe('selectChunksForActivation', () => {
     expect(result.messageIdsToExclude).toEqual(['0', '1', '2', '3']);
   });
 
-  test('stops before dropping below retention floor', () => {
-    // Retention floor = 6000 tokens. Total unobserved = 12000.
-    // First chunk uses 8000 tokens -> leaves 4000 < 6000 floor -> don't activate
+  test('activates first chunk even if it drops below retention floor', () => {
+    // Retention floor ≈ 6000 tokens. Total unobserved = 12000.
+    // First chunk uses 8000 tokens -> leaves 4000 < 6000 floor.
+    // But we always activate at least the first chunk (instant activation
+    // with thin context is better than a 10+ second sync fallback).
     const chunks = [makeChunk(8000, ['0', '1'])];
     const result = selectChunksForActivation(
       chunks,
       12000,
       DEFAULT_MEMORY_CONFIG,
     );
-    expect(result.chunksToActivate.length).toBe(0);
+    expect(result.chunksToActivate.length).toBe(1);
+    expect(result.remainingChunks.length).toBe(0);
+  });
+
+  test('stops at second chunk when it would drop below retention floor', () => {
+    // Total unobserved = 16000, floor ≈ 6000
+    // Chunk 1: 5000 tokens -> leaves 11000 (ok, above floor)
+    // Chunk 2: 8000 tokens -> leaves 3000 (below floor) -> stop
+    const chunks = [makeChunk(5000, ['0', '1']), makeChunk(8000, ['2', '3'])];
+    const result = selectChunksForActivation(
+      chunks,
+      16000,
+      DEFAULT_MEMORY_CONFIG,
+    );
+    expect(result.chunksToActivate.length).toBe(1);
     expect(result.remainingChunks.length).toBe(1);
   });
 

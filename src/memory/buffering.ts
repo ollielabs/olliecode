@@ -123,6 +123,15 @@ export function recordBufferingTrigger(
   lastBufferedBoundary.set(sessionId, tokenCount);
 }
 
+/**
+ * Reset the in-memory buffering boundary for a session.
+ * Must be called after sync observation or activation resets the
+ * observed message tracking, so buffering intervals start fresh.
+ */
+export function resetSessionBoundary(sessionId: string): void {
+  lastBufferedBoundary.delete(sessionId);
+}
+
 // ============================================================================
 // Chunk activation
 // ============================================================================
@@ -178,8 +187,16 @@ export function selectChunksForActivation(
       totalUnobservedTokens - tokensActivated - chunk.messageTokens;
 
     if (tokensAfterActivation < retentionFloor) {
-      // Activating this chunk would drop below retention floor
-      // Keep remaining chunks in buffer
+      // Activating this chunk would drop below retention floor.
+      // But if we haven't activated anything yet, activate anyway —
+      // instant activation with thin context is better than a 10+ second
+      // sync fallback. This handles the common case where a single chunk
+      // covers most of the unobserved messages.
+      if (chunksToActivate.length === 0) {
+        chunksToActivate.push(chunk);
+        tokensActivated += chunk.messageTokens;
+        messageIdsToExclude.push(...chunk.messageIds);
+      }
       break;
     }
 
