@@ -301,6 +301,85 @@ export function updateAfterReflection(
 }
 
 /**
+ * Set the isBufferingObservation lock flag.
+ */
+export function setBufferingObservationFlag(
+  sessionId: string,
+  isBuffering: boolean,
+): void {
+  const db = getDatabase();
+  db.run(
+    'UPDATE observational_memory SET is_buffering_observation = ?, updated_at = ? WHERE session_id = ?',
+    [isBuffering ? 1 : 0, Date.now(), sessionId],
+  );
+}
+
+/**
+ * Add a buffered observation chunk to the record.
+ */
+export function addBufferedChunk(
+  sessionId: string,
+  chunk: BufferedObservationChunk,
+): void {
+  const db = getDatabase();
+  const record = getOMRecord(sessionId);
+  if (!record) return;
+
+  const chunks = [...record.bufferedObservationChunks, chunk];
+  const now = Date.now();
+
+  db.run(
+    `UPDATE observational_memory SET
+      buffered_observation_chunks = ?,
+      last_buffered_at_tokens = ?,
+      last_buffered_at_time = ?,
+      is_buffering_observation = 0,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [JSON.stringify(chunks), chunk.messageTokens, now, now, sessionId],
+  );
+}
+
+/**
+ * Update the record after activating buffered chunks.
+ * Merges activated chunks into active observations and removes them from the buffer.
+ */
+export function updateAfterActivation(
+  sessionId: string,
+  opts: {
+    activeObservations: string;
+    observationTokenCount: number;
+    observedMessageIds: string[];
+    remainingChunks: BufferedObservationChunk[];
+    currentTask: string | null;
+    suggestedResponse: string | null;
+  },
+): void {
+  const db = getDatabase();
+  db.run(
+    `UPDATE observational_memory SET
+      active_observations = ?,
+      observation_token_count = ?,
+      observed_message_ids = ?,
+      buffered_observation_chunks = ?,
+      current_task = ?,
+      suggested_response = ?,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [
+      opts.activeObservations,
+      opts.observationTokenCount,
+      JSON.stringify(opts.observedMessageIds),
+      JSON.stringify(opts.remainingChunks),
+      opts.currentTask,
+      opts.suggestedResponse,
+      Date.now(),
+      sessionId,
+    ],
+  );
+}
+
+/**
  * Delete the OM record for a session.
  * Used by /new or session clear.
  */

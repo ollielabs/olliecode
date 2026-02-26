@@ -13,6 +13,7 @@
  * - Reflector output parsing (parseReflectorOutput)
  * - Reflector prompt building (buildReflectorPrompt, getReflectorSystemPrompt)
  * - Reflector store operations (updateAfterReflection, setReflectingFlag)
+ * - Async buffering (interval triggers, chunk activation, retention floor, blockAfter)
  * - Config extraction (extractMemoryConfig)
  *
  * Run with: bun test tests/test-om.ts
@@ -23,6 +24,19 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Message } from 'ollama';
 import { extractMemoryConfig } from '../src/config/resolve';
 import { ConfigSchema } from '../src/config/schema';
+import {
+  calculateRetentionFloor,
+  filterActivatedMessages,
+  getLatestChunkMetadata,
+  getRampPoint,
+  mergeChunkObservations,
+  needsSyncFallback,
+  resetBufferingState,
+  resolveBlockAfter,
+  resolveBufferInterval,
+  selectChunksForActivation,
+  shouldTriggerAsyncBuffering,
+} from '../src/memory/buffering';
 import {
   buildObserverPrompt,
   detectDegenerateRepetition,
@@ -56,6 +70,7 @@ import {
   countTextTokens,
 } from '../src/memory/token-counter';
 import {
+  type BufferedObservationChunk,
   DEFAULT_MEMORY_CONFIG,
   formatMessagesForObserver,
   type ObservationalMemoryRecord,
@@ -81,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   setDatabaseForTesting(previousDb);
   testDb.close();
+  resetBufferingState();
 });
 
 // ============================================================================
@@ -1038,5 +1054,403 @@ describe('Reflector store operations', () => {
       beforeReflection?.lastObservedAt ?? null,
     );
     expect(afterReflection?.totalTokensObserved).toBe(5000);
+  });
+});
+
+// ============================================================================
+// Async buffering
+// ============================================================================
+
+describe('resolveBufferInterval', () => {
+  test('resolves fractional bufferTokens', () => {
+    const interval = resolveBufferInterval(DEFAULT_MEMORY_CONFIG);
+    // 0.2 * 30000 = 6000
+    expect(interval).toBe(6000);
+  });
+
+  test('returns 0 when buffering disabled', () => {
+    const config = {
+      ...DEFAULT_MEMORY_CONFIG,
+      observation: {
+        ...DEFAULT_MEMORY_CONFIG.observation,
+        bufferTokens: false as const,
+      },
+    };
+    expect(resolveBufferInterval(config)).toBe(0);
+  });
+
+  test('handles absolute token count', () => {
+    const config = {
+      ...DEFAULT_MEMORY_CONFIG,
+      observation: { ...DEFAULT_MEMORY_CONFIG.observation, bufferTokens: 8000 },
+    };
+    expect(resolveBufferInterval(config)).toBe(8000);
+  });
+});
+
+describe('getRampPoint', () => {
+  test('calculates ramp point correctly', () => {
+    // 30000 - 6000 * 1.1 = 23400
+    const rampPoint = getRampPoint(DEFAULT_MEMORY_CONFIG);
+    expect(rampPoint).toBe(23400);
+  });
+});
+
+describe('resolveBlockAfter', () => {
+  test('resolves blockAfter threshold', () => {
+    // 1.2 * 30000 = 36000
+    expect(resolveBlockAfter(DEFAULT_MEMORY_CONFIG)).toBe(36000);
+  });
+});
+
+describe('calculateRetentionFloor', () => {
+  test('calculates retention floor correctly', () => {
+    // 30000 * (1 - 0.8) ≈ 6000 (floating point: 5999)
+    const floor = calculateRetentionFloor(DEFAULT_MEMORY_CONFIG);
+    expect(floor).toBeGreaterThanOrEqual(5999);
+    expect(floor).toBeLessThanOrEqual(6000);
+  });
+});
+
+describe('shouldTriggerAsyncBuffering', () => {
+  const makeRecord = (
+    overrides?: Partial<ObservationalMemoryRecord>,
+  ): ObservationalMemoryRecord => ({
+    id: 'test',
+    sessionId: 'test',
+    activeObservations: '',
+    observationTokenCount: 0,
+    originType: 'initial',
+    generationCount: 0,
+    lastObservedAt: null,
+    observedMessageIds: [],
+    bufferedObservationChunks: [],
+    isBufferingObservation: false,
+    lastBufferedAtTokens: 0,
+    lastBufferedAtTime: null,
+    bufferedReflection: null,
+    bufferedReflectionTokens: null,
+    bufferedReflectionInputTokens: null,
+    reflectedObservationLineCount: null,
+    isBufferingReflection: false,
+    isObserving: false,
+    isReflecting: false,
+    pendingMessageTokens: 0,
+    totalTokensObserved: 0,
+    currentTask: null,
+    suggestedResponse: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  });
+
+  test('returns false when buffering disabled', () => {
+    const config = {
+      ...DEFAULT_MEMORY_CONFIG,
+      observation: {
+        ...DEFAULT_MEMORY_CONFIG.observation,
+        bufferTokens: false as const,
+      },
+    };
+    expect(shouldTriggerAsyncBuffering('s1', 7000, makeRecord(), config)).toBe(
+      false,
+    );
+  });
+
+  test('returns false when already buffering', () => {
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        7000,
+        makeRecord({ isBufferingObservation: true }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false below first interval', () => {
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        3000,
+        makeRecord(),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns true at first interval boundary', () => {
+    // At 6000 tokens, interval=6000, currentInterval=1 > lastInterval=0
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        6000,
+        makeRecord(),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('returns true at second interval boundary', () => {
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        12000,
+        makeRecord({ lastBufferedAtTokens: 6000 }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('returns false above messageTokens threshold', () => {
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        31000,
+        makeRecord(),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('selectChunksForActivation', () => {
+  const makeChunk = (
+    messageTokens: number,
+    messageIds: string[],
+  ): BufferedObservationChunk => ({
+    cycleId: crypto.randomUUID(),
+    observations: '* HIGH test observation',
+    tokenCount: 100,
+    messageIds,
+    messageTokens,
+    lastObservedAt: Date.now(),
+  });
+
+  test('activates all chunks when room allows', () => {
+    const chunks = [makeChunk(5000, ['0', '1']), makeChunk(5000, ['2', '3'])];
+    const result = selectChunksForActivation(
+      chunks,
+      20000,
+      DEFAULT_MEMORY_CONFIG,
+    );
+    expect(result.chunksToActivate.length).toBe(2);
+    expect(result.remainingChunks.length).toBe(0);
+    expect(result.messageIdsToExclude).toEqual(['0', '1', '2', '3']);
+  });
+
+  test('stops before dropping below retention floor', () => {
+    // Retention floor = 6000 tokens. Total unobserved = 12000.
+    // First chunk uses 8000 tokens -> leaves 4000 < 6000 floor -> don't activate
+    const chunks = [makeChunk(8000, ['0', '1'])];
+    const result = selectChunksForActivation(
+      chunks,
+      12000,
+      DEFAULT_MEMORY_CONFIG,
+    );
+    expect(result.chunksToActivate.length).toBe(0);
+    expect(result.remainingChunks.length).toBe(1);
+  });
+
+  test('activates partial set of chunks', () => {
+    // Total unobserved = 25000, floor = 6000
+    // Chunk 1: 8000 tokens -> leaves 17000 (ok)
+    // Chunk 2: 8000 tokens -> leaves 9000 (ok)
+    // Chunk 3: 8000 tokens -> leaves 1000 (too low) -> stop
+    const chunks = [
+      makeChunk(8000, ['0', '1']),
+      makeChunk(8000, ['2', '3']),
+      makeChunk(8000, ['4', '5']),
+    ];
+    const result = selectChunksForActivation(
+      chunks,
+      25000,
+      DEFAULT_MEMORY_CONFIG,
+    );
+    expect(result.chunksToActivate.length).toBe(2);
+    expect(result.remainingChunks.length).toBe(1);
+  });
+
+  test('returns empty when no chunks', () => {
+    const result = selectChunksForActivation([], 20000, DEFAULT_MEMORY_CONFIG);
+    expect(result.chunksToActivate.length).toBe(0);
+    expect(result.remainingChunks.length).toBe(0);
+  });
+});
+
+describe('mergeChunkObservations', () => {
+  test('merges with existing observations', () => {
+    const existing = '* HIGH existing observation';
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: '* MED chunk 1 observation',
+        tokenCount: 50,
+        messageIds: ['0'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: '2',
+        observations: '* MED chunk 2 observation',
+        tokenCount: 50,
+        messageIds: ['1'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+    const merged = mergeChunkObservations(existing, chunks);
+    expect(merged).toContain('existing observation');
+    expect(merged).toContain('chunk 1 observation');
+    expect(merged).toContain('chunk 2 observation');
+  });
+
+  test('handles empty existing observations', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: '* HIGH new observation',
+        tokenCount: 50,
+        messageIds: ['0'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+    const merged = mergeChunkObservations('', chunks);
+    expect(merged).toContain('new observation');
+    expect(merged).not.toMatch(/^\n/); // no leading newline
+  });
+});
+
+describe('getLatestChunkMetadata', () => {
+  test('returns latest task and suggestion from chunks', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: '',
+        tokenCount: 0,
+        messageIds: [],
+        messageTokens: 0,
+        lastObservedAt: Date.now(),
+        currentTask: 'Task A',
+        suggestedResponse: 'Suggestion A',
+      },
+      {
+        cycleId: '2',
+        observations: '',
+        tokenCount: 0,
+        messageIds: [],
+        messageTokens: 0,
+        lastObservedAt: Date.now(),
+        currentTask: 'Task B',
+      },
+    ];
+    const result = getLatestChunkMetadata(chunks, null, null);
+    expect(result.currentTask).toBe('Task B');
+    expect(result.suggestedResponse).toBe('Suggestion A');
+  });
+
+  test('falls back to provided defaults', () => {
+    const result = getLatestChunkMetadata(
+      [],
+      'fallback task',
+      'fallback suggestion',
+    );
+    expect(result.currentTask).toBe('fallback task');
+    expect(result.suggestedResponse).toBe('fallback suggestion');
+  });
+});
+
+describe('needsSyncFallback', () => {
+  const makeRecord = (
+    chunks: BufferedObservationChunk[] = [],
+  ): ObservationalMemoryRecord => ({
+    id: 'test',
+    sessionId: 'test',
+    activeObservations: '',
+    observationTokenCount: 0,
+    originType: 'initial',
+    generationCount: 0,
+    lastObservedAt: null,
+    observedMessageIds: [],
+    bufferedObservationChunks: chunks,
+    isBufferingObservation: false,
+    lastBufferedAtTokens: 0,
+    lastBufferedAtTime: null,
+    bufferedReflection: null,
+    bufferedReflectionTokens: null,
+    bufferedReflectionInputTokens: null,
+    reflectedObservationLineCount: null,
+    isBufferingReflection: false,
+    isObserving: false,
+    isReflecting: false,
+    pendingMessageTokens: 0,
+    totalTokensObserved: 0,
+    currentTask: null,
+    suggestedResponse: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+
+  test('returns true when above blockAfter with no chunks', () => {
+    // blockAfter = 36000
+    expect(needsSyncFallback(37000, makeRecord(), DEFAULT_MEMORY_CONFIG)).toBe(
+      true,
+    );
+  });
+
+  test('returns false when below blockAfter', () => {
+    expect(needsSyncFallback(35000, makeRecord(), DEFAULT_MEMORY_CONFIG)).toBe(
+      false,
+    );
+  });
+
+  test('returns false when above blockAfter but chunks exist', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs',
+        tokenCount: 50,
+        messageIds: ['0'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+    expect(
+      needsSyncFallback(37000, makeRecord(chunks), DEFAULT_MEMORY_CONFIG),
+    ).toBe(false);
+  });
+});
+
+describe('filterActivatedMessages', () => {
+  const messages: Message[] = [
+    { role: 'user', content: 'msg 0' },
+    { role: 'assistant', content: 'msg 1' },
+    { role: 'user', content: 'msg 2' },
+    { role: 'assistant', content: 'msg 3' },
+    { role: 'user', content: 'msg 4' },
+  ];
+
+  test('returns all messages when no IDs to exclude', () => {
+    const filtered = filterActivatedMessages(messages, []);
+    expect(filtered.length).toBe(5);
+  });
+
+  test('excludes messages up to max observed index', () => {
+    const filtered = filterActivatedMessages(messages, ['0', '1', '2']);
+    expect(filtered.length).toBe(2);
+    expect(filtered[0]?.content).toBe('msg 3');
+    expect(filtered[1]?.content).toBe('msg 4');
+  });
+
+  test('excludes all messages when all observed', () => {
+    const filtered = filterActivatedMessages(messages, [
+      '0',
+      '1',
+      '2',
+      '3',
+      '4',
+    ]);
+    expect(filtered.length).toBe(0);
   });
 });

@@ -18,6 +18,17 @@ import { Ollama } from 'ollama';
 
 import { log } from '../agent/logger';
 import {
+  getLatestChunkMetadata,
+  mergeChunkObservations,
+  needsSyncFallback,
+  recordBufferingTrigger,
+  registerBufferingOp,
+  resolveBlockAfter,
+  selectChunksForActivation,
+  shouldTriggerAsyncBuffering,
+  waitForBuffering,
+} from './buffering';
+import {
   buildObserverPrompt,
   getObserverSystemPrompt,
   optimizeObservationsForContext,
@@ -25,9 +36,12 @@ import {
 } from './observer';
 import { runReflector } from './reflector';
 import {
+  addBufferedChunk,
   getOrCreateOMRecord,
+  setBufferingObservationFlag,
   setObservingFlag,
   setReflectingFlag,
+  updateAfterActivation,
   updateAfterObservation,
   updateAfterReflection,
   updatePendingTokens,
@@ -244,6 +258,86 @@ export async function runSyncObservation(
 }
 
 /**
+ * Fire an async buffering Observer call (non-blocking).
+ * Produces a BufferedObservationChunk and stores it on the record.
+ */
+export function fireAsyncBuffering(
+  sessionId: string,
+  allMessages: Message[],
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  unobservedTokens: number,
+): void {
+  const unobserved = getUnobservedMessages(allMessages, record);
+  if (unobserved.length === 0) return;
+
+  recordBufferingTrigger(sessionId, unobservedTokens);
+  setBufferingObservationFlag(sessionId, true);
+
+  const op = (async () => {
+    try {
+      const formattedMessages = formatMessagesForObserver(unobserved);
+      const prompt = buildObserverPrompt(
+        record.activeObservations || undefined,
+        formattedMessages,
+      );
+
+      const client = new Ollama({ host });
+      const response = await client.chat({
+        model,
+        messages: [
+          { role: 'system', content: getObserverSystemPrompt() },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        options: {
+          temperature: config.observation.temperature,
+        },
+      });
+
+      const parsed = parseObserverOutput(response.message.content);
+
+      if (parsed.degenerate || !parsed.observations) {
+        log('[OM] Async buffering produced empty/degenerate output');
+        setBufferingObservationFlag(sessionId, false);
+        return;
+      }
+
+      // Build chunk
+      const totalObservedCount =
+        record.observedMessageIds.length + unobserved.length;
+      const messageIds = Array.from({ length: totalObservedCount }, (_, i) =>
+        String(i),
+      ).slice(record.observedMessageIds.length);
+
+      const chunk = {
+        cycleId: crypto.randomUUID(),
+        observations: parsed.observations,
+        tokenCount: countTextTokens(parsed.observations),
+        messageIds,
+        messageTokens: countMessagesTokens(unobserved),
+        lastObservedAt: Date.now(),
+        currentTask: parsed.currentTask,
+        suggestedResponse: parsed.suggestedResponse,
+      };
+
+      addBufferedChunk(sessionId, chunk);
+
+      log(
+        `[OM] Async buffering complete: chunk ${chunk.cycleId}, ${chunk.tokenCount} tokens`,
+      );
+    } catch (error) {
+      log('[OM] Async buffering failed:', error);
+      setBufferingObservationFlag(sessionId, false);
+    }
+  })();
+
+  registerBufferingOp(sessionId, op);
+}
+
+/**
  * Run synchronous reflection. Calls the Reflector LLM to condense
  * observations when they grow too large.
  *
@@ -353,16 +447,18 @@ export function getContinuationHint(): string {
 }
 
 /**
- * Process a step in the agent loop: check if observation is needed,
- * run it if so, check if reflection is needed, and return the updated context.
+ * Process a step in the agent loop using the three-zone threshold system.
  *
- * This is the main entry point called from the agent loop on each iteration.
+ * This is the main entry point called from the submit hook before each
+ * agent invocation.
  *
- * Pipeline:
- * 1. Check unobserved message tokens -> run Observer if threshold exceeded
- * 2. Check observation token count -> run Reflector if threshold exceeded
- * 3. Build observation block and continuation hint for the Actor
- * 4. Filter messages to only include unobserved ones
+ * Three-zone pipeline:
+ * 1. Zone 1 (below messageTokens): fire async buffering at intervals
+ * 2. Zone 2 (messageTokens → blockAfter): activate buffered chunks
+ * 3. Zone 3 (above blockAfter): synchronous blocking observation
+ * 4. After observation/activation: check if reflection is needed
+ * 5. Build observation block and continuation hint for the Actor
+ * 6. Filter messages to only include unobserved ones
  *
  * Returns:
  * - observationBlock: string to inject into system context (or null)
@@ -384,23 +480,24 @@ export async function processOMStep(
   didObserve: boolean;
   didReflect: boolean;
 }> {
-  const record = getOrCreateOMRecord(sessionId);
+  let currentRecord = getOrCreateOMRecord(sessionId);
 
-  // Get unobserved messages
-  const unobserved = getUnobservedMessages(allMessages, record);
+  // Get unobserved messages and token count
+  const unobserved = getUnobservedMessages(allMessages, currentRecord);
   const unobservedTokens = countMessagesTokens(unobserved);
 
   // Update pending token count
   updatePendingTokens(sessionId, unobservedTokens);
 
-  // Check if observation is needed
   let didObserve = false;
   let didReflect = false;
-  let currentRecord = record;
 
-  if (shouldObserve(unobservedTokens, config)) {
+  const blockAfterTokens = resolveBlockAfter(config);
+
+  // === Zone 3: above blockAfter — synchronous blocking (last resort) ===
+  if (needsSyncFallback(unobservedTokens, currentRecord, config)) {
     log(
-      `[OM] Threshold exceeded: ${unobservedTokens} tokens > ${config.observation.messageTokens}`,
+      `[OM] Zone 3: sync fallback — ${unobservedTokens} tokens > blockAfter ${blockAfterTokens}, no buffered chunks`,
     );
 
     const result = await runSyncObservation(
@@ -414,8 +511,107 @@ export async function processOMStep(
     didObserve = result.success;
     currentRecord = result.record;
   }
+  // === Zone 2: at/above messageTokens — try activate buffered chunks ===
+  else if (shouldObserve(unobservedTokens, config)) {
+    log(
+      `[OM] Zone 2: threshold reached — ${unobservedTokens} tokens >= ${config.observation.messageTokens}`,
+    );
 
-  // Check if reflection is needed (observations too large)
+    // Wait for in-flight buffering to complete
+    await waitForBuffering(sessionId);
+
+    // Re-fetch record for latest chunks
+    currentRecord = getOrCreateOMRecord(sessionId);
+
+    if (currentRecord.bufferedObservationChunks.length > 0) {
+      // Activate buffered chunks
+      const { chunksToActivate, remainingChunks, messageIdsToExclude } =
+        selectChunksForActivation(
+          currentRecord.bufferedObservationChunks,
+          unobservedTokens,
+          config,
+        );
+
+      if (chunksToActivate.length > 0) {
+        const mergedObservations = mergeChunkObservations(
+          currentRecord.activeObservations,
+          chunksToActivate,
+        );
+        const { currentTask, suggestedResponse } = getLatestChunkMetadata(
+          chunksToActivate,
+          currentRecord.currentTask,
+          currentRecord.suggestedResponse,
+        );
+
+        // Update observed message IDs — merge existing with activated
+        const newObservedIds = [
+          ...currentRecord.observedMessageIds,
+          ...messageIdsToExclude,
+        ];
+        // Deduplicate and sort
+        const uniqueObservedIds = [...new Set(newObservedIds)].sort(
+          (a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10),
+        );
+
+        updateAfterActivation(sessionId, {
+          activeObservations: mergedObservations,
+          observationTokenCount: countTextTokens(mergedObservations),
+          observedMessageIds: uniqueObservedIds,
+          remainingChunks,
+          currentTask,
+          suggestedResponse,
+        });
+
+        currentRecord = getOrCreateOMRecord(sessionId);
+        didObserve = true;
+
+        log(
+          `[OM] Activated ${chunksToActivate.length} chunks, ${remainingChunks.length} remaining`,
+        );
+      }
+    }
+
+    // If no chunks were available or activation didn't help, fall back to sync
+    if (!didObserve) {
+      log(
+        '[OM] No buffered chunks available, falling back to sync observation',
+      );
+
+      const result = await runSyncObservation(
+        sessionId,
+        allMessages,
+        model,
+        host,
+        config,
+      );
+
+      didObserve = result.success;
+      currentRecord = result.record;
+    }
+  }
+  // === Zone 1: below threshold — check if async buffering should fire ===
+  else if (
+    shouldTriggerAsyncBuffering(
+      sessionId,
+      unobservedTokens,
+      currentRecord,
+      config,
+    )
+  ) {
+    log(`[OM] Zone 1: firing async buffering at ${unobservedTokens} tokens`);
+
+    fireAsyncBuffering(
+      sessionId,
+      allMessages,
+      currentRecord,
+      model,
+      host,
+      config,
+      unobservedTokens,
+    );
+  }
+
+  // === Reflection check — condense if observations are too large ===
   if (
     currentRecord.activeObservations &&
     shouldReflect(currentRecord.observationTokenCount, config)
