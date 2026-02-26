@@ -21,13 +21,12 @@ import { summarizeConversation } from '../../agent/compaction';
 import type { AgentStep, ToolResult } from '../../agent/types';
 import {
   extractAgentConfig,
+  extractMemoryConfig,
   extractSafetyConfig,
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
-import { extractObservations } from '../../memory/extractors';
-import { addObservations } from '../../memory/store';
-import { buildObservationBlock } from '../../memory/working-memory';
+import { processOMStep } from '../../memory/om';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -198,18 +197,36 @@ export function useAgentSubmit(
     const previewsByToolId = new Map<string, ConfirmationRequest['preview']>();
     // Track completed tool parts for session storage
     const completedToolParts: ToolPart[] = [];
-    // Args captured at onToolCall time for observation extraction (W1 fix)
-    const argsByIndex = new Map<number, Record<string, unknown>>();
 
-    // Build observation block from observational memory (if any observations exist)
-    const observationBlock = buildObservationBlock(session.id) ?? undefined;
+    // --- Observational Memory: pre-compute context before agent call ---
+    const memoryConfig = extractMemoryConfig(props.config);
+    let omObservationBlock: string | undefined;
+    let omContinuationHint: string | undefined;
+    let omFilteredMessages = store.history();
+
+    if (memoryConfig.enabled) {
+      try {
+        const omResult = await processOMStep(
+          session.id,
+          store.history(),
+          memoryConfig.model ?? model,
+          host,
+          memoryConfig,
+        );
+        omObservationBlock = omResult.observationBlock ?? undefined;
+        omContinuationHint = omResult.continuationHint ?? undefined;
+        omFilteredMessages = omResult.filteredMessages;
+      } catch {
+        // OM is an enhancement — if it fails, continue without it
+      }
+    }
 
     // Read current signal values directly — no stale closure risk in Solid
     const result = await runAgent({
       model,
       host,
       userMessage: augmentedPrompt,
-      history: store.history(),
+      history: omFilteredMessages,
       mode: props.mode(),
       sessionId: session.id,
       signal: abortController.signal,
@@ -218,7 +235,8 @@ export function useAgentSubmit(
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
-      observationBlock,
+      observationBlock: omObservationBlock,
+      continuationHint: omContinuationHint,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
@@ -231,8 +249,6 @@ export function useAgentSubmit(
         indexByToolId.set(toolId, index);
         // Store by name (secondary - for confirmation/blocked which only have name)
         toolIdsByName.set(toolName, toolId);
-        // Capture args for observation extraction (avoids fragile store lookup)
-        argsByIndex.set(index, toolArgs);
 
         store.addPendingToolMessage({
           type: 'tool',
@@ -288,21 +304,6 @@ export function useAgentSubmit(
         // Refresh sidebar todos in real-time when todo_write completes
         if (result.tool === 'todo_write' && !result.error) {
           props.setSidebarTodos(getTodos(session.id));
-        }
-
-        // Extract observations for observational memory (non-critical — never crash agent)
-        try {
-          const observations = extractObservations(
-            result.tool,
-            argsByIndex.get(index) ?? {},
-            result,
-            session.id,
-          );
-          if (observations.length > 0) {
-            addObservations(observations);
-          }
-        } catch {
-          // Observation storage is an enhancement — log silently and continue
         }
 
         // Build the ToolPart for persistence from the pending display state
@@ -386,23 +387,27 @@ export function useAgentSubmit(
           break;
         case 'model_error':
           // If "prompt too long", summarize and auto-retry
+          // When OM is active, skip compaction — OM is the context manager
           if (result.promptTooLong) {
             store.settleAgentRun(session.id, '', completedToolParts);
-            const summarized = await runSummarization(session.id);
-            if (summarized) {
-              // Retry the user's original message with summarized context
-              props.setContextInfo?.('Retrying with summarized context...');
-              setTimeout(
-                () => props.setContextInfo?.(null),
-                NOTIFICATION_SHORT,
-              );
-              setStreamingContent('');
-              setStatus('idle');
-              // Re-submit with the same prompt (recursive call)
-              void handleSubmit(prompt);
-              return;
+
+            if (!memoryConfig.enabled) {
+              const summarized = await runSummarization(session.id);
+              if (summarized) {
+                // Retry the user's original message with summarized context
+                props.setContextInfo?.('Retrying with summarized context...');
+                setTimeout(
+                  () => props.setContextInfo?.(null),
+                  NOTIFICATION_SHORT,
+                );
+                setStreamingContent('');
+                setStatus('idle');
+                // Re-submit with the same prompt (recursive call)
+                void handleSubmit(prompt);
+                return;
+              }
             }
-            // Summarization failed — fall through to show error
+            // Summarization failed or OM active — fall through to show error
             store.settleAgentError(
               session.id,
               'model_error',
@@ -459,8 +464,9 @@ export function useAgentSubmit(
         );
       }
 
-      // Auto-summarize if the agent flagged it
-      if (result.needsSummarization) {
+      // Auto-summarize if the agent flagged it — but skip when OM is active
+      // (observations replace compaction as the context management strategy)
+      if (result.needsSummarization && !memoryConfig.enabled) {
         void runSummarization(session.id);
       }
 

@@ -554,12 +554,12 @@ When searching for files, functions, or patterns:
 /**
  * Observation block section — wraps the observation block content
  * from observational memory for inclusion in the system prompt.
+ *
+ * The block is pre-formatted by the OM orchestrator and includes
+ * <observations>, <current-task>, and <suggested-response> tags.
  */
 export function buildObservationBlockSection(block: string): string {
-  return `# Session Observations
-
-The following observations were automatically extracted from tool calls in this session.
-Use them to maintain context about what has been done, what files were changed, and any errors encountered.
+  return `# Session Memory
 
 ${block}`;
 }

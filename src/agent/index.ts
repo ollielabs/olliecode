@@ -88,21 +88,39 @@ export type RunAgentArgs = {
 
   /** Observation block from observational memory (injected into system prompt) */
   observationBlock?: string;
+
+  /**
+   * Continuation hint for OM — injected as a system message after
+   * the observation block when observations exist. Tells the model
+   * to continue from observations rather than expecting full history.
+   */
+  continuationHint?: string;
 };
 
 /**
  * Creates the initial message array for the agent.
+ *
+ * When continuationHint is provided (OM active with observations),
+ * it's injected as a system message right after the system prompt
+ * and before the history. This tells the model to continue from
+ * observations rather than expecting full conversation history.
  */
 function buildInitialMessages(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
+  continuationHint?: string,
 ): Message[] {
-  return [
-    { role: 'system', content: systemPrompt },
-    ...history,
-    { role: 'user', content: userMessage },
-  ];
+  const messages: Message[] = [{ role: 'system', content: systemPrompt }];
+
+  if (continuationHint) {
+    messages.push({ role: 'system', content: continuationHint });
+  }
+
+  messages.push(...history);
+  messages.push({ role: 'user', content: userMessage });
+
+  return messages;
 }
 
 /**
@@ -252,6 +270,7 @@ export async function runAgent(
     systemPrompt,
     args.history,
     args.userMessage,
+    args.continuationHint,
   );
 
   log('Initial messages count:', messages.length);
