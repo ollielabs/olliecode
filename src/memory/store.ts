@@ -1,156 +1,257 @@
 /**
- * Observation persistence for observational memory.
+ * Observational Memory persistence layer.
+ *
+ * CRUD operations for the `observational_memory` table.
+ * Single-record design: one row per session holds all OM state.
  *
  * Stateless module functions using the shared SQLite singleton.
  * Follows the same pattern as session/todo.ts.
  */
 
 import { getDatabase } from '../session/db';
-import type { Observation, ObservationType } from './types';
+import type {
+  BufferedObservationChunk,
+  ObservationalMemoryRecord,
+} from './types';
 
-/** Internal DB row type (snake_case column names) */
-type ObservationRow = {
+// ============================================================================
+// Internal row type (snake_case DB columns)
+// ============================================================================
+
+type OMRow = {
   id: string;
   session_id: string;
-  type: string;
-  content: string;
-  metadata: string;
-  importance: number;
-  source: string;
+  active_observations: string;
+  observation_token_count: number;
+  origin_type: string;
+  generation_count: number;
+  last_observed_at: number | null;
+  observed_message_ids: string;
+  buffered_observation_chunks: string;
+  is_buffering_observation: number;
+  last_buffered_at_tokens: number;
+  last_buffered_at_time: number | null;
+  buffered_reflection: string | null;
+  buffered_reflection_tokens: number | null;
+  buffered_reflection_input_tokens: number | null;
+  reflected_observation_line_count: number | null;
+  is_buffering_reflection: number;
+  is_observing: number;
+  is_reflecting: number;
+  pending_message_tokens: number;
+  total_tokens_observed: number;
+  current_task: string | null;
+  suggested_response: string | null;
   created_at: number;
+  updated_at: number;
 };
 
-/** Convert a DB row to an Observation */
-function rowToObservation(row: ObservationRow): Observation {
-  let metadata: Record<string, unknown> = {};
+// ============================================================================
+// Row <-> Record conversion
+// ============================================================================
+
+function rowToRecord(row: OMRow): ObservationalMemoryRecord {
+  let observedMessageIds: string[] = [];
   try {
-    metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+    observedMessageIds = JSON.parse(row.observed_message_ids) as string[];
   } catch {
-    // Corrupted JSON — use empty object
+    // Corrupted JSON — use empty array
+  }
+
+  let bufferedObservationChunks: BufferedObservationChunk[] = [];
+  try {
+    bufferedObservationChunks = JSON.parse(
+      row.buffered_observation_chunks,
+    ) as BufferedObservationChunk[];
+  } catch {
+    // Corrupted JSON — use empty array
   }
 
   return {
     id: row.id,
     sessionId: row.session_id,
-    type: row.type as ObservationType,
-    content: row.content,
-    metadata,
-    importance: row.importance,
-    source: row.source as 'programmatic' | 'llm',
+    activeObservations: row.active_observations,
+    observationTokenCount: row.observation_token_count,
+    originType: row.origin_type as 'initial' | 'observation' | 'reflection',
+    generationCount: row.generation_count,
+    lastObservedAt: row.last_observed_at,
+    observedMessageIds,
+    bufferedObservationChunks,
+    isBufferingObservation: row.is_buffering_observation === 1,
+    lastBufferedAtTokens: row.last_buffered_at_tokens,
+    lastBufferedAtTime: row.last_buffered_at_time,
+    bufferedReflection: row.buffered_reflection,
+    bufferedReflectionTokens: row.buffered_reflection_tokens,
+    bufferedReflectionInputTokens: row.buffered_reflection_input_tokens,
+    reflectedObservationLineCount: row.reflected_observation_line_count,
+    isBufferingReflection: row.is_buffering_reflection === 1,
+    isObserving: row.is_observing === 1,
+    isReflecting: row.is_reflecting === 1,
+    pendingMessageTokens: row.pending_message_tokens,
+    totalTokensObserved: row.total_tokens_observed,
+    currentTask: row.current_task,
+    suggestedResponse: row.suggested_response,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
-/**
- * Store observations in a single transaction.
- * No-op if the array is empty.
- */
-export function addObservations(observations: Observation[]): void {
-  if (observations.length === 0) return;
-
-  const db = getDatabase();
-  const stmt = db.prepare(
-    `INSERT INTO observations (id, session_id, type, content, metadata, importance, source, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
-
-  const insertAll = db.transaction(() => {
-    for (const obs of observations) {
-      stmt.run(
-        obs.id,
-        obs.sessionId,
-        obs.type,
-        obs.content,
-        JSON.stringify(obs.metadata),
-        obs.importance,
-        obs.source,
-        obs.createdAt,
-      );
-    }
-  });
-
-  insertAll();
-}
+// ============================================================================
+// CRUD operations
+// ============================================================================
 
 /**
- * Get all observations for a session, ordered chronologically.
+ * Get the OM record for a session. Returns null if none exists.
  */
-export function getObservationsBySession(sessionId: string): Observation[] {
-  const db = getDatabase();
-  const rows = db
-    .query(
-      'SELECT * FROM observations WHERE session_id = ? ORDER BY created_at ASC',
-    )
-    .all(sessionId) as ObservationRow[];
-  return rows.map(rowToObservation);
-}
-
-/**
- * Get filtered observations for a session.
- *
- * @param sessionId - Session to query
- * @param opts.types - Filter by observation types (OR)
- * @param opts.minImportance - Minimum importance threshold
- * @param opts.limit - Maximum number of results (most recent first)
- */
-export function getRecentObservations(
+export function getOMRecord(
   sessionId: string,
-  opts?: {
-    types?: ObservationType[];
-    minImportance?: number;
-    limit?: number;
-  },
-): Observation[] {
-  const db = getDatabase();
-  const conditions = ['session_id = ?'];
-  const params: (string | number)[] = [sessionId];
-
-  if (opts?.types && opts.types.length > 0) {
-    const placeholders = opts.types.map(() => '?').join(', ');
-    conditions.push(`type IN (${placeholders})`);
-    params.push(...opts.types);
-  }
-
-  if (opts?.minImportance !== undefined) {
-    conditions.push('importance >= ?');
-    params.push(opts.minImportance);
-  }
-
-  let sql = `SELECT * FROM observations WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`;
-
-  if (opts?.limit !== undefined) {
-    sql += ' LIMIT ?';
-    params.push(opts.limit);
-  }
-
-  const rows = db.query(sql).all(...params) as ObservationRow[];
-  return rows.map(rowToObservation);
-}
-
-/**
- * Delete all observations for a session.
- * Used by /forget or /new session.
- */
-export function clearObservations(sessionId: string): void {
-  const db = getDatabase();
-  db.run('DELETE FROM observations WHERE session_id = ?', [sessionId]);
-}
-
-/**
- * Get the timestamp of the most recent observation for a session.
- * Returns null if no observations exist.
- *
- * Useful for LLM-based extraction (fast-follow) to know what's
- * already been observed and avoid re-processing.
- */
-export function getLatestObservationTimestamp(
-  sessionId: string,
-): number | null {
+): ObservationalMemoryRecord | null {
   const db = getDatabase();
   const row = db
-    .query(
-      'SELECT MAX(created_at) as latest FROM observations WHERE session_id = ?',
-    )
-    .get(sessionId) as { latest: number | null } | null;
-  return row?.latest ?? null;
+    .query('SELECT * FROM observational_memory WHERE session_id = ?')
+    .get(sessionId) as OMRow | null;
+
+  if (!row) return null;
+  return rowToRecord(row);
+}
+
+/**
+ * Get or create the OM record for a session.
+ * Creates an initial record if none exists.
+ */
+export function getOrCreateOMRecord(
+  sessionId: string,
+): ObservationalMemoryRecord {
+  const existing = getOMRecord(sessionId);
+  if (existing) return existing;
+
+  const now = Date.now();
+  const id = crypto.randomUUID();
+
+  const db = getDatabase();
+  db.run(
+    `INSERT INTO observational_memory (
+      id, session_id, active_observations, observation_token_count,
+      origin_type, generation_count, last_observed_at, observed_message_ids,
+      buffered_observation_chunks, is_buffering_observation,
+      last_buffered_at_tokens, last_buffered_at_time,
+      buffered_reflection, buffered_reflection_tokens,
+      buffered_reflection_input_tokens, reflected_observation_line_count,
+      is_buffering_reflection, is_observing, is_reflecting,
+      pending_message_tokens, total_tokens_observed,
+      current_task, suggested_response, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      sessionId,
+      '', // active_observations
+      0, // observation_token_count
+      'initial', // origin_type
+      0, // generation_count
+      null, // last_observed_at
+      '[]', // observed_message_ids
+      '[]', // buffered_observation_chunks
+      0, // is_buffering_observation
+      0, // last_buffered_at_tokens
+      null, // last_buffered_at_time
+      null, // buffered_reflection
+      null, // buffered_reflection_tokens
+      null, // buffered_reflection_input_tokens
+      null, // reflected_observation_line_count
+      0, // is_buffering_reflection
+      0, // is_observing
+      0, // is_reflecting
+      0, // pending_message_tokens
+      0, // total_tokens_observed
+      null, // current_task
+      null, // suggested_response
+      now, // created_at
+      now, // updated_at
+    ],
+  );
+
+  return getOMRecord(sessionId)!;
+}
+
+/**
+ * Update the OM record after a successful observation.
+ */
+export function updateAfterObservation(
+  sessionId: string,
+  opts: {
+    activeObservations: string;
+    observationTokenCount: number;
+    lastObservedAt: number;
+    observedMessageIds: string[];
+    pendingMessageTokens: number;
+    totalTokensObserved: number;
+    currentTask: string | null;
+    suggestedResponse: string | null;
+  },
+): void {
+  const db = getDatabase();
+  db.run(
+    `UPDATE observational_memory SET
+      active_observations = ?,
+      observation_token_count = ?,
+      origin_type = 'observation',
+      last_observed_at = ?,
+      observed_message_ids = ?,
+      pending_message_tokens = ?,
+      total_tokens_observed = ?,
+      current_task = ?,
+      suggested_response = ?,
+      is_observing = 0,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [
+      opts.activeObservations,
+      opts.observationTokenCount,
+      opts.lastObservedAt,
+      JSON.stringify(opts.observedMessageIds),
+      opts.pendingMessageTokens,
+      opts.totalTokensObserved,
+      opts.currentTask,
+      opts.suggestedResponse,
+      Date.now(),
+      sessionId,
+    ],
+  );
+}
+
+/**
+ * Set the isObserving lock flag.
+ */
+export function setObservingFlag(
+  sessionId: string,
+  isObserving: boolean,
+): void {
+  const db = getDatabase();
+  db.run(
+    'UPDATE observational_memory SET is_observing = ?, updated_at = ? WHERE session_id = ?',
+    [isObserving ? 1 : 0, Date.now(), sessionId],
+  );
+}
+
+/**
+ * Update pending message token count.
+ */
+export function updatePendingTokens(
+  sessionId: string,
+  pendingMessageTokens: number,
+): void {
+  const db = getDatabase();
+  db.run(
+    'UPDATE observational_memory SET pending_message_tokens = ?, updated_at = ? WHERE session_id = ?',
+    [pendingMessageTokens, Date.now(), sessionId],
+  );
+}
+
+/**
+ * Delete the OM record for a session.
+ * Used by /new or session clear.
+ */
+export function deleteOMRecord(sessionId: string): void {
+  const db = getDatabase();
+  db.run('DELETE FROM observational_memory WHERE session_id = ?', [sessionId]);
 }
