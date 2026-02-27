@@ -1509,7 +1509,7 @@ describe('checkMidLoopBuffering', () => {
     expect(record?.originType).toBe('initial');
   });
 
-  test('updates pending token count', () => {
+  test('updates pending token count from full agent array', () => {
     createTestSession(sessionId);
     getOrCreateOMRecord(sessionId);
 
@@ -1522,5 +1522,37 @@ describe('checkMidLoopBuffering', () => {
 
     const record = getOMRecord(sessionId);
     expect(record?.pendingMessageTokens).toBeGreaterThan(0);
+  });
+
+  test('counts tokens from agent array even when observedUpTo is high', () => {
+    createTestSession(sessionId);
+    const record = getOrCreateOMRecord(sessionId);
+
+    // Simulate a session where observedUpTo is already 200 (from prior turns)
+    // but the agent array is small (new turn just started).
+    // The old broken code would slice with observedUpTo=200, get empty array,
+    // and report 0 tokens. The fix should count the actual agent messages.
+    updateAfterObservation(sessionId, {
+      activeObservations: 'Some prior observations',
+      observationTokenCount: 100,
+      lastObservedAt: Date.now(),
+      observedUpTo: 200,
+      pendingMessageTokens: 0,
+      totalTokensObserved: 50000,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    const agentMessages: Message[] = [
+      { role: 'user', content: 'New turn message with some content' },
+      { role: 'assistant', content: 'Tool call response here' },
+      { role: 'tool', content: 'Tool result with file content '.repeat(50) },
+    ];
+
+    checkMidLoopBuffering(sessionId, agentMessages, 'test', 'http://localhost');
+
+    const updated = getOMRecord(sessionId);
+    // Should reflect tokens from the 3-message agent array, not 0
+    expect(updated?.pendingMessageTokens).toBeGreaterThan(0);
   });
 });

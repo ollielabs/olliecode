@@ -268,14 +268,73 @@ export function fireAsyncBuffering(
   const unobserved = getUnobservedMessages(allMessages, record);
   if (unobserved.length === 0) return;
 
-  recordBufferingTrigger(sessionId, unobservedTokens);
+  fireBufferingOp(
+    sessionId,
+    unobserved,
+    record.observedUpTo,
+    record.activeObservations,
+    model,
+    host,
+    config,
+    unobservedTokens,
+  );
+}
+
+/**
+ * Fire async buffering for mid-loop use. Accepts the agent's internal
+ * message array directly as the messages to observe — no record-based
+ * slicing, since the agent array has different indices than the session
+ * history used by observedUpTo.
+ *
+ * messageIds in the resulting chunk use the record's current observedUpTo
+ * as a base offset so they align with the session-level tracking.
+ */
+export function fireMidLoopBufferingOp(
+  sessionId: string,
+  agentMessages: Message[],
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  currentTokens: number,
+): void {
+  if (agentMessages.length === 0) return;
+
+  fireBufferingOp(
+    sessionId,
+    agentMessages,
+    record.observedUpTo,
+    record.activeObservations,
+    model,
+    host,
+    config,
+    currentTokens,
+  );
+}
+
+/**
+ * Core buffering operation — shared by both session-level and mid-loop
+ * callers. Takes explicit messages to observe and a base offset for
+ * building chunk messageIds.
+ */
+function fireBufferingOp(
+  sessionId: string,
+  messagesToObserve: Message[],
+  observedUpToBase: number,
+  activeObservations: string | null,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  tokenCount: number,
+): void {
+  recordBufferingTrigger(sessionId, tokenCount);
   setBufferingObservationFlag(sessionId, true);
 
   const op = (async () => {
     try {
-      const formattedMessages = formatMessagesForObserver(unobserved);
+      const formattedMessages = formatMessagesForObserver(messagesToObserve);
       const prompt = buildObserverPrompt(
-        record.activeObservations || undefined,
+        activeObservations || undefined,
         formattedMessages,
       );
 
@@ -300,9 +359,10 @@ export function fireAsyncBuffering(
         return;
       }
 
-      // Build chunk — messageIds are the position indices of the unobserved messages
-      const messageIds = Array.from({ length: unobserved.length }, (_, i) =>
-        String(record.observedUpTo + i),
+      // Build chunk — messageIds are position indices from the base offset
+      const messageIds = Array.from(
+        { length: messagesToObserve.length },
+        (_, i) => String(observedUpToBase + i),
       );
 
       const chunk = {
@@ -310,7 +370,7 @@ export function fireAsyncBuffering(
         observations: parsed.observations,
         tokenCount: countTextTokens(parsed.observations),
         messageIds,
-        messageTokens: countMessagesTokens(unobserved),
+        messageTokens: countMessagesTokens(messagesToObserve),
         lastObservedAt: Date.now(),
         currentTask: parsed.currentTask,
         suggestedResponse: parsed.suggestedResponse,
@@ -664,13 +724,18 @@ export async function processOMStep(
  * buffering check runs every step — it's cheap (threshold comparison + fire-
  * and-forget background LLM call).
  *
- * This function is the Zone 1 check extracted for mid-loop use. It does NOT
- * activate chunks or run sync observation — the agent's message array must
- * not be mutated while the loop is running.
+ * IMPORTANT: The agent's internal message array is NOT the same as
+ * store.history(). It starts fresh each runAgent call with
+ * [system prompt, continuation hint?, filtered history, user msg]
+ * and grows as tool results are appended. record.observedUpTo tracks
+ * the session-level history position, which doesn't map to indices in
+ * the agent's array. So we count tokens from the entire agent array
+ * (these ARE the unobserved messages for this turn) and pass them
+ * directly to the buffering op without record-based slicing.
  */
 export function checkMidLoopBuffering(
   sessionId: string,
-  allMessages: Message[],
+  agentMessages: Message[],
   model: string,
   host: string,
   config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
@@ -678,28 +743,28 @@ export function checkMidLoopBuffering(
   if (!config.enabled) return;
 
   const record = getOrCreateOMRecord(sessionId);
-  const unobserved = getUnobservedMessages(allMessages, record);
-  const unobservedTokens = countMessagesTokens(unobserved);
+
+  // Count tokens of the agent's full message array — everything the model
+  // is seeing this turn, which grows with each tool iteration.
+  const currentTokens = countMessagesTokens(agentMessages);
 
   // Update pending token count for tracking
-  updatePendingTokens(sessionId, unobservedTokens);
+  updatePendingTokens(sessionId, currentTokens);
 
   // Only Zone 1: async buffering trigger. No activation, no sync fallback.
-  if (
-    shouldTriggerAsyncBuffering(sessionId, unobservedTokens, record, config)
-  ) {
+  if (shouldTriggerAsyncBuffering(sessionId, currentTokens, record, config)) {
     log(
-      `[OM] Mid-loop Zone 1: firing async buffering at ${unobservedTokens} tokens`,
+      `[OM] Mid-loop Zone 1: firing async buffering at ${currentTokens} tokens (${agentMessages.length} msgs)`,
     );
 
-    fireAsyncBuffering(
+    fireMidLoopBufferingOp(
       sessionId,
-      allMessages,
+      agentMessages,
       record,
       model,
       host,
       config,
-      unobservedTokens,
+      currentTokens,
     );
   }
 }
