@@ -98,11 +98,19 @@ export type RunAgentArgs = {
 
   /**
    * Called after each tool iteration with the current message array
-   * (system prompt stripped). Used by OM to trigger async buffering
-   * mid-loop — Mastra runs the Zone 1 buffering check every agent
-   * step, not just once per user turn.
+   * (system prompt stripped) and token counts from the latest model
+   * response. Used for:
+   * - OM async buffering (Zone 1 check every agent step, per Mastra)
+   * - Sidebar context stats updates (live token usage during long runs)
    */
-  onIterationComplete?: (messages: Message[]) => void;
+  onIterationComplete?: (
+    messages: Message[],
+    tokenInfo?: {
+      promptTokens: number;
+      completionTokens: number;
+      maxTokens: number;
+    },
+  ) => void;
 };
 
 /**
@@ -529,13 +537,22 @@ export async function runAgent(
       steps.push(step);
       args.onStepComplete(step);
 
-      // Mid-loop OM check: trigger async buffering if token threshold crossed.
+      // Mid-loop: OM buffering check + sidebar stats update.
       // Fire-and-forget — does not block the agent loop.
       if (args.onIterationComplete) {
         try {
-          args.onIterationComplete(stripSystemPrompt(messages));
+          args.onIterationComplete(
+            stripSystemPrompt(messages),
+            lastPromptTokens !== undefined && maxContextTokens !== undefined
+              ? {
+                  promptTokens: lastPromptTokens,
+                  completionTokens: lastCompletionTokens ?? 0,
+                  maxTokens: maxContextTokens,
+                }
+              : undefined,
+          );
         } catch {
-          // OM is an enhancement — never break the agent loop
+          // Enhancement — never break the agent loop
         }
       }
 

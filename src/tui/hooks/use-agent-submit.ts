@@ -237,16 +237,27 @@ export function useAgentSubmit(
       temperature: props.config.temperature,
       observationBlock: omObservationBlock,
       continuationHint: omContinuationHint,
-      onIterationComplete: memoryConfig.enabled
-        ? (msgs) =>
-            checkMidLoopBuffering(
-              session.id,
-              msgs,
-              memoryConfig.model ?? model,
-              host,
-              memoryConfig,
-            )
-        : undefined,
+      onIterationComplete: (msgs, tokenInfo) => {
+        // Update sidebar stats with real token counts from each iteration
+        if (tokenInfo && props.updateRealTokenCounts) {
+          props.updateRealTokenCounts(
+            tokenInfo.promptTokens + tokenInfo.completionTokens,
+            tokenInfo.maxTokens,
+            tokenInfo.promptTokens,
+            tokenInfo.completionTokens,
+          );
+        }
+        // OM mid-loop buffering check
+        if (memoryConfig.enabled) {
+          checkMidLoopBuffering(
+            session.id,
+            msgs,
+            memoryConfig.model ?? model,
+            host,
+            memoryConfig,
+          );
+        }
+      },
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();
