@@ -75,6 +75,7 @@ function rowToRecord(row: OMRow): ObservationalMemoryRecord {
     originType: row.origin_type as 'initial' | 'observation' | 'reflection',
     generationCount: row.generation_count,
     lastObservedAt: row.last_observed_at,
+    observedUpTo: observedMessageIds.length,
     observedMessageIds,
     bufferedObservationChunks,
     isBufferingObservation: row.is_buffering_observation === 1,
@@ -182,7 +183,7 @@ export function updateAfterObservation(
     activeObservations: string;
     observationTokenCount: number;
     lastObservedAt: number;
-    observedMessageIds: string[];
+    observedUpTo: number;
     pendingMessageTokens: number;
     totalTokensObserved: number;
     currentTask: string | null;
@@ -190,6 +191,12 @@ export function updateAfterObservation(
   },
 ): void {
   const db = getDatabase();
+  // Store observedUpTo as a JSON array for DB column compatibility.
+  // The array contains indices [0..observedUpTo-1] but rowToRecord
+  // only uses .length to derive observedUpTo.
+  const observedMessageIds = JSON.stringify(
+    Array.from({ length: opts.observedUpTo }, (_, i) => String(i)),
+  );
   db.run(
     `UPDATE observational_memory SET
       active_observations = ?,
@@ -210,7 +217,7 @@ export function updateAfterObservation(
       opts.activeObservations,
       opts.observationTokenCount,
       opts.lastObservedAt,
-      JSON.stringify(opts.observedMessageIds),
+      observedMessageIds,
       opts.pendingMessageTokens,
       opts.totalTokensObserved,
       opts.currentTask,
@@ -351,13 +358,16 @@ export function updateAfterActivation(
   opts: {
     activeObservations: string;
     observationTokenCount: number;
-    observedMessageIds: string[];
+    observedUpTo: number;
     remainingChunks: BufferedObservationChunk[];
     currentTask: string | null;
     suggestedResponse: string | null;
   },
 ): void {
   const db = getDatabase();
+  const observedMessageIds = JSON.stringify(
+    Array.from({ length: opts.observedUpTo }, (_, i) => String(i)),
+  );
   db.run(
     `UPDATE observational_memory SET
       active_observations = ?,
@@ -371,7 +381,7 @@ export function updateAfterActivation(
     [
       opts.activeObservations,
       opts.observationTokenCount,
-      JSON.stringify(opts.observedMessageIds),
+      observedMessageIds,
       JSON.stringify(opts.remainingChunks),
       opts.currentTask,
       opts.suggestedResponse,

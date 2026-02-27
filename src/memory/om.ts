@@ -98,27 +98,26 @@ export function shouldReflect(
 
 /**
  * Get unobserved messages — messages that haven't been observed yet.
- * Uses the lastObservedAt timestamp and observedMessageIds as filters.
  *
- * Since Ollama messages don't have IDs or timestamps, we track the
- * observation boundary by message count: all messages in `allMessages`
- * after the last observed count are unobserved.
+ * Uses `observedUpTo` as a slice boundary: the number of Ollama messages
+ * from the start of history that have already been observed.
+ *
+ * The Ollama message array can grow between processOMStep calls (as tool
+ * calls complete and results are added), so we clamp the boundary to never
+ * exceed the current array length.
  */
 export function getUnobservedMessages(
   allMessages: Message[],
   record: ObservationalMemoryRecord,
 ): Message[] {
-  // If nothing has been observed yet, all messages are unobserved
-  if (!record.lastObservedAt && record.observedMessageIds.length === 0) {
+  if (record.observedUpTo <= 0) {
     return allMessages;
   }
 
-  // Use observedMessageIds count as the boundary.
-  // Since Ollama messages don't have IDs, we track by position:
-  // the record's observedMessageIds length tells us how many messages
-  // from the start have been observed.
-  const observedCount = record.observedMessageIds.length;
-  return allMessages.slice(observedCount);
+  // Clamp to array length — if the array shrank (e.g., session change),
+  // don't return an empty array
+  const boundary = Math.min(record.observedUpTo, allMessages.length);
+  return allMessages.slice(boundary);
 }
 
 /**
@@ -217,14 +216,9 @@ export async function runSyncObservation(
 
     const observationTokenCount = countTextTokens(newObservations);
 
-    // Build updated observedMessageIds — we track by index position.
-    // All messages up to (currentObservedCount + unobserved.length) are now observed.
-    const totalObservedCount =
-      record.observedMessageIds.length + unobserved.length;
-    const newObservedMessageIds = Array.from(
-      { length: totalObservedCount },
-      (_, i) => String(i),
-    );
+    // All messages passed to this function are now observed.
+    // observedUpTo = total Ollama message count at observation time.
+    const newObservedUpTo = allMessages.length;
 
     // Calculate token stats
     const unobservedTokens = countMessagesTokens(unobserved);
@@ -234,7 +228,7 @@ export async function runSyncObservation(
       activeObservations: newObservations,
       observationTokenCount,
       lastObservedAt: Date.now(),
-      observedMessageIds: newObservedMessageIds,
+      observedUpTo: newObservedUpTo,
       pendingMessageTokens: 0,
       totalTokensObserved: record.totalTokensObserved + unobservedTokens,
       currentTask: parsed.currentTask ?? record.currentTask,
@@ -306,12 +300,10 @@ export function fireAsyncBuffering(
         return;
       }
 
-      // Build chunk
-      const totalObservedCount =
-        record.observedMessageIds.length + unobserved.length;
-      const messageIds = Array.from({ length: totalObservedCount }, (_, i) =>
-        String(i),
-      ).slice(record.observedMessageIds.length);
+      // Build chunk — messageIds are the position indices of the unobserved messages
+      const messageIds = Array.from({ length: unobserved.length }, (_, i) =>
+        String(record.observedUpTo + i),
+      );
 
       const chunk = {
         cycleId: crypto.randomUUID(),
@@ -549,20 +541,20 @@ export async function processOMStep(
           currentRecord.suggestedResponse,
         );
 
-        // Update observed message IDs — merge existing with activated
-        const newObservedIds = [
-          ...currentRecord.observedMessageIds,
-          ...messageIdsToExclude,
-        ];
-        // Deduplicate and sort
-        const uniqueObservedIds = [...new Set(newObservedIds)].sort(
-          (a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10),
+        // Calculate new observed boundary.
+        // The highest message index in the activated chunks + 1 is the new boundary.
+        const maxActivatedIndex = Math.max(
+          ...messageIdsToExclude.map((id) => Number.parseInt(id, 10)),
+        );
+        const newObservedUpTo = Math.max(
+          currentRecord.observedUpTo,
+          maxActivatedIndex + 1,
         );
 
         updateAfterActivation(sessionId, {
           activeObservations: mergedObservations,
           observationTokenCount: countTextTokens(mergedObservations),
-          observedMessageIds: uniqueObservedIds,
+          observedUpTo: newObservedUpTo,
           remainingChunks,
           currentTask,
           suggestedResponse,

@@ -40,7 +40,12 @@ export type ObservationalMemoryRecord = {
   generationCount: number;
   /** Epoch ms — messages before this have been observed */
   lastObservedAt: number | null;
-  /** Explicit list of observed message IDs (safety net) */
+  /**
+   * Number of Ollama messages from the start of history that have been observed.
+   * Used as a slice boundary: allMessages.slice(observedUpTo) = unobserved.
+   */
+  observedUpTo: number;
+  /** @deprecated Retained for DB compatibility during migration. Use observedUpTo. */
   observedMessageIds: string[];
 
   // --- Async buffering: observation chunks (Phase 3) ---

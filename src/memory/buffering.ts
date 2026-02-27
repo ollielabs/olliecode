@@ -18,7 +18,6 @@
 import type { Message } from 'ollama';
 
 import { log } from '../agent/logger';
-import { countMessagesTokens } from './token-counter';
 import type {
   BufferedObservationChunk,
   MemoryConfig,

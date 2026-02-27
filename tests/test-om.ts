@@ -415,7 +415,7 @@ describe('OM store', () => {
       activeObservations: '* HIGH (14:00) Test observation',
       observationTokenCount: 100,
       lastObservedAt: now,
-      observedMessageIds: ['0', '1', '2'],
+      observedUpTo: 3,
       pendingMessageTokens: 0,
       totalTokensObserved: 500,
       currentTask: 'Implement feature X',
@@ -427,7 +427,7 @@ describe('OM store', () => {
     expect(record?.activeObservations).toBe('* HIGH (14:00) Test observation');
     expect(record?.observationTokenCount).toBe(100);
     expect(record?.lastObservedAt).toBe(now);
-    expect(record?.observedMessageIds).toEqual(['0', '1', '2']);
+    expect(record?.observedUpTo).toBe(3);
     expect(record?.pendingMessageTokens).toBe(0);
     expect(record?.totalTokensObserved).toBe(500);
     expect(record?.currentTask).toBe('Implement feature X');
@@ -536,6 +536,7 @@ describe('getUnobservedMessages', () => {
       originType: 'initial',
       generationCount: 0,
       lastObservedAt: null,
+      observedUpTo: 0,
       observedMessageIds: [],
       bufferedObservationChunks: [],
       isBufferingObservation: false,
@@ -568,6 +569,7 @@ describe('getUnobservedMessages', () => {
       originType: 'observation',
       generationCount: 0,
       lastObservedAt: Date.now(),
+      observedUpTo: 3,
       observedMessageIds: ['0', '1', '2'], // first 3 messages observed
       bufferedObservationChunks: [],
       isBufferingObservation: false,
@@ -602,6 +604,7 @@ describe('getUnobservedMessages', () => {
       originType: 'observation',
       generationCount: 0,
       lastObservedAt: Date.now(),
+      observedUpTo: 5,
       observedMessageIds: ['0', '1', '2', '3', '4'],
       bufferedObservationChunks: [],
       isBufferingObservation: false,
@@ -635,6 +638,7 @@ describe('buildObservationContextBlock', () => {
     originType: 'initial',
     generationCount: 0,
     lastObservedAt: null,
+    observedUpTo: 0,
     observedMessageIds: [],
     bufferedObservationChunks: [],
     isBufferingObservation: false,
@@ -956,7 +960,7 @@ describe('Reflector store operations', () => {
         '* HIGH (14:00) Original observation 1\n* MED (14:05) Original observation 2',
       observationTokenCount: 50_000,
       lastObservedAt: Date.now(),
-      observedMessageIds: ['0', '1', '2'],
+      observedUpTo: 3,
       pendingMessageTokens: 0,
       totalTokensObserved: 1000,
       currentTask: 'Old task',
@@ -1026,14 +1030,14 @@ describe('Reflector store operations', () => {
       activeObservations: 'lots of observations',
       observationTokenCount: 50_000,
       lastObservedAt: Date.now(),
-      observedMessageIds: ['0', '1', '2', '3', '4'],
+      observedUpTo: 5,
       pendingMessageTokens: 0,
       totalTokensObserved: 5000,
       currentTask: null,
       suggestedResponse: null,
     });
 
-    // Reflect — should NOT change observedMessageIds or lastObservedAt
+    // Reflect — should NOT change observedUpTo or lastObservedAt
     const beforeReflection = getOMRecord(sessionId);
     updateAfterReflection(sessionId, {
       activeObservations: 'condensed',
@@ -1043,13 +1047,7 @@ describe('Reflector store operations', () => {
     });
 
     const afterReflection = getOMRecord(sessionId);
-    expect(afterReflection?.observedMessageIds).toEqual([
-      '0',
-      '1',
-      '2',
-      '3',
-      '4',
-    ]);
+    expect(afterReflection?.observedUpTo).toBe(5);
     expect(afterReflection?.lastObservedAt).toBe(
       beforeReflection?.lastObservedAt ?? null,
     );
@@ -1123,6 +1121,7 @@ describe('shouldTriggerAsyncBuffering', () => {
     originType: 'initial',
     generationCount: 0,
     lastObservedAt: null,
+    observedUpTo: 0,
     observedMessageIds: [],
     bufferedObservationChunks: [],
     isBufferingObservation: false,
@@ -1388,6 +1387,7 @@ describe('needsSyncFallback', () => {
     originType: 'initial',
     generationCount: 0,
     lastObservedAt: null,
+    observedUpTo: 0,
     observedMessageIds: [],
     bufferedObservationChunks: chunks,
     isBufferingObservation: false,
