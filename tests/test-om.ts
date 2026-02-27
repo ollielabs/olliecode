@@ -1212,6 +1212,34 @@ describe('shouldTriggerAsyncBuffering', () => {
       ),
     ).toBe(false);
   });
+
+  test('returns true above messageTokens threshold when midLoop=true', () => {
+    // Mid-loop skips the sync threshold guard because sync observation
+    // can't run during the agent loop.
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        31000,
+        makeRecord(),
+        DEFAULT_MEMORY_CONFIG,
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  test('continues triggering at intervals above threshold when midLoop=true', () => {
+    // At 48k tokens with 3k effective interval (ramped), should trigger
+    // at each new interval boundary.
+    expect(
+      shouldTriggerAsyncBuffering(
+        's1',
+        48000,
+        makeRecord({ lastBufferedAtTokens: 45000 }),
+        DEFAULT_MEMORY_CONFIG,
+        true,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe('selectChunksForActivation', () => {
@@ -1475,6 +1503,13 @@ describe('filterActivatedMessages', () => {
 describe('checkMidLoopBuffering', () => {
   const sessionId = 'mid-loop-test';
 
+  // Reset in-memory buffering state between tests to prevent async ops
+  // from leaking between tests (the global afterEach resets DB, but
+  // in-memory maps like lastBufferedBoundary and activeBufferingOps persist).
+  afterEach(() => {
+    resetBufferingState();
+  });
+
   test('does nothing when OM is disabled', () => {
     const config = { ...DEFAULT_MEMORY_CONFIG, enabled: false };
     const messages: Message[] = [{ role: 'user', content: 'x'.repeat(50000) }];
@@ -1492,13 +1527,13 @@ describe('checkMidLoopBuffering', () => {
     createTestSession(sessionId);
     getOrCreateOMRecord(sessionId);
 
-    // Create messages that exceed messageTokens (30k) — would trigger Zone 2/3
-    // in processOMStep, but checkMidLoopBuffering should NOT activate or block.
-    // Each message is ~30k chars ÷ 4 ≈ 7.5k tokens per message, so 5 messages
-    // ≈ 37.5k tokens — above the 30k threshold.
+    // Use messages below the first buffer interval (6k tokens) so async
+    // buffering doesn't fire. checkMidLoopBuffering should still not
+    // activate chunks or run sync observation.
+    // 4 messages x 4k chars = 16k chars / 4 ≈ 4k tokens (below 6k interval)
     const messages: Message[] = [];
-    for (let i = 0; i < 5; i++) {
-      messages.push({ role: 'user', content: 'x'.repeat(30000) });
+    for (let i = 0; i < 4; i++) {
+      messages.push({ role: 'user', content: 'x'.repeat(4000) });
     }
 
     // Should not throw and should not modify the record's observations

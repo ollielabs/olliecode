@@ -752,7 +752,11 @@ export function checkMidLoopBuffering(
   updatePendingTokens(sessionId, currentTokens);
 
   // Only Zone 1: async buffering trigger. No activation, no sync fallback.
-  if (shouldTriggerAsyncBuffering(sessionId, currentTokens, record, config)) {
+  // Pass midLoop=true to skip the sync threshold guard — during the agent
+  // loop, sync observation can't run, so buffering is the only option.
+  if (
+    shouldTriggerAsyncBuffering(sessionId, currentTokens, record, config, true)
+  ) {
     log(
       `[OM] Mid-loop Zone 1: firing async buffering at ${currentTokens} tokens (${agentMessages.length} msgs)`,
     );

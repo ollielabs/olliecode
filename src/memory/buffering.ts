@@ -79,6 +79,11 @@ export function shouldTriggerAsyncBuffering(
   currentTokens: number,
   record: ObservationalMemoryRecord,
   config: MemoryConfig,
+  /** When true, skip the sync threshold guard. Mid-loop buffering is the
+   *  only OM activity available during the agent loop — sync observation
+   *  can't run because it would mutate the message array. So we keep
+   *  firing chunks at every interval boundary regardless of token count. */
+  midLoop = false,
 ): boolean {
   // Buffering disabled
   if (config.observation.bufferTokens === false) return false;
@@ -90,8 +95,10 @@ export function shouldTriggerAsyncBuffering(
   if (record.isBufferingObservation) return false;
   if (activeBufferingOps.has(sessionId)) return false;
 
-  // Don't buffer above the sync threshold — that's handled by sync observation
-  if (currentTokens >= config.observation.messageTokens) return false;
+  // Don't buffer above the sync threshold — that's handled by sync
+  // observation. But skip this guard mid-loop, where sync can't run.
+  if (!midLoop && currentTokens >= config.observation.messageTokens)
+    return false;
 
   // Calculate effective interval with ramp
   const rampPoint = getRampPoint(config);
