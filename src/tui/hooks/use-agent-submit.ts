@@ -26,7 +26,7 @@ import {
   extractToolsConfig,
 } from '../../config/resolve';
 import type { ResolvedConfig } from '../../config/schema';
-import { processOMStep } from '../../memory/om';
+import { checkMidLoopBuffering, processOMStep } from '../../memory/om';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
@@ -237,6 +237,16 @@ export function useAgentSubmit(
       temperature: props.config.temperature,
       observationBlock: omObservationBlock,
       continuationHint: omContinuationHint,
+      onIterationComplete: memoryConfig.enabled
+        ? (msgs) =>
+            checkMidLoopBuffering(
+              session.id,
+              msgs,
+              memoryConfig.model ?? model,
+              host,
+              memoryConfig,
+            )
+        : undefined,
       onReasoningToken: (token) => setStreamingContent((prev) => prev + token),
       onToolCall: (call: ToolCall, index: number) => {
         const toolId = generateToolId();

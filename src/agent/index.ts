@@ -95,6 +95,14 @@ export type RunAgentArgs = {
    * to continue from observations rather than expecting full history.
    */
   continuationHint?: string;
+
+  /**
+   * Called after each tool iteration with the current message array
+   * (system prompt stripped). Used by OM to trigger async buffering
+   * mid-loop — Mastra runs the Zone 1 buffering check every agent
+   * step, not just once per user turn.
+   */
+  onIterationComplete?: (messages: Message[]) => void;
 };
 
 /**
@@ -520,6 +528,16 @@ export async function runAgent(
       };
       steps.push(step);
       args.onStepComplete(step);
+
+      // Mid-loop OM check: trigger async buffering if token threshold crossed.
+      // Fire-and-forget — does not block the agent loop.
+      if (args.onIterationComplete) {
+        try {
+          args.onIterationComplete(stripSystemPrompt(messages));
+        } catch {
+          // OM is an enhancement — never break the agent loop
+        }
+      }
 
       // Soft warning at 80% of maxIterations — nudge the model to wrap up
       const warningThreshold = Math.floor(config.maxIterations * 0.8);

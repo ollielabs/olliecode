@@ -45,6 +45,7 @@ import {
 } from '../src/memory/observer';
 import {
   buildObservationContextBlock,
+  checkMidLoopBuffering,
   getContinuationHint,
   getUnobservedMessages,
   shouldObserve,
@@ -1468,5 +1469,58 @@ describe('filterActivatedMessages', () => {
       '4',
     ]);
     expect(filtered.length).toBe(0);
+  });
+});
+
+describe('checkMidLoopBuffering', () => {
+  const sessionId = 'mid-loop-test';
+
+  test('does nothing when OM is disabled', () => {
+    const config = { ...DEFAULT_MEMORY_CONFIG, enabled: false };
+    const messages: Message[] = [{ role: 'user', content: 'x'.repeat(50000) }];
+    // Should not throw — just returns early
+    checkMidLoopBuffering(
+      sessionId,
+      messages,
+      'test',
+      'http://localhost',
+      config,
+    );
+  });
+
+  test('does not trigger activation or sync observation (Zone 1 only)', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // Create messages that exceed messageTokens (30k) — would trigger Zone 2/3
+    // in processOMStep, but checkMidLoopBuffering should NOT activate or block.
+    // Each message is ~30k chars ÷ 4 ≈ 7.5k tokens per message, so 5 messages
+    // ≈ 37.5k tokens — above the 30k threshold.
+    const messages: Message[] = [];
+    for (let i = 0; i < 5; i++) {
+      messages.push({ role: 'user', content: 'x'.repeat(30000) });
+    }
+
+    // Should not throw and should not modify the record's observations
+    checkMidLoopBuffering(sessionId, messages, 'test', 'http://localhost');
+
+    const record = getOMRecord(sessionId);
+    expect(record?.activeObservations).toBe('');
+    expect(record?.originType).toBe('initial');
+  });
+
+  test('updates pending token count', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    const messages: Message[] = [
+      { role: 'user', content: 'Hello world' },
+      { role: 'assistant', content: 'Hi there' },
+    ];
+
+    checkMidLoopBuffering(sessionId, messages, 'test', 'http://localhost');
+
+    const record = getOMRecord(sessionId);
+    expect(record?.pendingMessageTokens).toBeGreaterThan(0);
   });
 });

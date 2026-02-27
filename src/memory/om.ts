@@ -651,3 +651,55 @@ export async function processOMStep(
     didReflect,
   };
 }
+
+// ============================================================================
+// Mid-loop buffering (called between agent iterations)
+// ============================================================================
+
+/**
+ * Check and trigger async buffering mid-loop.
+ *
+ * Mastra runs processInputStep every agent iteration, but gates activation,
+ * reflection, and message filtering to step 0 only. Only the Zone 1 async
+ * buffering check runs every step — it's cheap (threshold comparison + fire-
+ * and-forget background LLM call).
+ *
+ * This function is the Zone 1 check extracted for mid-loop use. It does NOT
+ * activate chunks or run sync observation — the agent's message array must
+ * not be mutated while the loop is running.
+ */
+export function checkMidLoopBuffering(
+  sessionId: string,
+  allMessages: Message[],
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): void {
+  if (!config.enabled) return;
+
+  const record = getOrCreateOMRecord(sessionId);
+  const unobserved = getUnobservedMessages(allMessages, record);
+  const unobservedTokens = countMessagesTokens(unobserved);
+
+  // Update pending token count for tracking
+  updatePendingTokens(sessionId, unobservedTokens);
+
+  // Only Zone 1: async buffering trigger. No activation, no sync fallback.
+  if (
+    shouldTriggerAsyncBuffering(sessionId, unobservedTokens, record, config)
+  ) {
+    log(
+      `[OM] Mid-loop Zone 1: firing async buffering at ${unobservedTokens} tokens`,
+    );
+
+    fireAsyncBuffering(
+      sessionId,
+      allMessages,
+      record,
+      model,
+      host,
+      config,
+      unobservedTokens,
+    );
+  }
+}
