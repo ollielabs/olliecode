@@ -24,6 +24,7 @@ import {
   getMidLoopSliceEnd,
   mergeChunkObservations,
   needsSyncFallback,
+  pruneStaleChunks,
   recordBufferingTrigger,
   registerBufferingOp,
   resetSessionBoundary,
@@ -585,14 +586,17 @@ export async function processOMStep(
     // Re-fetch record for latest chunks
     currentRecord = getOrCreateOMRecord(sessionId);
 
-    if (currentRecord.bufferedObservationChunks.length > 0) {
+    // Pre-prune stale chunks before activation. Chunks from previous
+    // agent runs may have messageIds below the current observedUpTo.
+    const freshChunks = pruneStaleChunks(
+      currentRecord.bufferedObservationChunks,
+      currentRecord.observedUpTo,
+    );
+
+    if (freshChunks.length > 0) {
       // Activate buffered chunks
       const { chunksToActivate, remainingChunks, messageIdsToExclude } =
-        selectChunksForActivation(
-          currentRecord.bufferedObservationChunks,
-          unobservedTokens,
-          config,
-        );
+        selectChunksForActivation(freshChunks, unobservedTokens, config);
 
       if (chunksToActivate.length > 0) {
         const mergedObservations = mergeChunkObservations(
@@ -615,11 +619,19 @@ export async function processOMStep(
           maxActivatedIndex + 1,
         );
 
+        // Prune remaining chunks whose messageIds are entirely within
+        // the new observed range. These are stale leftovers from a
+        // previous agent run whose content is already covered.
+        const prunedRemaining = pruneStaleChunks(
+          remainingChunks,
+          newObservedUpTo,
+        );
+
         updateAfterActivation(sessionId, {
           activeObservations: mergedObservations,
           observationTokenCount: countTextTokens(mergedObservations),
           observedUpTo: newObservedUpTo,
-          remainingChunks,
+          remainingChunks: prunedRemaining,
           currentTask,
           suggestedResponse,
         });
@@ -629,7 +641,7 @@ export async function processOMStep(
         resetSessionBoundary(sessionId);
 
         log(
-          `[OM] Activated ${chunksToActivate.length} chunks, ${remainingChunks.length} remaining`,
+          `[OM] Activated ${chunksToActivate.length} chunks, ${prunedRemaining.length} remaining (${remainingChunks.length - prunedRemaining.length} pruned)`,
         );
       }
     }

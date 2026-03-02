@@ -31,6 +31,7 @@ import {
   getRampPoint,
   mergeChunkObservations,
   needsSyncFallback,
+  pruneStaleChunks,
   resetBufferingState,
   resolveBlockAfter,
   resolveBufferInterval,
@@ -1622,5 +1623,252 @@ describe('checkMidLoopBuffering', () => {
     // if it crosses the threshold, it would fire and set sliceEnd=10 again.
     // The key correctness property is that consecutive triggers during the
     // same run produce non-overlapping slices.
+  });
+});
+
+// ============================================================================
+// pruneStaleChunks
+// ============================================================================
+
+describe('pruneStaleChunks', () => {
+  test('removes chunks entirely within observed range', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs-stale',
+        tokenCount: 50,
+        messageIds: ['10', '11', '12'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: '2',
+        observations: 'obs-fresh',
+        tokenCount: 50,
+        messageIds: ['13', '14', '15'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    // observedUpTo=13 means ids 0-12 are observed, 13+ are fresh
+    const result = pruneStaleChunks(chunks, 13);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.cycleId).toBe('2');
+  });
+
+  test('keeps chunks that straddle the boundary', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs-straddle',
+        tokenCount: 50,
+        messageIds: ['10', '11', '12', '13'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    // observedUpTo=12: ids 0-11 observed, 12+ fresh. Chunk has id 12, so it straddles.
+    const result = pruneStaleChunks(chunks, 12);
+    expect(result).toHaveLength(1);
+  });
+
+  test('removes all chunks when all are stale', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs-1',
+        tokenCount: 50,
+        messageIds: ['5', '6', '7'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: '2',
+        observations: 'obs-2',
+        tokenCount: 50,
+        messageIds: ['8', '9'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const result = pruneStaleChunks(chunks, 20);
+    expect(result).toHaveLength(0);
+  });
+
+  test('keeps all chunks when none are stale', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs-1',
+        tokenCount: 50,
+        messageIds: ['20', '21'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const result = pruneStaleChunks(chunks, 10);
+    expect(result).toHaveLength(1);
+  });
+
+  test('handles chunks with empty messageIds', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: 'obs-empty',
+        tokenCount: 50,
+        messageIds: [],
+        messageTokens: 0,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const result = pruneStaleChunks(chunks, 100);
+    expect(result).toHaveLength(1); // kept because no messageIds to check
+  });
+});
+
+// ============================================================================
+// mergeChunkObservations — subset deduplication
+// ============================================================================
+
+describe('mergeChunkObservations — subset deduplication', () => {
+  test('discards chunk that is a strict subset of another', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: 'subset',
+        observations: '* subset observation',
+        tokenCount: 50,
+        messageIds: ['10', '11'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: 'superset',
+        observations: '* superset observation with more detail',
+        tokenCount: 80,
+        messageIds: ['10', '11', '12', '13'],
+        messageTokens: 200,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const merged = mergeChunkObservations('', chunks);
+    expect(merged).toContain('superset observation');
+    expect(merged).not.toContain('subset observation');
+  });
+
+  test('keeps both chunks when neither is a subset', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: '* first chunk',
+        tokenCount: 50,
+        messageIds: ['10', '11'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: '2',
+        observations: '* second chunk',
+        tokenCount: 50,
+        messageIds: ['12', '13'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const merged = mergeChunkObservations('', chunks);
+    expect(merged).toContain('first chunk');
+    expect(merged).toContain('second chunk');
+  });
+
+  test('keeps both chunks when they have equal size but different ids', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: '1',
+        observations: '* chunk A',
+        tokenCount: 50,
+        messageIds: ['10', '11'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: '2',
+        observations: '* chunk B',
+        tokenCount: 50,
+        messageIds: ['12', '13'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const merged = mergeChunkObservations('', chunks);
+    expect(merged).toContain('chunk A');
+    expect(merged).toContain('chunk B');
+  });
+
+  test('handles chain: A subset of B, B not subset of C', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: 'A',
+        observations: '* obs A',
+        tokenCount: 50,
+        messageIds: ['10'],
+        messageTokens: 50,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: 'B',
+        observations: '* obs B',
+        tokenCount: 80,
+        messageIds: ['10', '11', '12'],
+        messageTokens: 150,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: 'C',
+        observations: '* obs C',
+        tokenCount: 50,
+        messageIds: ['13', '14'],
+        messageTokens: 100,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const merged = mergeChunkObservations('existing', chunks);
+    expect(merged).toContain('existing');
+    expect(merged).not.toContain('obs A'); // A is subset of B
+    expect(merged).toContain('obs B');
+    expect(merged).toContain('obs C');
+  });
+
+  test('preserves existing observations alongside deduplicated chunks', () => {
+    const chunks: BufferedObservationChunk[] = [
+      {
+        cycleId: 'small',
+        observations: '* small chunk',
+        tokenCount: 30,
+        messageIds: ['5'],
+        messageTokens: 50,
+        lastObservedAt: Date.now(),
+      },
+      {
+        cycleId: 'big',
+        observations: '* big chunk covers more',
+        tokenCount: 80,
+        messageIds: ['5', '6', '7'],
+        messageTokens: 150,
+        lastObservedAt: Date.now(),
+      },
+    ];
+
+    const merged = mergeChunkObservations('* prior observation', chunks);
+    expect(merged).toContain('prior observation');
+    expect(merged).toContain('big chunk covers more');
+    expect(merged).not.toContain('small chunk');
   });
 });

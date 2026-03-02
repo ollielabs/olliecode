@@ -247,20 +247,61 @@ export function selectChunksForActivation(
 }
 
 /**
+ * Prune buffered chunks whose messageIds are entirely within the
+ * already-observed range. After activation bumps `observedUpTo`,
+ * remaining chunks from a previous agent run may have stale messageIds
+ * that overlap with the new boundary. Keeping them causes duplicate
+ * observations when they're later activated alongside fresh chunks.
+ */
+export function pruneStaleChunks(
+  chunks: BufferedObservationChunk[],
+  observedUpTo: number,
+): BufferedObservationChunk[] {
+  return chunks.filter((chunk) => {
+    if (chunk.messageIds.length === 0) return true;
+    // Keep the chunk only if its highest messageId is >= observedUpTo
+    // (i.e., it covers at least some unobserved messages)
+    const maxId = Math.max(
+      ...chunk.messageIds.map((id) => Number.parseInt(id, 10)),
+    );
+    return maxId >= observedUpTo;
+  });
+}
+
+/**
  * Merge activated chunks into a single observation string.
- * Preserves chunk ordering (oldest first).
+ * Deduplicates by discarding chunks whose messageIds are a subset
+ * of another chunk's messageIds (keeps the superset's observations).
+ * Preserves chunk ordering (oldest first) for non-subset chunks.
  */
 export function mergeChunkObservations(
   existingObservations: string,
   chunks: BufferedObservationChunk[],
 ): string {
+  // Deduplicate: discard chunks that are subsets of other chunks.
+  // A chunk is a subset if every one of its messageIds appears in
+  // another chunk with strictly more messageIds.
+  const kept = chunks.filter((chunk, i) => {
+    if (chunk.messageIds.length === 0) return true;
+    const myIds = new Set(chunk.messageIds);
+    for (let j = 0; j < chunks.length; j++) {
+      if (i === j) continue;
+      const other = chunks[j]!;
+      if (other.messageIds.length <= myIds.size) continue;
+      const otherIds = new Set(other.messageIds);
+      const isSubset = [...myIds].every((id) => otherIds.has(id));
+      if (isSubset) return false;
+    }
+    return true;
+  });
+
   const parts: string[] = [];
 
   if (existingObservations) {
     parts.push(existingObservations);
   }
 
-  for (const chunk of chunks) {
+  for (const chunk of kept) {
     if (chunk.observations) {
       parts.push(chunk.observations);
     }
