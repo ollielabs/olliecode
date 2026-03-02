@@ -209,8 +209,9 @@ export function parseObserverOutput(output: string): ObserverResult {
 
 /**
  * Extract content from an XML tag. Supports multiple blocks (concatenated).
+ * Exported for reuse by reflector.ts.
  */
-function extractTag(content: string, tagName: string): string {
+export function extractTag(content: string, tagName: string): string {
   const regex = new RegExp(
     `^[ \\t]*<${tagName}>([\\s\\S]*?)^[ \\t]*<\\/${tagName}>`,
     'gim',
@@ -229,9 +230,9 @@ function extractTag(content: string, tagName: string): string {
 
 /**
  * Fallback: extract list items (lines starting with *, -, or numbers) when
- * no XML tags are found.
+ * no XML tags are found. Exported for reuse by reflector.ts.
  */
-function extractListItems(content: string): string {
+export function extractListItems(content: string): string {
   const lines = content.split('\n');
   const items: string[] = [];
 

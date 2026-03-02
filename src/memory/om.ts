@@ -9,8 +9,10 @@
  * 5. Build the observation block for the Actor's context
  * 6. Filter observed messages from the Actor's context
  *
- * Phase 1: Sync-only observation (blocking when threshold is hit).
- * Phase 3 will add async buffering for instant activation.
+ * Three-zone threshold system:
+ * - Zone 1 (below messageTokens): async buffering at intervals
+ * - Zone 2 (messageTokens → blockAfter): activate buffered chunks
+ * - Zone 3 (above blockAfter): synchronous blocking observation
  */
 
 import type { Message } from 'ollama';
@@ -19,6 +21,7 @@ import { Ollama } from 'ollama';
 import { log } from '../agent/logger';
 import {
   getLatestChunkMetadata,
+  getMidLoopSliceEnd,
   mergeChunkObservations,
   needsSyncFallback,
   recordBufferingTrigger,
@@ -26,6 +29,7 @@ import {
   resetSessionBoundary,
   resolveBlockAfter,
   selectChunksForActivation,
+  setMidLoopSliceEnd,
   shouldTriggerAsyncBuffering,
   waitForBuffering,
 } from './buffering';
@@ -125,7 +129,7 @@ export function getUnobservedMessages(
  * observations from unobserved messages.
  *
  * This is the blocking path — the agent pauses while the Observer runs.
- * Phase 3 will add async buffering to avoid this pause.
+ * Used as Zone 3 fallback when no buffered chunks are available.
  */
 export async function runSyncObservation(
   sessionId: string,
@@ -281,29 +285,29 @@ export function fireAsyncBuffering(
 }
 
 /**
- * Fire async buffering for mid-loop use. Accepts the agent's internal
- * message array directly as the messages to observe — no record-based
- * slicing, since the agent array has different indices than the session
- * history used by observedUpTo.
+ * Fire async buffering for mid-loop use. Accepts a slice of the agent's
+ * message array — only the NEW messages since the last buffering trigger.
  *
- * messageIds in the resulting chunk use the record's current observedUpTo
- * as a base offset so they align with the session-level tracking.
+ * @param agentSlice - The new messages to observe (already sliced by caller)
+ * @param agentSliceStart - Index in the full agent array where this slice starts.
+ *   Used to compute session-level messageIds: observedUpTo + agentSliceStart + i.
  */
 export function fireMidLoopBufferingOp(
   sessionId: string,
-  agentMessages: Message[],
+  agentSlice: Message[],
+  agentSliceStart: number,
   record: ObservationalMemoryRecord,
   model: string,
   host: string,
   config: MemoryConfig,
   currentTokens: number,
 ): void {
-  if (agentMessages.length === 0) return;
+  if (agentSlice.length === 0) return;
 
   fireBufferingOp(
     sessionId,
-    agentMessages,
-    record.observedUpTo,
+    agentSlice,
+    record.observedUpTo + agentSliceStart,
     record.activeObservations,
     model,
     host,
@@ -729,9 +733,11 @@ export async function processOMStep(
  * [system prompt, continuation hint?, filtered history, user msg]
  * and grows as tool results are appended. record.observedUpTo tracks
  * the session-level history position, which doesn't map to indices in
- * the agent's array. So we count tokens from the entire agent array
- * (these ARE the unobserved messages for this turn) and pass them
- * directly to the buffering op without record-based slicing.
+ * the agent's array.
+ *
+ * To prevent chunk overlap, we track where the last mid-loop buffering
+ * sliced and only send NEW messages (since last trigger) to the Observer.
+ * Token counting still uses the full agent array for threshold checks.
  */
 export function checkMidLoopBuffering(
   sessionId: string,
@@ -757,13 +763,25 @@ export function checkMidLoopBuffering(
   if (
     shouldTriggerAsyncBuffering(sessionId, currentTokens, record, config, true)
   ) {
+    // Slice only NEW messages since the last mid-loop buffering trigger.
+    // This prevents chunk overlap where successive chunks during the same
+    // agent run re-observe the same messages and produce duplicate observations.
+    const sliceStart = getMidLoopSliceEnd(sessionId);
+    const newMessages = agentMessages.slice(sliceStart);
+
+    if (newMessages.length === 0) return;
+
     log(
-      `[OM] Mid-loop Zone 1: firing async buffering at ${currentTokens} tokens (${agentMessages.length} msgs)`,
+      `[OM] Mid-loop Zone 1: firing async buffering at ${currentTokens} tokens (${newMessages.length} new msgs, ${agentMessages.length} total)`,
     );
+
+    // Record where we sliced so the next trigger starts here
+    setMidLoopSliceEnd(sessionId, agentMessages.length);
 
     fireMidLoopBufferingOp(
       sessionId,
-      agentMessages,
+      newMessages,
+      sliceStart,
       record,
       model,
       host,

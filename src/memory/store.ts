@@ -27,6 +27,8 @@ type OMRow = {
   generation_count: number;
   last_observed_at: number | null;
   observed_message_ids: string;
+  /** Integer column added in migration v7. The source of truth for observedUpTo. */
+  observed_up_to: number;
   buffered_observation_chunks: string;
   is_buffering_observation: number;
   last_buffered_at_tokens: number;
@@ -51,13 +53,6 @@ type OMRow = {
 // ============================================================================
 
 function rowToRecord(row: OMRow): ObservationalMemoryRecord {
-  let observedMessageIds: string[] = [];
-  try {
-    observedMessageIds = JSON.parse(row.observed_message_ids) as string[];
-  } catch {
-    // Corrupted JSON — use empty array
-  }
-
   let bufferedObservationChunks: BufferedObservationChunk[] = [];
   try {
     bufferedObservationChunks = JSON.parse(
@@ -75,8 +70,8 @@ function rowToRecord(row: OMRow): ObservationalMemoryRecord {
     originType: row.origin_type as 'initial' | 'observation' | 'reflection',
     generationCount: row.generation_count,
     lastObservedAt: row.last_observed_at,
-    observedUpTo: observedMessageIds.length,
-    observedMessageIds,
+    observedUpTo: row.observed_up_to,
+    observedMessageIds: [], // deprecated — kept for type compat
     bufferedObservationChunks,
     isBufferingObservation: row.is_buffering_observation === 1,
     lastBufferedAtTokens: row.last_buffered_at_tokens,
@@ -191,19 +186,13 @@ export function updateAfterObservation(
   },
 ): void {
   const db = getDatabase();
-  // Store observedUpTo as a JSON array for DB column compatibility.
-  // The array contains indices [0..observedUpTo-1] but rowToRecord
-  // only uses .length to derive observedUpTo.
-  const observedMessageIds = JSON.stringify(
-    Array.from({ length: opts.observedUpTo }, (_, i) => String(i)),
-  );
   db.run(
     `UPDATE observational_memory SET
       active_observations = ?,
       observation_token_count = ?,
       origin_type = 'observation',
       last_observed_at = ?,
-      observed_message_ids = ?,
+      observed_up_to = ?,
       pending_message_tokens = ?,
       total_tokens_observed = ?,
       current_task = ?,
@@ -217,7 +206,7 @@ export function updateAfterObservation(
       opts.activeObservations,
       opts.observationTokenCount,
       opts.lastObservedAt,
-      observedMessageIds,
+      opts.observedUpTo,
       opts.pendingMessageTokens,
       opts.totalTokensObserved,
       opts.currentTask,
@@ -365,14 +354,11 @@ export function updateAfterActivation(
   },
 ): void {
   const db = getDatabase();
-  const observedMessageIds = JSON.stringify(
-    Array.from({ length: opts.observedUpTo }, (_, i) => String(i)),
-  );
   db.run(
     `UPDATE observational_memory SET
       active_observations = ?,
       observation_token_count = ?,
-      observed_message_ids = ?,
+      observed_up_to = ?,
       buffered_observation_chunks = ?,
       current_task = ?,
       suggested_response = ?,
@@ -381,7 +367,7 @@ export function updateAfterActivation(
     [
       opts.activeObservations,
       opts.observationTokenCount,
-      observedMessageIds,
+      opts.observedUpTo,
       JSON.stringify(opts.remainingChunks),
       opts.currentTask,
       opts.suggestedResponse,

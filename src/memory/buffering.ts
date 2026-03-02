@@ -15,8 +15,6 @@
  * for finer-grained chunks that align with the retention floor.
  */
 
-import type { Message } from 'ollama';
-
 import { log } from '../agent/logger';
 import type {
   BufferedObservationChunk,
@@ -39,6 +37,16 @@ const activeBufferingOps = new Map<string, Promise<void>>();
  * Prevents re-triggering at the same interval.
  */
 const lastBufferedBoundary = new Map<string, number>();
+
+/**
+ * Track how many agent-array messages were included in the last mid-loop
+ * buffering trigger. On the next trigger, only messages AFTER this index
+ * are sent to the Observer — preventing chunk overlap where successive
+ * chunks during the same agent run re-observe the same messages.
+ *
+ * Reset on session boundary reset (after sync observation or activation).
+ */
+const lastMidLoopSliceEnd = new Map<string, number>();
 
 // ============================================================================
 // Interval trigger logic
@@ -136,6 +144,23 @@ export function recordBufferingTrigger(
  */
 export function resetSessionBoundary(sessionId: string): void {
   lastBufferedBoundary.delete(sessionId);
+  lastMidLoopSliceEnd.delete(sessionId);
+}
+
+/**
+ * Get the agent-array index where the last mid-loop buffering sliced.
+ * Returns 0 if no mid-loop buffering has occurred this run.
+ */
+export function getMidLoopSliceEnd(sessionId: string): number {
+  return lastMidLoopSliceEnd.get(sessionId) ?? 0;
+}
+
+/**
+ * Record that mid-loop buffering was triggered with messages up to
+ * the given agent-array index. Next trigger will slice from here.
+ */
+export function setMidLoopSliceEnd(sessionId: string, index: number): void {
+  lastMidLoopSliceEnd.set(sessionId, index);
 }
 
 // ============================================================================
@@ -353,32 +378,6 @@ export async function waitForBuffering(
   }
 }
 
-/**
- * Check if there's an active buffering operation for a session.
- */
-export function isBufferingActive(sessionId: string): boolean {
-  return activeBufferingOps.has(sessionId);
-}
-
-/**
- * Filter messages to exclude those that have been observed via buffered chunks.
- * Uses message position indices (stored as string IDs in chunks).
- */
-export function filterActivatedMessages(
-  allMessages: Message[],
-  observedMessageIds: string[],
-): Message[] {
-  if (observedMessageIds.length === 0) return allMessages;
-
-  // observedMessageIds are position indices as strings
-  // All messages up to the max observed index are excluded
-  const maxObserved = Math.max(
-    ...observedMessageIds.map((id) => Number.parseInt(id, 10)),
-  );
-
-  return allMessages.slice(maxObserved + 1);
-}
-
 // ============================================================================
 // Reset (for testing)
 // ============================================================================
@@ -390,4 +389,5 @@ export function filterActivatedMessages(
 export function resetBufferingState(): void {
   activeBufferingOps.clear();
   lastBufferedBoundary.clear();
+  lastMidLoopSliceEnd.clear();
 }

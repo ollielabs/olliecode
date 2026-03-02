@@ -18,6 +18,8 @@ import { Ollama } from 'ollama';
 import { log } from '../agent/logger';
 import {
   detectDegenerateRepetition,
+  extractListItems,
+  extractTag,
   getObserverSystemPrompt,
 } from './observer';
 import { countTextTokens } from './token-counter';
@@ -184,49 +186,6 @@ export function parseReflectorOutput(output: string): ReflectorResult {
     suggestedResponse: suggestedResponse || undefined,
     rawOutput: output,
   };
-}
-
-// ============================================================================
-// XML tag extraction (duplicated from observer.ts to avoid circular deps)
-// ============================================================================
-
-function extractTag(content: string, tagName: string): string {
-  const regex = new RegExp(
-    `^[ \\t]*<${tagName}>([\\s\\S]*?)^[ \\t]*<\\/${tagName}>`,
-    'gim',
-  );
-  const matches: string[] = [];
-
-  let match = regex.exec(content);
-  while (match) {
-    const inner = match[1]?.trim();
-    if (inner) matches.push(inner);
-    match = regex.exec(content);
-  }
-
-  return matches.join('\n\n');
-}
-
-function extractListItems(content: string): string {
-  const lines = content.split('\n');
-  const items: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    if (
-      trimmed.startsWith('* ') ||
-      trimmed.startsWith('- ') ||
-      /^\d+\.\s/.test(trimmed)
-    ) {
-      items.push(line);
-    } else if (trimmed.startsWith('Date:')) {
-      items.push(line);
-    } else if (items.length > 0 && trimmed.startsWith('* ->')) {
-      items.push(line);
-    }
-  }
-
-  return items.join('\n');
 }
 
 // ============================================================================

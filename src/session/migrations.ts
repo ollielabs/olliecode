@@ -199,6 +199,23 @@ const MIGRATIONS: Migration[] = [
         ON observational_memory(session_id);
     `,
   },
+  {
+    version: 7,
+    name: 'add_observed_up_to_column',
+    sql: `
+      -- Add proper integer column for observed boundary tracking.
+      -- Previously, observedUpTo was derived from JSON.parse(observed_message_ids).length
+      -- which is wasteful (5KB JSON array for observedUpTo=1000).
+      -- The old observed_message_ids column is kept for backward compat but no longer written.
+      ALTER TABLE observational_memory ADD COLUMN observed_up_to INTEGER NOT NULL DEFAULT 0;
+
+      -- Backfill from existing JSON array length.
+      -- SQLite json_array_length requires the json1 extension (built-in since 3.38).
+      UPDATE observational_memory
+        SET observed_up_to = json_array_length(observed_message_ids)
+        WHERE observed_message_ids != '[]';
+    `,
+  },
 ];
 
 /**

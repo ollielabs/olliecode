@@ -140,14 +140,18 @@ function buildInitialMessages(
 }
 
 /**
- * Strip the system prompt (index 0) from the messages array.
- * The system prompt is added fresh each turn by buildInitialMessages,
- * so it must not be included in the returned history.
+ * Strip ALL system messages from the messages array.
+ *
+ * Multiple system messages can exist:
+ * - Index 0: the main system prompt (added by buildInitialMessages)
+ * - Index 1: continuation hint (OM, added by buildInitialMessages)
+ * - Mid-loop: wrap-up warning, not-found warning (injected during agent loop)
+ *
+ * None of these should leak into the persisted history or be passed
+ * to OM for observation tracking — they're ephemeral per-turn injections.
  */
 function stripSystemPrompt(messages: Message[]): Message[] {
-  return messages.length > 0 && messages[0]?.role === 'system'
-    ? messages.slice(1)
-    : messages;
+  return messages.filter((m) => m.role !== 'system');
 }
 
 /**

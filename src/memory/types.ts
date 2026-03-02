@@ -48,7 +48,7 @@ export type ObservationalMemoryRecord = {
   /** @deprecated Retained for DB compatibility during migration. Use observedUpTo. */
   observedMessageIds: string[];
 
-  // --- Async buffering: observation chunks (Phase 3) ---
+  // --- Async buffering: observation chunks ---
 
   /** Pre-computed observation chunks waiting for activation */
   bufferedObservationChunks: BufferedObservationChunk[];
@@ -59,7 +59,7 @@ export type ObservationalMemoryRecord = {
   /** Epoch ms when last buffer was created */
   lastBufferedAtTime: number | null;
 
-  // --- Async buffering: reflection (Phase 3) ---
+  // --- Async buffering: reflection ---
 
   /** Pre-computed reflection content */
   bufferedReflection: string | null;
@@ -149,7 +149,7 @@ export type ObserverResult = {
 };
 
 // ============================================================================
-// Reflector output (parsed from LLM response) — Phase 2
+// Reflector output (parsed from LLM response)
 // ============================================================================
 
 /**
@@ -181,7 +181,7 @@ export type ObservationConfig = {
   /**
    * Buffer interval as fraction of messageTokens (0-1) or absolute token count.
    * Default: 0.2 (= 20% of messageTokens = 6000 tokens).
-   * Set to false to disable async buffering (Phase 3).
+   * Set to false to disable async buffering.
    */
   bufferTokens: number | false;
   /**
@@ -201,7 +201,7 @@ export type ObservationConfig = {
 };
 
 /**
- * Reflection (Reflector) configuration — Phase 2.
+ * Reflection (Reflector) configuration.
  */
 export type ReflectionConfig = {
   /** Token count of observations that triggers reflection (default: 40000) */
