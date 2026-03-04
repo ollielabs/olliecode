@@ -157,60 +157,10 @@ export class SafetyLayer {
     }
 
     // BUG-001 FIX: Block write_file with empty/minimal content to existing files
-    // This catches attempts to "delete" files by writing empty content
+    // BUG-003 PARTIAL FIX: Warn about using write_file on existing files
     if (tool === 'write_file') {
-      const content = args.content as string | undefined;
-      const path = args.path as string | undefined;
-
-      if (path) {
-        try {
-          const file = Bun.file(path);
-          const exists = await file.exists();
-
-          if (exists) {
-            // Check for empty/minimal content (deletion attempt)
-            if (
-              content === undefined ||
-              content === null ||
-              content === '' ||
-              content.trim().length < 10
-            ) {
-              return {
-                status: 'denied',
-                reason: `Blocked: Cannot write empty or minimal content to existing file "${path}". This would effectively delete the file's contents. Use edit_file for modifications.`,
-              };
-            }
-
-            // BUG-003 PARTIAL FIX: Warn about using write_file on existing files
-            // Require confirmation since edit_file would be safer
-            const currentContent = await file.text();
-            const contentLength = content?.length ?? 0;
-
-            // If the new content is significantly different in size, it's suspicious
-            if (
-              Math.abs(currentContent.length - contentLength) >
-              currentContent.length * 0.5
-            ) {
-              const request: ConfirmationRequest = {
-                id: generateRequestId(),
-                tool,
-                args,
-                riskLevel: 'dangerous',
-                description: `Overwrite ${this.getDisplayPath(path)} (${currentContent.length} bytes → ${contentLength} bytes). Consider using edit_file for targeted changes.`,
-                preview: {
-                  type: 'diff',
-                  before: currentContent,
-                  after: content ?? '',
-                  filePath: path,
-                },
-              };
-              return { status: 'needs_confirmation', request };
-            }
-          }
-        } catch {
-          // If we can't check, allow it to proceed to path validation
-        }
-      }
+      const writeCheck = await this.checkWriteFile(tool, args);
+      if (writeCheck) return writeCheck;
     }
 
     // Check if confirmation is needed based on per-tool permission
@@ -321,6 +271,71 @@ export class SafetyLayer {
    */
   getDisplayPath(path: string): string {
     return getDisplayPath(path, this.config);
+  }
+
+  /**
+   * Check write_file safety: block empty/minimal content to existing files,
+   * and require confirmation for large size changes.
+   * Returns a SafetyCheckResult if the call should be blocked or confirmed,
+   * or null if it should proceed.
+   */
+  private async checkWriteFile(
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<SafetyCheckResult | null> {
+    const content = args.content as string | undefined;
+    const path = args.path as string | undefined;
+    if (!path) return null;
+
+    let exists: boolean;
+    let file: ReturnType<typeof Bun.file>;
+    try {
+      file = Bun.file(path);
+      exists = await file.exists();
+    } catch {
+      // If we can't check, allow it to proceed to path validation
+      return null;
+    }
+
+    if (!exists) return null;
+
+    // Block empty/minimal content (deletion attempt)
+    if (
+      content === undefined ||
+      content === null ||
+      content === '' ||
+      content.trim().length < 10
+    ) {
+      return {
+        status: 'denied',
+        reason: `Blocked: Cannot write empty or minimal content to existing file "${path}". This would effectively delete the file's contents. Use edit_file for modifications.`,
+      };
+    }
+
+    // Require confirmation for large size changes — edit_file would be safer
+    const currentContent = await file.text();
+    const contentLength = content.length;
+    if (
+      Math.abs(currentContent.length - contentLength) >
+      currentContent.length * 0.5
+    ) {
+      const request: ConfirmationRequest = {
+        id: generateRequestId(),
+        tool,
+        args,
+        riskLevel: 'dangerous',
+        description: `Overwrite ${this.getDisplayPath(path)} (${currentContent.length} bytes → ${contentLength} bytes). Consider using edit_file for targeted changes.`,
+        preview: {
+          type: 'diff',
+          before: currentContent,
+          after: content,
+          filePath: path,
+        },
+      };
+      return { status: 'needs_confirmation', request };
+    }
+
+    return null;
   }
 
   /**

@@ -47,6 +47,22 @@ function generateTitle(firstMessage: string): string {
   return `${title}...`;
 }
 
+/**
+ * Auto-generate a session title from the first user message.
+ * No-op if the session already has a title or no text part is found.
+ */
+function autoTitleSession(sessionId: string, parts: MessagePart[]): void {
+  const session = getSession(sessionId);
+  if (!session || session.title) return;
+
+  const textPart = parts.find(
+    (p): p is MessagePart & { type: 'text' } => p.type === 'text',
+  );
+  if (!textPart) return;
+
+  updateSession(sessionId, { title: generateTitle(textPart.content) });
+}
+
 // ============================================================================
 // Session CRUD
 // ============================================================================
@@ -151,28 +167,20 @@ export function updateSession(id: string, updates: UpdateSessionOptions): void {
   const db = getDatabase();
   const now = Date.now();
 
-  // Build update query dynamically based on provided fields
-  if (updates.title !== undefined && updates.mode !== undefined) {
-    db.run(
-      'UPDATE sessions SET updated_at = ?, title = ?, mode = ? WHERE id = ?',
-      [now, updates.title, updates.mode, id],
-    );
-  } else if (updates.title !== undefined) {
-    db.run('UPDATE sessions SET updated_at = ?, title = ? WHERE id = ?', [
-      now,
-      updates.title,
-      id,
-    ]);
-  } else if (updates.mode !== undefined) {
-    db.run('UPDATE sessions SET updated_at = ?, mode = ? WHERE id = ?', [
-      now,
-      updates.mode,
-      id,
-    ]);
-  } else {
-    // Just update timestamp
-    db.run('UPDATE sessions SET updated_at = ? WHERE id = ?', [now, id]);
+  const sets: string[] = ['updated_at = ?'];
+  const params: (string | number | null)[] = [now];
+
+  if (updates.title !== undefined) {
+    sets.push('title = ?');
+    params.push(updates.title);
   }
+  if (updates.mode !== undefined) {
+    sets.push('mode = ?');
+    params.push(updates.mode);
+  }
+
+  params.push(id);
+  db.run(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`, params);
 }
 
 /**
@@ -227,15 +235,7 @@ export function addMessage(
 
   // Auto-generate title from first user message
   if (role === 'user') {
-    const session = getSession(sessionId);
-    if (session && !session.title) {
-      const textPart = parts.find(
-        (p): p is MessagePart & { type: 'text' } => p.type === 'text',
-      );
-      if (textPart) {
-        updateSession(sessionId, { title: generateTitle(textPart.content) });
-      }
-    }
+    autoTitleSession(sessionId, parts);
   }
 
   return message;
