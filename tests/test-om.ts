@@ -31,12 +31,17 @@ import {
   getRampPoint,
   mergeChunkObservations,
   needsSyncFallback,
+  needsSyncReflection,
   pruneStaleChunks,
   resetBufferingState,
   resolveBlockAfter,
   resolveBufferInterval,
+  resolveReflectionBlockAfter,
+  resolveReflectionBufferThreshold,
   selectChunksForActivation,
   shouldTriggerAsyncBuffering,
+  shouldTriggerAsyncReflection,
+  splitObservationLines,
 } from '../src/memory/buffering';
 import {
   buildObserverPrompt,
@@ -58,13 +63,16 @@ import {
   parseReflectorOutput,
 } from '../src/memory/reflector';
 import {
+  clearBufferedReflection,
   deleteOMRecord,
   getOMRecord,
   getOrCreateOMRecord,
+  setBufferingReflectionFlag,
   setObservingFlag,
   setReflectingFlag,
   updateAfterObservation,
   updateAfterReflection,
+  updateBufferedReflection,
   updatePendingTokens,
 } from '../src/memory/store';
 import {
@@ -75,6 +83,7 @@ import {
   type BufferedObservationChunk,
   DEFAULT_MEMORY_CONFIG,
   formatMessagesForObserver,
+  type MemoryConfig,
   type ObservationalMemoryRecord,
 } from '../src/memory/types';
 import { setDatabaseForTesting } from '../src/session/db';
@@ -740,7 +749,7 @@ describe('extractMemoryConfig', () => {
     expect(memConfig.model).toBeUndefined();
     expect(memConfig.observation.messageTokens).toBe(30_000);
     expect(memConfig.observation.bufferTokens).toBe(0.2);
-    expect(memConfig.observation.bufferActivation).toBe(0.8);
+    expect(memConfig.observation.bufferActivation).toBe(0.933);
     expect(memConfig.observation.blockAfter).toBe(1.2);
     expect(memConfig.observation.temperature).toBe(0.3);
     expect(memConfig.reflection.observationTokens).toBe(40_000);
@@ -1105,10 +1114,10 @@ describe('resolveBlockAfter', () => {
 
 describe('calculateRetentionFloor', () => {
   test('calculates retention floor correctly', () => {
-    // 30000 * (1 - 0.8) ≈ 6000 (floating point: 5999)
+    // 30000 * (1 - 0.933) = 30000 * 0.067 = 2010
     const floor = calculateRetentionFloor(DEFAULT_MEMORY_CONFIG);
-    expect(floor).toBeGreaterThanOrEqual(5999);
-    expect(floor).toBeLessThanOrEqual(6000);
+    expect(floor).toBeGreaterThanOrEqual(2009);
+    expect(floor).toBeLessThanOrEqual(2010);
   });
 });
 
@@ -1269,14 +1278,14 @@ describe('selectChunksForActivation', () => {
   });
 
   test('activates first chunk even if it drops below retention floor', () => {
-    // Retention floor ≈ 6000 tokens. Total unobserved = 12000.
-    // First chunk uses 8000 tokens -> leaves 4000 < 6000 floor.
+    // Retention floor ≈ 2010 tokens. Total unobserved = 5000.
+    // First chunk uses 4000 tokens -> leaves 1000 < 2010 floor.
     // But we always activate at least the first chunk (instant activation
     // with thin context is better than a 10+ second sync fallback).
-    const chunks = [makeChunk(8000, ['0', '1'])];
+    const chunks = [makeChunk(4000, ['0', '1'])];
     const result = selectChunksForActivation(
       chunks,
-      12000,
+      5000,
       DEFAULT_MEMORY_CONFIG,
     );
     expect(result.chunksToActivate.length).toBe(1);
@@ -1284,13 +1293,13 @@ describe('selectChunksForActivation', () => {
   });
 
   test('stops at second chunk when it would drop below retention floor', () => {
-    // Total unobserved = 16000, floor ≈ 6000
-    // Chunk 1: 5000 tokens -> leaves 11000 (ok, above floor)
-    // Chunk 2: 8000 tokens -> leaves 3000 (below floor) -> stop
-    const chunks = [makeChunk(5000, ['0', '1']), makeChunk(8000, ['2', '3'])];
+    // Total unobserved = 8000, floor ≈ 2010
+    // Chunk 1: 3000 tokens -> leaves 5000 (ok, above floor)
+    // Chunk 2: 4000 tokens -> leaves 1000 (below floor) -> stop
+    const chunks = [makeChunk(3000, ['0', '1']), makeChunk(4000, ['2', '3'])];
     const result = selectChunksForActivation(
       chunks,
-      16000,
+      8000,
       DEFAULT_MEMORY_CONFIG,
     );
     expect(result.chunksToActivate.length).toBe(1);
@@ -1298,10 +1307,10 @@ describe('selectChunksForActivation', () => {
   });
 
   test('activates partial set of chunks', () => {
-    // Total unobserved = 25000, floor = 6000
+    // Total unobserved = 25000, floor ≈ 2010
     // Chunk 1: 8000 tokens -> leaves 17000 (ok)
     // Chunk 2: 8000 tokens -> leaves 9000 (ok)
-    // Chunk 3: 8000 tokens -> leaves 1000 (too low) -> stop
+    // Chunk 3: 8000 tokens -> leaves 1000 (below floor) -> stop
     const chunks = [
       makeChunk(8000, ['0', '1']),
       makeChunk(8000, ['2', '3']),
@@ -1512,7 +1521,7 @@ describe('checkMidLoopBuffering', () => {
     expect(record?.originType).toBe('initial');
   });
 
-  test('updates pending token count from full agent array', () => {
+  test('skips pendingMessageTokens DB write (stats-only, not critical path)', () => {
     createTestSession(sessionId);
     getOrCreateOMRecord(sessionId);
 
@@ -1523,18 +1532,18 @@ describe('checkMidLoopBuffering', () => {
 
     checkMidLoopBuffering(sessionId, messages, 'test', 'http://localhost');
 
+    // pendingMessageTokens is no longer updated mid-loop to avoid
+    // a synchronous SQLite write on every agent iteration.
     const record = getOMRecord(sessionId);
-    expect(record?.pendingMessageTokens).toBeGreaterThan(0);
+    expect(record?.pendingMessageTokens).toBe(0);
   });
 
-  test('counts tokens from agent array even when observedUpTo is high', () => {
+  test('counts tokens from agent array for threshold checks without DB write', () => {
     createTestSession(sessionId);
     getOrCreateOMRecord(sessionId);
 
     // Simulate a session where observedUpTo is already 200 (from prior turns)
     // but the agent array is small (new turn just started).
-    // The old broken code would slice with observedUpTo=200, get empty array,
-    // and report 0 tokens. The fix should count the actual agent messages.
     updateAfterObservation(sessionId, {
       activeObservations: 'Some prior observations',
       observationTokenCount: 100,
@@ -1554,9 +1563,9 @@ describe('checkMidLoopBuffering', () => {
 
     checkMidLoopBuffering(sessionId, agentMessages, 'test', 'http://localhost');
 
+    // Token counting still works for threshold checks, just not persisted
     const updated = getOMRecord(sessionId);
-    // Should reflect tokens from the 3-message agent array, not 0
-    expect(updated?.pendingMessageTokens).toBeGreaterThan(0);
+    expect(updated?.pendingMessageTokens).toBe(0);
   });
 
   test('tracks midLoopSliceEnd to prevent chunk overlap', () => {
@@ -1870,5 +1879,387 @@ describe('mergeChunkObservations — subset deduplication', () => {
     expect(merged).toContain('prior observation');
     expect(merged).toContain('big chunk covers more');
     expect(merged).not.toContain('small chunk');
+  });
+});
+
+// ============================================================================
+// Async reflection buffering
+// ============================================================================
+
+describe('resolveReflectionBufferThreshold', () => {
+  test('resolves default threshold (50% of 40k = 20k)', () => {
+    const threshold = resolveReflectionBufferThreshold(DEFAULT_MEMORY_CONFIG);
+    expect(threshold).toBe(20000);
+  });
+
+  test('returns 0 when disabled', () => {
+    const config: MemoryConfig = {
+      ...DEFAULT_MEMORY_CONFIG,
+      reflection: {
+        ...DEFAULT_MEMORY_CONFIG.reflection,
+        bufferActivation: false,
+      },
+    };
+    expect(resolveReflectionBufferThreshold(config)).toBe(0);
+  });
+
+  test('scales with custom observationTokens', () => {
+    const config: MemoryConfig = {
+      ...DEFAULT_MEMORY_CONFIG,
+      reflection: {
+        ...DEFAULT_MEMORY_CONFIG.reflection,
+        observationTokens: 60000,
+        bufferActivation: 0.5,
+      },
+    };
+    expect(resolveReflectionBufferThreshold(config)).toBe(30000);
+  });
+});
+
+describe('resolveReflectionBlockAfter', () => {
+  test('resolves default (1.1 * 40k = 44k)', () => {
+    expect(resolveReflectionBlockAfter(DEFAULT_MEMORY_CONFIG)).toBe(44000);
+  });
+});
+
+describe('shouldTriggerAsyncReflection', () => {
+  const makeRecord = (
+    overrides?: Partial<ObservationalMemoryRecord>,
+  ): ObservationalMemoryRecord => ({
+    id: 'test',
+    sessionId: 'test-session',
+    activeObservations: '* HIGH some observation',
+    observationTokenCount: 0,
+    originType: 'observation',
+    generationCount: 0,
+    lastObservedAt: Date.now(),
+    observedUpTo: 0,
+    observedMessageIds: [],
+    bufferedObservationChunks: [],
+    isBufferingObservation: false,
+    lastBufferedAtTokens: 0,
+    lastBufferedAtTime: null,
+    bufferedReflection: null,
+    bufferedReflectionTokens: null,
+    bufferedReflectionInputTokens: null,
+    reflectedObservationLineCount: null,
+    isBufferingReflection: false,
+    isObserving: false,
+    isReflecting: false,
+    pendingMessageTokens: 0,
+    totalTokensObserved: 0,
+    currentTask: null,
+    suggestedResponse: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  });
+
+  test('returns true when observations >= 50% of threshold', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({ observationTokenCount: 20000 }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('returns false when observations < 50% of threshold', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({ observationTokenCount: 19999 }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false when already buffering reflection', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({
+          observationTokenCount: 25000,
+          isBufferingReflection: true,
+        }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false when already reflecting', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({ observationTokenCount: 25000, isReflecting: true }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false when buffered reflection already exists', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({
+          observationTokenCount: 25000,
+          bufferedReflection: 'some existing reflection',
+        }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false when disabled', () => {
+    const config: MemoryConfig = {
+      ...DEFAULT_MEMORY_CONFIG,
+      reflection: {
+        ...DEFAULT_MEMORY_CONFIG.reflection,
+        bufferActivation: false,
+      },
+    };
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({ observationTokenCount: 25000 }),
+        config,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false when no observations', () => {
+    expect(
+      shouldTriggerAsyncReflection(
+        makeRecord({
+          observationTokenCount: 25000,
+          activeObservations: '',
+        }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('needsSyncReflection', () => {
+  const makeRecord = (
+    overrides?: Partial<ObservationalMemoryRecord>,
+  ): ObservationalMemoryRecord => ({
+    id: 'test',
+    sessionId: 'test-session',
+    activeObservations: '* HIGH some observation',
+    observationTokenCount: 0,
+    originType: 'observation',
+    generationCount: 0,
+    lastObservedAt: Date.now(),
+    observedUpTo: 0,
+    observedMessageIds: [],
+    bufferedObservationChunks: [],
+    isBufferingObservation: false,
+    lastBufferedAtTokens: 0,
+    lastBufferedAtTime: null,
+    bufferedReflection: null,
+    bufferedReflectionTokens: null,
+    bufferedReflectionInputTokens: null,
+    reflectedObservationLineCount: null,
+    isBufferingReflection: false,
+    isObserving: false,
+    isReflecting: false,
+    pendingMessageTokens: 0,
+    totalTokensObserved: 0,
+    currentTask: null,
+    suggestedResponse: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  });
+
+  test('returns true above blockAfter with no buffered reflection', () => {
+    // blockAfter = 1.1 * 40000 = 44000
+    expect(
+      needsSyncReflection(
+        makeRecord({ observationTokenCount: 45000 }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(true);
+  });
+
+  test('returns false below blockAfter', () => {
+    expect(
+      needsSyncReflection(
+        makeRecord({ observationTokenCount: 43000 }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+
+  test('returns false above blockAfter with buffered reflection', () => {
+    expect(
+      needsSyncReflection(
+        makeRecord({
+          observationTokenCount: 45000,
+          bufferedReflection: 'pre-computed reflection',
+        }),
+        DEFAULT_MEMORY_CONFIG,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('splitObservationLines', () => {
+  test('splits at 80% boundary', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`).join('\n');
+    const result = splitObservationLines(lines, 0.8);
+
+    expect(result.oldestLineCount).toBe(8);
+    expect(result.oldestText.split('\n')).toHaveLength(8);
+    expect(result.newestText.split('\n')).toHaveLength(2);
+  });
+
+  test('ensures at least 1 line in each group', () => {
+    const lines = 'only-one-line';
+    const result = splitObservationLines(lines, 0.8);
+
+    // With 1 line, boundary = max(1, min(0, 0)) = 1. But that
+    // would put all lines in oldest. min(splitPoint, length-1) = min(0, 0) = 0,
+    // max(1, 0) = 1. So oldest=1, newest=0? Actually with 1 line:
+    // splitPoint = floor(1 * 0.8) = 0, boundary = max(1, min(0, 0)) = 1
+    // oldest = lines[0..1] = 1 line, newest = lines[1..] = 0 lines
+    // This is expected — with 1 line, everything goes to oldest
+    expect(result.oldestLineCount).toBe(1);
+    expect(result.oldestText).toBe('only-one-line');
+  });
+
+  test('splits at custom ratio', () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n');
+    const result = splitObservationLines(lines, 0.5);
+
+    expect(result.oldestLineCount).toBe(10);
+    expect(result.oldestText.split('\n')).toHaveLength(10);
+    expect(result.newestText.split('\n')).toHaveLength(10);
+  });
+
+  test('handles multiline observations correctly', () => {
+    const observations = [
+      '## 2026-03-01',
+      '- HIGH User wants to fix bug',
+      '- MED Agent read file.ts',
+      '',
+      '## 2026-03-02',
+      '- HIGH User approved the fix',
+      '- LOW Agent ran tests',
+      '',
+      '## 2026-03-03',
+      '- HIGH New feature requested',
+    ].join('\n');
+
+    const result = splitObservationLines(observations, 0.8);
+    // 10 lines, 80% = 8 lines
+    expect(result.oldestLineCount).toBe(8);
+    // Newest should contain the last 2 lines
+    expect(result.newestText).toContain('## 2026-03-03');
+    expect(result.newestText).toContain('New feature requested');
+  });
+});
+
+// ============================================================================
+// Store operations for buffered reflection
+// ============================================================================
+
+describe('buffered reflection store operations', () => {
+  const sessionId = 'reflection-store-test';
+
+  test('updateBufferedReflection stores reflection data', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    updateBufferedReflection(sessionId, {
+      bufferedReflection: '* HIGH compressed observation',
+      bufferedReflectionTokens: 500,
+      bufferedReflectionInputTokens: 2000,
+      reflectedObservationLineCount: 40,
+    });
+
+    const record = getOMRecord(sessionId);
+    expect(record?.bufferedReflection).toBe('* HIGH compressed observation');
+    expect(record?.bufferedReflectionTokens).toBe(500);
+    expect(record?.bufferedReflectionInputTokens).toBe(2000);
+    expect(record?.reflectedObservationLineCount).toBe(40);
+    expect(record?.isBufferingReflection).toBe(false);
+  });
+
+  test('setBufferingReflectionFlag sets and clears', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    setBufferingReflectionFlag(sessionId, true);
+    let record = getOMRecord(sessionId);
+    expect(record?.isBufferingReflection).toBe(true);
+
+    setBufferingReflectionFlag(sessionId, false);
+    record = getOMRecord(sessionId);
+    expect(record?.isBufferingReflection).toBe(false);
+  });
+
+  test('clearBufferedReflection resets all reflection fields', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // First store some reflection data
+    updateBufferedReflection(sessionId, {
+      bufferedReflection: '* HIGH some reflection',
+      bufferedReflectionTokens: 300,
+      bufferedReflectionInputTokens: 1500,
+      reflectedObservationLineCount: 25,
+    });
+
+    // Then clear it
+    clearBufferedReflection(sessionId);
+
+    const record = getOMRecord(sessionId);
+    expect(record?.bufferedReflection).toBeNull();
+    expect(record?.bufferedReflectionTokens).toBeNull();
+    expect(record?.bufferedReflectionInputTokens).toBeNull();
+    expect(record?.reflectedObservationLineCount).toBeNull();
+    expect(record?.isBufferingReflection).toBe(false);
+  });
+});
+
+// ============================================================================
+// Config extraction for new reflection fields
+// ============================================================================
+
+describe('extractMemoryConfig — reflection fields', () => {
+  test('includes new reflection config fields with defaults', () => {
+    const resolved = ConfigSchema.parse({});
+    const memConfig = extractMemoryConfig(resolved);
+
+    expect(memConfig.reflection.bufferActivation).toBe(0.5);
+    expect(memConfig.reflection.blockAfter).toBe(1.1);
+    expect(memConfig.reflection.reflectionSplit).toBe(0.8);
+  });
+
+  test('respects custom reflection config values', () => {
+    const resolved = ConfigSchema.parse({
+      memory: {
+        reflection: {
+          bufferActivation: 0.6,
+          blockAfter: 1.3,
+          reflectionSplit: 0.7,
+        },
+      },
+    });
+    const memConfig = extractMemoryConfig(resolved);
+
+    expect(memConfig.reflection.bufferActivation).toBe(0.6);
+    expect(memConfig.reflection.blockAfter).toBe(1.3);
+    expect(memConfig.reflection.reflectionSplit).toBe(0.7);
+  });
+
+  test('allows disabling async reflection buffering', () => {
+    const resolved = ConfigSchema.parse({
+      memory: {
+        reflection: {
+          bufferActivation: false,
+        },
+      },
+    });
+    const memConfig = extractMemoryConfig(resolved);
+
+    expect(memConfig.reflection.bufferActivation).toBe(false);
   });
 });

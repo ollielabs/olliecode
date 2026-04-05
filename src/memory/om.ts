@@ -24,15 +24,20 @@ import {
   getMidLoopSliceEnd,
   mergeChunkObservations,
   needsSyncFallback,
+  needsSyncReflection,
   pruneStaleChunks,
   recordBufferingTrigger,
   registerBufferingOp,
+  registerReflectionOp,
   resetSessionBoundary,
   resolveBlockAfter,
   selectChunksForActivation,
   setMidLoopSliceEnd,
   shouldTriggerAsyncBuffering,
+  shouldTriggerAsyncReflection,
+  splitObservationLines,
   waitForBuffering,
+  waitForReflection,
 } from './buffering';
 import {
   buildObserverPrompt,
@@ -43,13 +48,16 @@ import {
 import { runReflector } from './reflector';
 import {
   addBufferedChunk,
+  clearBufferedReflection,
   getOrCreateOMRecord,
   setBufferingObservationFlag,
+  setBufferingReflectionFlag,
   setObservingFlag,
   setReflectingFlag,
   updateAfterActivation,
   updateAfterObservation,
   updateAfterReflection,
+  updateBufferedReflection,
   updatePendingTokens,
 } from './store';
 import { countMessagesTokens, countTextTokens } from './token-counter';
@@ -74,6 +82,41 @@ const CONTINUATION_HINT = `The conversation history was compressed into the obse
  * Preamble for the observation block injected into the Actor's context.
  */
 const OBSERVATION_CONTEXT_PREAMBLE = `The following observations are your memory of this coding session. They contain key facts, decisions, file modifications, and current progress. Reference specific details from observations when relevant.`;
+
+// ============================================================================
+// In-memory OM record cache (avoids SQLite SELECT + JSON.parse per iteration)
+// ============================================================================
+
+/**
+ * Cached OM record per session. Set after processOMStep, read by
+ * checkMidLoopBuffering to avoid a synchronous SQLite round-trip
+ * + JSON.parse(buffered_observation_chunks) on every agent iteration.
+ *
+ * Invalidated when async buffering/reflection completes (store writes),
+ * or on next processOMStep call.
+ */
+const cachedOMRecord = new Map<string, ObservationalMemoryRecord>();
+
+/** Get cached record or fall back to DB. */
+function getCachedOrFetchRecord(sessionId: string): ObservationalMemoryRecord {
+  const cached = cachedOMRecord.get(sessionId);
+  if (cached) return cached;
+  const record = getOrCreateOMRecord(sessionId);
+  cachedOMRecord.set(sessionId, record);
+  return record;
+}
+
+/** Update the cache after a DB write. */
+function refreshCache(sessionId: string): ObservationalMemoryRecord {
+  const record = getOrCreateOMRecord(sessionId);
+  cachedOMRecord.set(sessionId, record);
+  return record;
+}
+
+/** Clear cache for a session (called on session clear/delete). */
+export function clearOMRecordCache(sessionId: string): void {
+  cachedOMRecord.delete(sessionId);
+}
 
 // ============================================================================
 // Core orchestrator
@@ -360,7 +403,7 @@ function fireBufferingOp(
 
       if (parsed.degenerate || !parsed.observations) {
         log('[OM] Async buffering produced empty/degenerate output');
-        setBufferingObservationFlag(sessionId, false);
+        try { setBufferingObservationFlag(sessionId, false); } catch { /* DB may be closed */ }
         return;
       }
 
@@ -388,7 +431,7 @@ function fireBufferingOp(
       );
     } catch (error) {
       log('[OM] Async buffering failed:', error);
-      setBufferingObservationFlag(sessionId, false);
+      try { setBufferingObservationFlag(sessionId, false); } catch { /* DB may be closed */ }
     }
   })();
 
@@ -463,6 +506,146 @@ export async function runSyncReflection(
     setReflectingFlag(sessionId, false);
     return { success: false, record };
   }
+}
+
+/**
+ * Fire an async reflection buffering operation (non-blocking).
+ *
+ * Reflects on the oldest N% of observation lines (default 80%) in the
+ * background. The result is stored in `bufferedReflection` and activated
+ * when observations cross the reflection threshold.
+ *
+ * Mastra pattern: pre-compute reflection at 50% of threshold so it's
+ * ready when the threshold is actually crossed.
+ */
+export function fireAsyncReflection(
+  sessionId: string,
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+): void {
+  if (!record.activeObservations) return;
+
+  const splitRatio = config.reflection.reflectionSplit;
+  const { oldestText, oldestLineCount } = splitObservationLines(
+    record.activeObservations,
+    splitRatio,
+  );
+
+  if (!oldestText.trim()) return;
+
+  const inputTokens = countTextTokens(oldestText);
+
+  log(
+    `[OM] Firing async reflection: ${oldestLineCount} lines (${inputTokens} tokens), split ${splitRatio}`,
+  );
+
+  setBufferingReflectionFlag(sessionId, true);
+
+  const op = (async () => {
+    try {
+      const result = await runReflector(
+        oldestText,
+        model,
+        host,
+        config.reflection.temperature,
+      );
+
+      if (!result || !result.observations) {
+        log('[OM] Async reflection produced no output');
+        try { setBufferingReflectionFlag(sessionId, false); } catch { /* DB may be closed */ }
+        return;
+      }
+
+      const outputTokens = countTextTokens(result.observations);
+
+      log(
+        `[OM] Async reflection complete: ${inputTokens} -> ${outputTokens} tokens`,
+      );
+
+      updateBufferedReflection(sessionId, {
+        bufferedReflection: result.observations,
+        bufferedReflectionTokens: outputTokens,
+        bufferedReflectionInputTokens: inputTokens,
+        reflectedObservationLineCount: oldestLineCount,
+      });
+    } catch (error) {
+      log('[OM] Async reflection failed:', error);
+      try { setBufferingReflectionFlag(sessionId, false); } catch { /* DB may be closed */ }
+    }
+  })();
+
+  registerReflectionOp(sessionId, op);
+}
+
+/**
+ * Try to activate a pre-computed buffered reflection.
+ *
+ * Mastra pattern: when observations cross the reflection threshold,
+ * check if we have a buffered reflection ready. If so:
+ * 1. Split current observations at the recorded line boundary
+ * 2. Replace the oldest lines with the compressed reflection
+ * 3. Append unreflected new lines verbatim
+ * 4. Update the record with the merged result
+ *
+ * Returns true if activation succeeded, false if no buffered reflection
+ * was available (caller should fall back to sync reflection).
+ */
+export async function tryActivateBufferedReflection(
+  sessionId: string,
+  config: MemoryConfig,
+): Promise<{
+  success: boolean;
+  record: ObservationalMemoryRecord;
+}> {
+  // Wait for any in-flight async reflection to complete
+  await waitForReflection(sessionId);
+
+  const record = getOrCreateOMRecord(sessionId);
+
+  if (
+    !record.bufferedReflection ||
+    record.reflectedObservationLineCount === null ||
+    record.reflectedObservationLineCount <= 0
+  ) {
+    return { success: false, record };
+  }
+
+  if (!record.activeObservations) {
+    clearBufferedReflection(sessionId);
+    return { success: false, record };
+  }
+
+  // Split current observations at the recorded boundary.
+  // The newest lines (added since reflection started) are preserved verbatim.
+  const lines = record.activeObservations.split('\n');
+  const boundary = Math.min(record.reflectedObservationLineCount, lines.length);
+
+  const newestLines = lines.slice(boundary).join('\n');
+
+  // Merge: buffered reflection + unreflected new lines
+  const merged = newestLines.trim()
+    ? `${record.bufferedReflection}\n\n${newestLines}`
+    : record.bufferedReflection;
+
+  const newTokenCount = countTextTokens(merged);
+
+  log(
+    `[OM] Activating buffered reflection: ${record.observationTokenCount} -> ${newTokenCount} tokens (reflected ${boundary} lines, preserved ${lines.length - boundary} lines)`,
+  );
+
+  updateAfterReflection(sessionId, {
+    activeObservations: merged,
+    observationTokenCount: newTokenCount,
+    currentTask: record.currentTask,
+    suggestedResponse: record.suggestedResponse,
+  });
+
+  clearBufferedReflection(sessionId);
+
+  const updatedRecord = getOrCreateOMRecord(sessionId);
+  return { success: true, record: updatedRecord };
 }
 
 /**
@@ -690,27 +873,71 @@ export async function processOMStep(
     );
   }
 
-  // === Reflection check — condense if observations are too large ===
-  if (
-    currentRecord.activeObservations &&
-    shouldReflect(currentRecord.observationTokenCount, config)
-  ) {
-    log(
-      `[OM] Reflection threshold exceeded: ${currentRecord.observationTokenCount} tokens > ${config.reflection.observationTokens}`,
-    );
+  // === Reflection: async-first, sync fallback ===
+  //
+  // Three-tier reflection strategy (matching Mastra):
+  // 1. Async buffering: fire background Reflector at 50% of threshold
+  // 2. Activation: at threshold, try activating pre-computed reflection
+  // 3. Sync fallback: above blockAfter, block and run sync reflection
+  //
+  if (currentRecord.activeObservations) {
+    if (shouldReflect(currentRecord.observationTokenCount, config)) {
+      log(
+        `[OM] Reflection threshold reached: ${currentRecord.observationTokenCount} tokens >= ${config.reflection.observationTokens}`,
+      );
 
-    const reflectResult = await runSyncReflection(
-      sessionId,
-      model,
-      host,
-      config,
-    );
+      // Try activating buffered reflection first (instant)
+      const activateResult = await tryActivateBufferedReflection(
+        sessionId,
+        config,
+      );
 
-    if (reflectResult.success) {
-      didReflect = true;
-      currentRecord = reflectResult.record;
+      if (activateResult.success) {
+        didReflect = true;
+        currentRecord = activateResult.record;
+        log('[OM] Buffered reflection activated successfully');
+      } else if (needsSyncReflection(currentRecord, config)) {
+        // Above blockAfter and no buffered reflection — sync fallback
+        log(
+          `[OM] Sync reflection fallback: ${currentRecord.observationTokenCount} tokens`,
+        );
+        const reflectResult = await runSyncReflection(
+          sessionId,
+          model,
+          host,
+          config,
+        );
+        if (reflectResult.success) {
+          didReflect = true;
+          currentRecord = reflectResult.record;
+        }
+      } else {
+        // At threshold but below blockAfter with no buffered reflection.
+        // Run sync reflection as the safe path — don't let observations
+        // grow unbounded while waiting for a buffer that doesn't exist.
+        log('[OM] No buffered reflection available, running sync reflection');
+        const reflectResult = await runSyncReflection(
+          sessionId,
+          model,
+          host,
+          config,
+        );
+        if (reflectResult.success) {
+          didReflect = true;
+          currentRecord = reflectResult.record;
+        }
+      }
+    } else if (shouldTriggerAsyncReflection(currentRecord, config)) {
+      // Below threshold but above buffer activation point — fire async
+      log(
+        `[OM] Firing async reflection buffer at ${currentRecord.observationTokenCount} observation tokens`,
+      );
+      fireAsyncReflection(sessionId, currentRecord, model, host, config);
     }
   }
+
+  // Cache the final record state for mid-loop reads
+  cachedOMRecord.set(sessionId, currentRecord);
 
   // Build context for the Actor
   const observationBlock = buildObservationContextBlock(currentRecord);
@@ -760,14 +987,14 @@ export function checkMidLoopBuffering(
 ): void {
   if (!config.enabled) return;
 
-  const record = getOrCreateOMRecord(sessionId);
+  const record = getCachedOrFetchRecord(sessionId);
 
   // Count tokens of the agent's full message array — everything the model
   // is seeing this turn, which grows with each tool iteration.
   const currentTokens = countMessagesTokens(agentMessages);
 
-  // Update pending token count for tracking
-  updatePendingTokens(sessionId, currentTokens);
+  // Skip DB write — pendingMessageTokens is stats-only and not used for
+  // threshold decisions. Avoids a synchronous SQLite UPDATE every iteration.
 
   // Only Zone 1: async buffering trigger. No activation, no sync fallback.
   // Pass midLoop=true to skip the sync threshold guard — during the agent
@@ -800,5 +1027,15 @@ export function checkMidLoopBuffering(
       config,
       currentTokens,
     );
+  }
+
+  // Also check if async reflection should fire.
+  // Observations may have grown from chunk activation in processOMStep,
+  // and mid-loop is the next opportunity to start pre-computing reflection.
+  if (shouldTriggerAsyncReflection(record, config)) {
+    log(
+      `[OM] Mid-loop: firing async reflection at ${record.observationTokenCount} observation tokens`,
+    );
+    fireAsyncReflection(sessionId, record, model, host, config);
   }
 }

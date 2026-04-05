@@ -87,6 +87,8 @@ export type AgentStep = {
   actions: ToolCall[];
   observations: ToolResult[];
   durationMs: number;
+  /** Pre-computed action signatures for loop detection (avoids repeated JSON.stringify) */
+  actionSignatures: string[];
 };
 
 /**

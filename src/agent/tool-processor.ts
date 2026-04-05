@@ -7,16 +7,16 @@
  */
 
 import type { Message, ToolCall } from 'ollama';
+import { log } from './logger';
 import type { AgentMode } from './modes';
 import { isToolAvailable } from './modes';
-import { executeTool, isToolSafeForParallel } from './tools';
-import type { ToolResult, ToolContext } from './types';
 import type {
-  SafetyLayer,
   ConfirmationRequest,
   ConfirmationResponse,
+  SafetyLayer,
 } from './safety';
-import { log } from './logger';
+import { executeTool, isToolSafeForParallel } from './tools';
+import type { ToolContext, ToolResult } from './types';
 
 /**
  * Prefix for tool results to remind model that user can't see tool output.
@@ -214,8 +214,8 @@ async function executeToolCall(
     result.error ? `Error: ${result.error}` : `${result.output.length} chars`,
   );
 
-  // Record execution
-  await safetyLayer.recordExecution(
+  // Record execution (fire-and-forget — audit log is not critical path)
+  void safetyLayer.recordExecution(
     toolName,
     toolArgs,
     result,

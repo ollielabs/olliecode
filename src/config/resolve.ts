@@ -212,6 +212,9 @@ export function extractMemoryConfig(config: ResolvedConfig): MemoryConfig {
     reflection: {
       observationTokens: config.memory.reflection.observationTokens,
       temperature: config.memory.reflection.temperature,
+      bufferActivation: config.memory.reflection.bufferActivation,
+      blockAfter: config.memory.reflection.blockAfter,
+      reflectionSplit: config.memory.reflection.reflectionSplit,
     },
   };
 }

@@ -180,14 +180,15 @@ export type ObservationConfig = {
   messageTokens: number;
   /**
    * Buffer interval as fraction of messageTokens (0-1) or absolute token count.
-   * Default: 0.2 (= 20% of messageTokens = 6000 tokens).
+   * Default: 0.2 (= 20% of messageTokens).
    * Set to false to disable async buffering.
    */
   bufferTokens: number | false;
   /**
    * How aggressively to clear the message window on activation.
-   * 0.8 means remove enough messages to keep only 20% of messageTokens remaining.
-   * Default: 0.8
+   * Higher values = more aggressive (less raw context retained).
+   * Retention floor = messageTokens * (1 - bufferActivation).
+   * Default: 0.933 (retains ~2,000 tokens of raw messages with 30k messageTokens)
    */
   bufferActivation: number;
   /**
@@ -208,6 +209,22 @@ export type ReflectionConfig = {
   observationTokens: number;
   /** Temperature for Reflector LLM calls (default: 0) */
   temperature: number;
+  /**
+   * Fraction of observationTokens at which to start async reflection buffering.
+   * Default: 0.5 (= 50% of 40k = 20k tokens triggers background Reflector).
+   * Set to false to disable async reflection buffering.
+   */
+  bufferActivation: number | false;
+  /**
+   * Multiplier of observationTokens above which synchronous reflection is forced.
+   * Default: 1.1 (= 110% of 40k = 44k tokens).
+   */
+  blockAfter: number;
+  /**
+   * Fraction of observation lines to reflect on (oldest N lines).
+   * Default: 0.8 (reflect oldest 80%, preserve newest 20% verbatim).
+   */
+  reflectionSplit: number;
 };
 
 /**
@@ -232,13 +249,16 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   observation: {
     messageTokens: 30_000,
     bufferTokens: 0.2,
-    bufferActivation: 0.8,
+    bufferActivation: 0.933,
     blockAfter: 1.2,
     temperature: 0.3,
   },
   reflection: {
     observationTokens: 40_000,
     temperature: 0,
+    bufferActivation: 0.5,
+    blockAfter: 1.1,
+    reflectionSplit: 0.8,
   },
 };
 

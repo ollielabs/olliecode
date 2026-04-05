@@ -171,7 +171,7 @@ export function setMidLoopSliceEnd(sessionId: string, index: number): void {
  * Calculate the retention floor — minimum tokens of raw messages
  * to keep in context after activation.
  *
- * Default: messageTokens * (1 - bufferActivation) = 30k * 0.2 = 6k tokens
+ * Default: messageTokens * (1 - bufferActivation) = 30k * 0.067 ≈ 2k tokens
  */
 export function calculateRetentionFloor(config: MemoryConfig): number {
   return Math.floor(
@@ -420,6 +420,157 @@ export async function waitForBuffering(
 }
 
 // ============================================================================
+// Reflection buffering
+// ============================================================================
+
+/**
+ * Track in-flight async reflection operations.
+ * Maps sessionId -> Promise of the reflection operation.
+ */
+const activeReflectionOps = new Map<string, Promise<void>>();
+
+/**
+ * Resolve the absolute reflection buffer activation threshold in tokens.
+ * If bufferActivation is a fraction (0-1), multiply by observationTokens.
+ */
+export function resolveReflectionBufferThreshold(config: MemoryConfig): number {
+  if (config.reflection.bufferActivation === false) return 0;
+  return Math.floor(
+    config.reflection.bufferActivation * config.reflection.observationTokens,
+  );
+}
+
+/**
+ * Resolve the absolute reflection blockAfter threshold in tokens.
+ */
+export function resolveReflectionBlockAfter(config: MemoryConfig): number {
+  return Math.floor(
+    config.reflection.blockAfter * config.reflection.observationTokens,
+  );
+}
+
+/**
+ * Determine if async reflection buffering should be triggered.
+ *
+ * Returns true when:
+ * 1. Observation token count >= 50% of reflection threshold (default 20k)
+ * 2. No reflection is already buffering or in progress
+ * 3. No buffered reflection already exists (waiting for activation)
+ * 4. Async reflection buffering is enabled
+ */
+export function shouldTriggerAsyncReflection(
+  record: ObservationalMemoryRecord,
+  config: MemoryConfig,
+): boolean {
+  // Disabled
+  if (config.reflection.bufferActivation === false) return false;
+
+  // Already buffering or reflecting
+  if (record.isBufferingReflection) return false;
+  if (record.isReflecting) return false;
+  if (activeReflectionOps.has(record.sessionId)) return false;
+
+  // Already have a buffered reflection waiting for activation
+  if (record.bufferedReflection) return false;
+
+  // No observations to reflect on
+  if (!record.activeObservations || record.observationTokenCount === 0) {
+    return false;
+  }
+
+  // Check threshold
+  const threshold = resolveReflectionBufferThreshold(config);
+  if (threshold <= 0) return false;
+
+  return record.observationTokenCount >= threshold;
+}
+
+/**
+ * Check if sync reflection should be forced (above blockAfter).
+ * This is the last resort when observations grow too large and
+ * no buffered reflection is available.
+ */
+export function needsSyncReflection(
+  record: ObservationalMemoryRecord,
+  config: MemoryConfig,
+): boolean {
+  const blockAfter = resolveReflectionBlockAfter(config);
+  return (
+    record.observationTokenCount >= blockAfter && !record.bufferedReflection
+  );
+}
+
+/**
+ * Register an in-flight async reflection operation.
+ */
+export function registerReflectionOp(
+  sessionId: string,
+  op: Promise<void>,
+): void {
+  activeReflectionOps.set(sessionId, op);
+  void op.finally(() => {
+    if (activeReflectionOps.get(sessionId) === op) {
+      activeReflectionOps.delete(sessionId);
+    }
+  });
+}
+
+/**
+ * Wait for any in-flight async reflection to complete.
+ */
+export async function waitForReflection(
+  sessionId: string,
+  timeoutMs = 60_000,
+): Promise<void> {
+  const op = activeReflectionOps.get(sessionId);
+  if (!op) return;
+
+  log(
+    `[OM] Waiting for in-flight reflection to complete (timeout: ${timeoutMs}ms)`,
+  );
+
+  try {
+    await Promise.race([
+      op,
+      new Promise<void>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Reflection wait timed out')),
+          timeoutMs,
+        ),
+      ),
+    ]);
+  } catch {
+    log(
+      '[OM] Reflection wait timed out or failed, proceeding with sync fallback',
+    );
+  }
+}
+
+/**
+ * Split observation text into oldest and newest line groups.
+ *
+ * @param observations - Full observation text
+ * @param splitRatio - Fraction of lines to include in the "oldest" group (0-1)
+ * @returns [oldestLines, newestLines] — joined text for each group
+ */
+export function splitObservationLines(
+  observations: string,
+  splitRatio: number,
+): { oldestText: string; newestText: string; oldestLineCount: number } {
+  const lines = observations.split('\n');
+  const splitPoint = Math.floor(lines.length * splitRatio);
+
+  // Ensure at least 1 line in each group
+  const boundary = Math.max(1, Math.min(splitPoint, lines.length - 1));
+
+  return {
+    oldestText: lines.slice(0, boundary).join('\n'),
+    newestText: lines.slice(boundary).join('\n'),
+    oldestLineCount: boundary,
+  };
+}
+
+// ============================================================================
 // Reset (for testing)
 // ============================================================================
 
@@ -431,4 +582,5 @@ export function resetBufferingState(): void {
   activeBufferingOps.clear();
   lastBufferedBoundary.clear();
   lastMidLoopSliceEnd.clear();
+  activeReflectionOps.clear();
 }

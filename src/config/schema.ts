@@ -146,7 +146,7 @@ const MemoryObservationObjectSchema = z.object({
   bufferTokens: z
     .union([z.number().min(0).max(1), z.literal(false)])
     .default(0.2),
-  bufferActivation: z.number().min(0).max(1).default(0.8),
+  bufferActivation: z.number().min(0).max(1).default(0.933),
   blockAfter: z.number().min(1).max(2).default(1.2),
   temperature: z.number().min(0).max(2).default(0.3),
 });
@@ -154,6 +154,11 @@ const MemoryObservationObjectSchema = z.object({
 const MemoryReflectionObjectSchema = z.object({
   observationTokens: z.number().int().min(1000).default(40000),
   temperature: z.number().min(0).max(2).default(0),
+  bufferActivation: z
+    .union([z.number().min(0).max(1), z.literal(false)])
+    .default(0.5),
+  blockAfter: z.number().min(1).max(2).default(1.1),
+  reflectionSplit: z.number().min(0.1).max(1).default(0.8),
 });
 
 const MemoryObjectSchema = z.object({

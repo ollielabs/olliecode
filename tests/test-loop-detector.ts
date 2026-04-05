@@ -10,11 +10,11 @@
  */
 
 import {
+  detectConsecutiveLoop,
+  detectDoomLoop,
   detectLoop,
   detectLoopExtended,
-  detectConsecutiveLoop,
   detectNotFoundPattern,
-  detectDoomLoop,
   isProgressBeingMade,
 } from '../src/agent/loop-detector';
 import type { AgentStep } from '../src/agent/types';
@@ -26,20 +26,24 @@ function createStep(
   calls: Array<{ name: string; args: Record<string, unknown> }>,
   results: Array<{ output: string; error?: string }>,
 ): AgentStep {
+  const actions = calls.map((c) => ({
+    function: {
+      name: c.name,
+      arguments: c.args,
+    },
+  }));
   return {
     thought: '',
-    actions: calls.map((c) => ({
-      function: {
-        name: c.name,
-        arguments: c.args,
-      },
-    })),
+    actions,
     observations: results.map((r, i) => ({
       tool: calls[i]?.name ?? 'unknown',
       output: r.output,
       error: r.error,
     })),
     durationMs: 0,
+    actionSignatures: actions.map(
+      (a) => `${a.function.name}:${JSON.stringify(a.function.arguments)}`,
+    ),
   };
 }
 

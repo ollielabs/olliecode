@@ -378,6 +378,73 @@ export function updateAfterActivation(
 }
 
 /**
+ * Set the isBufferingReflection lock flag.
+ */
+export function setBufferingReflectionFlag(
+  sessionId: string,
+  isBuffering: boolean,
+): void {
+  const db = getDatabase();
+  db.run(
+    'UPDATE observational_memory SET is_buffering_reflection = ?, updated_at = ? WHERE session_id = ?',
+    [isBuffering ? 1 : 0, Date.now(), sessionId],
+  );
+}
+
+/**
+ * Store the result of an async reflection buffering operation.
+ * The buffered reflection is held until activation (when observations
+ * cross the reflection threshold).
+ */
+export function updateBufferedReflection(
+  sessionId: string,
+  opts: {
+    bufferedReflection: string;
+    bufferedReflectionTokens: number;
+    bufferedReflectionInputTokens: number;
+    reflectedObservationLineCount: number;
+  },
+): void {
+  const db = getDatabase();
+  db.run(
+    `UPDATE observational_memory SET
+      buffered_reflection = ?,
+      buffered_reflection_tokens = ?,
+      buffered_reflection_input_tokens = ?,
+      reflected_observation_line_count = ?,
+      is_buffering_reflection = 0,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [
+      opts.bufferedReflection,
+      opts.bufferedReflectionTokens,
+      opts.bufferedReflectionInputTokens,
+      opts.reflectedObservationLineCount,
+      Date.now(),
+      sessionId,
+    ],
+  );
+}
+
+/**
+ * Clear buffered reflection state after activation or when it becomes stale.
+ */
+export function clearBufferedReflection(sessionId: string): void {
+  const db = getDatabase();
+  db.run(
+    `UPDATE observational_memory SET
+      buffered_reflection = NULL,
+      buffered_reflection_tokens = NULL,
+      buffered_reflection_input_tokens = NULL,
+      reflected_observation_line_count = NULL,
+      is_buffering_reflection = 0,
+      updated_at = ?
+    WHERE session_id = ?`,
+    [Date.now(), sessionId],
+  );
+}
+
+/**
  * Delete the OM record for a session.
  * Used by /new or session clear.
  */

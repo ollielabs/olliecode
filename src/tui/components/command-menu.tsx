@@ -115,7 +115,7 @@ export function CommandMenu(rawProps: CommandMenuProps) {
           maxHeight: 8,
         }}
       >
-        <scrollbox ref={scrollRef!} maxHeight={6} stickyScroll={false}>
+        <scrollbox ref={scrollRef} maxHeight={6} stickyScroll={false}>
           <box flexDirection="column">
             <Index each={filteredCommands()}>
               {(cmd, idx) => {

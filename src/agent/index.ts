@@ -531,22 +531,30 @@ export async function runAgent(
 
       totalToolCalls += toolResults.executedCount;
 
-      // Record the step
+      // Record the step (pre-compute action signatures for loop detection)
       const step: AgentStep = {
         thought: content,
         actions: toolCalls,
         observations: toolResults.observations,
         durationMs: Date.now() - stepStartTime,
+        actionSignatures: toolCalls.map(
+          (tc) =>
+            `${tc.function.name}:${JSON.stringify(tc.function.arguments)}`,
+        ),
       };
       steps.push(step);
       args.onStepComplete(step);
+
+      // Cache stripped messages for this iteration (avoids re-filtering
+      // the full array on every callback/return path).
+      const strippedMessages = stripSystemPrompt(messages);
 
       // Mid-loop: OM buffering check + sidebar stats update.
       // Fire-and-forget — does not block the agent loop.
       if (args.onIterationComplete) {
         try {
           args.onIterationComplete(
-            stripSystemPrompt(messages),
+            strippedMessages,
             lastPromptTokens !== undefined && maxContextTokens !== undefined
               ? {
                   promptTokens: lastPromptTokens,
