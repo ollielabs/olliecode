@@ -325,20 +325,23 @@ export function detectDegenerateRepetition(text: string): boolean {
 /**
  * Optimize observations before injecting into the Actor's context.
  *
- * - Strips MED and LOW priority markers (Actor only sees HIGH-priority items
- *   with full detail, others are just content without priority markers)
- * - Cleans up arrow indicators
+ * - Strips priority labels (HIGH, MED, LOW) from observation bullet lines
+ *   only when they appear in the expected `* HIGH (time)` pattern.
+ *   Does NOT strip these words from general observation content.
+ * - Cleans up arrow indicators on indented sub-items
  * - Compresses whitespace
  */
 export function optimizeObservationsForContext(observations: string): string {
   let optimized = observations;
-  // Remove priority markers — the content itself is what matters to the Actor
-  optimized = optimized.replace(/\bHIGH\s*/g, '');
-  optimized = optimized.replace(/\bMED\s*/g, '');
-  optimized = optimized.replace(/\bLOW\s*/g, '');
-  // Clean up arrow indicators
-  optimized = optimized.replace(/\s*->\s*/g, ' ');
-  // Compress runs of spaces
-  optimized = optimized.replace(/ {2,}/g, ' ');
+  // Remove priority labels anchored to the observation line pattern:
+  //   * HIGH (14:30) ...  ->  * (14:30) ...
+  //   * MED (14:30) ...   ->  * (14:30) ...
+  //   * LOW (14:30) ...   ->  * (14:30) ...
+  // This avoids stripping the words HIGH/MED/LOW from content text.
+  optimized = optimized.replace(/^(\s*\*\s+)(?:HIGH|MED|LOW)\s+/gm, '$1');
+  // Clean up arrow indicators on indented sub-items
+  optimized = optimized.replace(/^(\s+\*\s+)->\s*/gm, '$1');
+  // Compress runs of spaces (but not leading indentation)
+  optimized = optimized.replace(/(?<=\S) {2,}/g, ' ');
   return optimized.trim();
 }

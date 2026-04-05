@@ -396,7 +396,11 @@ function fireBufferingOp(
 
       if (parsed.degenerate || !parsed.observations) {
         log('[OM] Async buffering produced empty/degenerate output');
-        try { setBufferingObservationFlag(sessionId, false); } catch { /* DB may be closed */ }
+        try {
+          setBufferingObservationFlag(sessionId, false);
+        } catch (e) {
+          log('[OM] Flag cleanup failed (expected during shutdown):', e);
+        }
         return;
       }
 
@@ -418,13 +422,19 @@ function fireBufferingOp(
       };
 
       addBufferedChunk(sessionId, chunk);
+      // Invalidate cached record so next mid-loop read sees the new chunk
+      cachedOMRecord.delete(sessionId);
 
       log(
         `[OM] Async buffering complete: chunk ${chunk.cycleId}, ${chunk.tokenCount} tokens`,
       );
     } catch (error) {
       log('[OM] Async buffering failed:', error);
-      try { setBufferingObservationFlag(sessionId, false); } catch { /* DB may be closed */ }
+      try {
+        setBufferingObservationFlag(sessionId, false);
+      } catch (e) {
+        log('[OM] Flag cleanup failed (expected during shutdown):', e);
+      }
     }
   })();
 
@@ -547,7 +557,11 @@ export function fireAsyncReflection(
 
       if (!result || !result.observations) {
         log('[OM] Async reflection produced no output');
-        try { setBufferingReflectionFlag(sessionId, false); } catch { /* DB may be closed */ }
+        try {
+          setBufferingReflectionFlag(sessionId, false);
+        } catch (e) {
+          log('[OM] Flag cleanup failed (expected during shutdown):', e);
+        }
         return;
       }
 
@@ -563,9 +577,15 @@ export function fireAsyncReflection(
         bufferedReflectionInputTokens: inputTokens,
         reflectedObservationLineCount: oldestLineCount,
       });
+      // Invalidate cached record so next read sees the buffered reflection
+      cachedOMRecord.delete(sessionId);
     } catch (error) {
       log('[OM] Async reflection failed:', error);
-      try { setBufferingReflectionFlag(sessionId, false); } catch { /* DB may be closed */ }
+      try {
+        setBufferingReflectionFlag(sessionId, false);
+      } catch (e) {
+        log('[OM] Flag cleanup failed (expected during shutdown):', e);
+      }
     }
   })();
 
