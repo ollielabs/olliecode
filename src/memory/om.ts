@@ -106,13 +106,6 @@ function getCachedOrFetchRecord(sessionId: string): ObservationalMemoryRecord {
   return record;
 }
 
-/** Update the cache after a DB write. */
-function refreshCache(sessionId: string): ObservationalMemoryRecord {
-  const record = getOrCreateOMRecord(sessionId);
-  cachedOMRecord.set(sessionId, record);
-  return record;
-}
-
 /** Clear cache for a session (called on session clear/delete). */
 export function clearOMRecordCache(sessionId: string): void {
   cachedOMRecord.delete(sessionId);
@@ -594,7 +587,7 @@ export function fireAsyncReflection(
  */
 export async function tryActivateBufferedReflection(
   sessionId: string,
-  config: MemoryConfig,
+  _config: MemoryConfig,
 ): Promise<{
   success: boolean;
   record: ObservationalMemoryRecord;
