@@ -355,3 +355,45 @@ Updated this plan document.
 | Message tracking | `observedUpTo` integer boundary (not `observedMessageIds` array). Simpler, faster, no JSON parsing. |
 | `bufferActivation` | 0.933 (retains ~2k raw tokens). Tuned from Mastra's 0.8 during testing. |
 | Compaction fallback | Kept but disabled when OM is active. Can be removed in follow-up. |
+
+---
+
+## Known Limitations & Future Work
+
+Deferred architecture issues from code review. None are blockers for the initial
+ship, but should be addressed as OM matures in production use.
+
+- [ ] **Reflector prompt size**: The Reflector system prompt embeds the full Observer
+  prompt (~5.2k tokens total). On small models (8k context), this consumes 65% of
+  context before any observation content. Consider a condensed Reflector prompt that
+  summarizes Observer conventions instead of embedding verbatim.
+
+- [ ] **Token counting heuristic**: All threshold decisions use `estimateTokens` (2.5
+  chars/token heuristic). Ollama returns actual token counts in responses but these
+  aren't fed back into OM tracking. Could be off by 20-30% depending on content type.
+  Consider calibrating against actual counts from `onIterationComplete`.
+
+- [ ] **No observation history**: Reflections replace `activeObservations` in-place.
+  `generationCount` increments but previous generations aren't stored. If a reflection
+  loses critical info, it's gone. A simple `observational_memory_history` table would
+  preserve previous generations.
+
+- [ ] **Remove compaction fallback**: `compaction.ts` and related code paths remain in
+  the codebase, gated by `memoryConfig.enabled`. Once OM is validated in production,
+  remove compaction entirely to reduce code surface.
+
+- [ ] **In-memory state coupling**: Process-level Maps are spread across `om.ts`
+  (`cachedOMRecord`) and `buffering.ts` (`activeBufferingOps`, `lastBufferedBoundary`,
+  `lastMidLoopSliceEnd`, `activeReflectionOps`). These must be cleared together but
+  have separate reset functions. Consider bundling into a single `OMSessionState`
+  object if concurrent sessions or hot-reload are ever needed.
+
+- [ ] **Sync fallback doesn't check in-flight ops**: `needsSyncFallback` triggers sync
+  observation when tokens exceed `blockAfter` and no chunks exist, even if a buffering
+  op is in-flight. The sync result is correct but redundant. Low risk — would require
+  a ~6k token jump in one agent step.
+
+- [ ] **Async chunk race after sync observation**: `updateAfterObservation` clears
+  `buffered_observation_chunks` to `[]`. If an in-flight async op lands after this, the
+  chunk covers already-observed messages. `pruneStaleChunks` handles this at activation
+  time, but the race isn't prevented upstream.
