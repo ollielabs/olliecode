@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -25,7 +25,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -66,7 +66,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: v${{ needs.release.outputs.version }}
 
@@ -80,7 +80,7 @@ jobs:
 
       - name: Build
         run: |
-          bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js \
+          NODE_ENV=production bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js \
             --compile \
             --outfile=ollie \
             --define 'OTUI_TREE_SITTER_WORKER_PATH="/$bunfs/root/node_modules/@opentui/core/parser.worker.js"'
@@ -102,7 +102,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -133,7 +133,7 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -141,7 +141,7 @@ jobs:
           repositories: homebrew-tap
 
       - name: Checkout homebrew-tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ollielabs/homebrew-tap
           token: ${{ steps.app-token.outputs.token }}
