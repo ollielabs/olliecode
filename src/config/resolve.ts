@@ -9,6 +9,7 @@
 import type { CompactionConfig } from '../agent/compaction';
 import type { SafetyConfig } from '../agent/safety/types';
 import type { AgentConfig, ToolsConfig } from '../agent/types';
+import type { MemoryConfig } from '../memory/types';
 import type { PermissionValue, ResolvedConfig } from './schema';
 
 // === TUI config type ===
@@ -188,6 +189,33 @@ export function extractTuiConfig(config: ResolvedConfig): TuiConfig {
     toastDuration: config.tui.toastDuration,
     doubleEscapeThreshold: config.tui.doubleEscapeThreshold,
     sessionListLimit: config.tui.sessionListLimit,
+  };
+}
+
+/**
+ * Extract MemoryConfig from resolved config.
+ *
+ * Maps the Zod-validated config.memory section into the MemoryConfig
+ * type used by the observational memory orchestrator.
+ */
+export function extractMemoryConfig(config: ResolvedConfig): MemoryConfig {
+  return {
+    enabled: config.memory.enabled,
+    model: config.memory.model,
+    observation: {
+      messageTokens: config.memory.observation.messageTokens,
+      bufferTokens: config.memory.observation.bufferTokens,
+      bufferActivation: config.memory.observation.bufferActivation,
+      blockAfter: config.memory.observation.blockAfter,
+      temperature: config.memory.observation.temperature,
+    },
+    reflection: {
+      observationTokens: config.memory.reflection.observationTokens,
+      temperature: config.memory.reflection.temperature,
+      bufferActivation: config.memory.reflection.bufferActivation,
+      blockAfter: config.memory.reflection.blockAfter,
+      reflectionSplit: config.memory.reflection.reflectionSplit,
+    },
   };
 }
 

@@ -1,15 +1,16 @@
-# Observational Memory v2 — Full Observer/Reflector Implementation Plan
+# Observational Memory v2 — Observer/Reflector Implementation
 
 **Issues:** #69 (expanded), #66 (superseded)
 **Research:** `docs/research/mastra-observational-memory-source.md`
 **Replaces:** Phase 0 programmatic extraction (PR #70)
 **Approach:** Mastra-style Observer/Reflector with coding-specific adaptation
+**Status:** Implementation complete. All phases delivered.
 
 ---
 
 ## Executive Summary
 
-Replace both programmatic observation extraction (PR #70) and conversation
+Replaced both programmatic observation extraction (PR #70) and conversation
 summarization (`compaction.ts`) with a Mastra-inspired Observer/Reflector system.
 An Observer LLM agent watches conversations and extracts dense, coding-specific
 observations. A Reflector agent condenses observations when they grow too large.
@@ -17,8 +18,8 @@ Async buffering pre-computes observations in the background so activation is ins
 the user never experiences a compaction pause.
 
 **Key difference from Mastra:** Our Observer prompt is coding-specific, not
-domain-agnostic. We know exactly what our tools produce and what matters in coding
-conversations.
+domain-agnostic. Uses text priority labels (`HIGH/MED/LOW`) instead of emoji
+(`🔴🟡🟢`) for better compatibility with local models.
 
 **Key constraint preserved:** Chat history is NEVER altered. Messages are excluded
 from model context after observation, but remain in SQLite for display.
@@ -60,13 +61,14 @@ Reflector (background LLM agent)
 ```
 User submits message
   → runAgent starts, iterates with tool calls
-  → Each step: check message token count
-    → Below threshold: continue normally
-    → At buffer interval: fire background Observer (async, non-blocking)
+  → Step 0: processOMStep (full pipeline)
+    → Below threshold: fire async buffering at intervals
     → At threshold: activate buffered observations (instant)
       → Observed messages excluded from context
       → Observations injected as system message
     → Above blockAfter: synchronous Observer (blocking, last resort)
+  → Each iteration: checkMidLoopBuffering
+    → Zone 1 async buffering + async reflection trigger
   → Agent completes
 
 Observer produces observations
@@ -74,94 +76,61 @@ Observer produces observations
   → observations + currentTask + suggestedResponse
 
 When observations exceed reflection threshold
-  → Reflector condenses them (compression escalation levels 0-3)
+  → Try activate buffered reflection (instant, pre-computed)
+  → Fall back to sync Reflector (compression escalation levels 0-3)
   → New generation record, old pushed to history
 ```
 
 ---
 
-## What Gets Removed
+## File Inventory
 
-### PR #70 code (programmatic extraction)
+### Core Memory System
 
-| File | Action |
-|------|--------|
-| `src/memory/extractors.ts` | **Delete** — Observer replaces programmatic extraction |
-| `src/memory/working-memory.ts` | **Delete** — Observer block replaces the builder |
-| `src/memory/types.ts` | **Rewrite** — new types for Observer/Reflector system |
-| `src/memory/store.ts` | **Rewrite** — new storage for observation records |
-| `tests/test-memory.ts` | **Rewrite** — new tests for Observer system |
-| `tests/test-memory-integration.ts` | **Rewrite** — new integration tests |
+| File | Description |
+|------|-------------|
+| `src/memory/types.ts` | `ObservationalMemoryRecord`, `BufferedObservationChunk`, `ObserverResult`, `ReflectorResult`, config types |
+| `src/memory/observer.ts` | Observer agent: coding-specific system prompt, prompt builder, output parser, degenerate detection |
+| `src/memory/reflector.ts` | Reflector agent: system prompt, compression escalation (levels 0-3), output parser |
+| `src/memory/om.ts` | Core orchestrator: three-zone pipeline, sync/async observation, activation, context assembly, mid-loop buffering, OM record cache |
+| `src/memory/buffering.ts` | Async buffering lifecycle: interval triggers, chunk management, activation, retention floor, async reflection ops |
+| `src/memory/store.ts` | CRUD for `observational_memory` table (single-record per session) |
+| `src/memory/token-counter.ts` | Token counting using `estimateTokens` heuristic (2.5 chars/token) |
 
-### Compaction code
+### Integration Points
 
-| File | Action |
-|------|--------|
-| `src/agent/compaction.ts` | **Keep but disable** — not called when OM is active |
-
-The compaction code stays in the codebase as a fallback during development. Once OM
-proves itself, compaction can be removed in a follow-up.
-
-### Migration v5 (observations table)
-
-The existing `observations` table from PR #70 is not suitable for the new system.
-The new migration will:
-- Drop the `observations` table (or leave it and create new tables)
-- Create the `observational_memory` table (single-record design)
-
----
-
-## New/Modified Files
-
-### Phase 1: Core Observer
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/memory/types.ts` | Rewrite | `ObservationalMemoryRecord`, `BufferedObservationChunk`, `ObserverResult`, config types |
-| `src/memory/observer.ts` | New | Observer agent: system prompt, prompt builder, output parser, degenerate detection |
-| `src/memory/reflector.ts` | New | Reflector agent: system prompt, compression escalation, output parser |
-| `src/memory/om.ts` | New | Core orchestrator: threshold checks, sync/async observation, activation, context assembly |
-| `src/memory/store.ts` | Rewrite | CRUD for `observational_memory` table (single-record per session) |
-| `src/memory/token-counter.ts` | New | Token counting for messages (evaluate: tiktoken vs our `estimateTokens`) |
-
-### Phase 2: Integration
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/session/migrations.ts` | Modify | Migration v6: `observational_memory` table |
-| `src/agent/index.ts` | Modify | Replace `observationBlock` with OM integration in the iteration loop |
-| `src/agent/prompts/shared.ts` | Modify | Update `SystemPromptContext` for new observation format |
-| `src/agent/prompts/build.ts` | Modify | Update observation injection |
-| `src/agent/prompts/plan.ts` | Modify | Update observation injection |
-| `src/tui/hooks/use-agent-submit.ts` | Modify | Remove programmatic extraction, wire OM into agent lifecycle |
-| `src/tui/hooks/use-message-store.ts` | Modify | New `history()` logic: observation-aware message filtering |
-| `src/config/schema.ts` | Modify | Add `memory` config section |
-
-### Phase 3: Async Buffering
-
-| File | Action | Description |
-|------|--------|-------------|
-| `src/memory/buffering.ts` | New | Async buffering lifecycle: intervals, chunks, activation, retention floor |
-| `src/memory/om.ts` | Modify | Integrate buffering into the step-by-step pipeline |
+| File | Changes |
+|------|---------|
+| `src/session/migrations.ts` | Migration v6: `observational_memory` table. Migration v7: `observed_up_to` column |
+| `src/agent/index.ts` | OM integration in agent loop, pre-computed action signatures, cached `strippedMessages` |
+| `src/agent/types.ts` | `actionSignatures` field on `AgentStep` |
+| `src/agent/loop-detector.ts` | Uses pre-computed `actionSignatures` |
+| `src/agent/tool-processor.ts` | Minor integration changes |
+| `src/agent/prompts/shared.ts` | `SystemPromptContext` updated for observation format |
+| `src/agent/prompts/build.ts` | Observation injection |
+| `src/agent/prompts/plan.ts` | Observation injection |
+| `src/tui/hooks/use-agent-submit.ts` | Wired OM into agent lifecycle |
+| `src/tui/hooks/use-agent-context.ts` | Sidebar stats update per iteration |
+| `src/tui/hooks/use-message-store.ts` | Observation-aware message filtering |
+| `src/tui/components/command-menu.tsx` | Context stats display |
+| `src/config/schema.ts` | `memory` config section with Zod validation |
+| `src/config/resolve.ts` | Memory config resolution |
 
 ### Tests
 
-| File | Action | Description |
-|------|--------|-------------|
-| `tests/test-observer.ts` | New | Observer prompt building, output parsing, degenerate detection |
-| `tests/test-reflector.ts` | New | Reflector output parsing, compression validation |
-| `tests/test-om-store.ts` | New | Storage CRUD, record lifecycle |
-| `tests/test-om-integration.ts` | New | End-to-end: observation → storage → context assembly |
-| `tests/test-buffering.ts` | New | Async buffering intervals, chunk activation, retention floor |
+| File | Description |
+|------|-------------|
+| `tests/test-om.ts` | 136 tests: observer parsing, degenerate detection, reflector parsing, store CRUD, buffering intervals/activation/retention, mid-loop slice tracking, config extraction, reflection buffering |
+| `tests/test-loop-detector.ts` | 15 tests: loop detection with pre-computed action signatures |
 
-### Cleanup
+### Deleted (v1 dead code)
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/memory/extractors.ts` | Delete | Replaced by Observer |
-| `src/memory/working-memory.ts` | Delete | Replaced by Observer |
-| `tests/test-memory.ts` | Delete | Replaced by new test files |
-| `tests/test-memory-integration.ts` | Delete | Replaced by new test files |
+| File | Reason |
+|------|--------|
+| `src/memory/extractors.ts` | Replaced by Observer LLM |
+| `src/memory/working-memory.ts` | Replaced by observation block |
+| `tests/test-memory.ts` | Replaced by `test-om.ts` |
+| `tests/test-memory-integration.ts` | Replaced by `test-om.ts` |
 
 ---
 
@@ -175,198 +144,64 @@ Single row per session. All state in one record.
 CREATE TABLE IF NOT EXISTS observational_memory (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL UNIQUE,
-  
+
   -- Active observations (what the Actor sees)
   active_observations TEXT NOT NULL DEFAULT '',
   observation_token_count INTEGER NOT NULL DEFAULT 0,
-  
+
   -- Observation tracking
   origin_type TEXT NOT NULL DEFAULT 'initial',  -- 'initial' | 'observation' | 'reflection'
   generation_count INTEGER NOT NULL DEFAULT 0,
   last_observed_at INTEGER,                      -- epoch ms cursor
-  observed_message_ids TEXT NOT NULL DEFAULT '[]', -- JSON array
-  
+  observed_message_ids TEXT NOT NULL DEFAULT '[]', -- JSON array (deprecated, kept for compat)
+  observed_up_to INTEGER NOT NULL DEFAULT 0,      -- slice boundary (added in v7)
+
   -- Async buffering: observation chunks
   buffered_observation_chunks TEXT NOT NULL DEFAULT '[]', -- JSON array of chunks
   is_buffering_observation INTEGER NOT NULL DEFAULT 0,
   last_buffered_at_tokens INTEGER NOT NULL DEFAULT 0,
   last_buffered_at_time INTEGER,
-  
+
   -- Async buffering: reflection
   buffered_reflection TEXT,
   buffered_reflection_tokens INTEGER,
   buffered_reflection_input_tokens INTEGER,
   reflected_observation_line_count INTEGER,
   is_buffering_reflection INTEGER NOT NULL DEFAULT 0,
-  
+
   -- Lock flags
   is_observing INTEGER NOT NULL DEFAULT 0,
   is_reflecting INTEGER NOT NULL DEFAULT 0,
-  
+
   -- Token tracking
   pending_message_tokens INTEGER NOT NULL DEFAULT 0,
   total_tokens_observed INTEGER NOT NULL DEFAULT 0,
-  
+
   -- Thread metadata (current task, suggested response)
   current_task TEXT,
   suggested_response TEXT,
-  
+
   -- Timestamps
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  
+
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_om_session
-  ON observational_memory(session_id);
 ```
 
-### `BufferedObservationChunk` (stored as JSON in `buffered_observation_chunks`)
+### Message Tracking: `observedUpTo`
 
-```typescript
-type BufferedObservationChunk = {
-  cycleId: string;
-  observations: string;
-  tokenCount: number;
-  messageIds: string[];
-  messageTokens: number;
-  lastObservedAt: number;  // epoch ms
-  currentTask?: string;
-  suggestedResponse?: string;
-};
-```
+Messages are tracked by position, not ID. `observedUpTo` is an integer slice
+boundary: `allMessages.slice(observedUpTo)` = unobserved messages.
 
----
-
-## Observer Prompt Design (Coding-Specific)
-
-The Observer prompt is the most critical piece. It must be tailored to coding
-conversations — we know our tools, our workflows, and what context matters.
-
-### Structure
-
-```
-You are the memory consciousness of Ollie, an AI coding assistant. Your observations
-will be the ONLY information Ollie has about past interactions in this coding session.
-
-Your job is to watch the conversation and extract concise, actionable observations
-that help Ollie continue working effectively.
-
-=== WHAT TO OBSERVE ===
-
-[Coding-specific extraction instructions]
-
-=== OUTPUT FORMAT ===
-
-[Priority emojis, date grouping, XML tags]
-
-=== GUIDELINES ===
-
-[Terse language, anti-repetition, grouping rules]
-```
-
-### Coding-Specific Extraction Instructions
-
-```
-TOOL CALL OBSERVATIONS:
-When the agent calls tools, observe the semantic intent, not the raw calls.
-
-BAD (repetitive, mechanical):
-* 🟡 (14:30) Agent called read_file on src/auth.ts
-* 🟡 (14:31) Agent called read_file on src/users.ts
-* 🟡 (14:32) Agent called grep for "validateToken"
-
-GOOD (semantic, grouped):
-* 🟡 (14:30) Agent investigated auth flow
-  * -> read src/auth.ts — found token validation using JWT at line 45
-  * -> read src/users.ts — found user lookup by email at line 23
-  * -> grep "validateToken" — 3 matches across auth module
-
-FILE MODIFICATIONS:
-Observe what changed and why, not just that a file was touched.
-
-BAD: Agent edited src/agent/index.ts
-GOOD: Agent edited src/agent/index.ts:45-60 — added observationBlock to RunAgentArgs
-      to support memory injection into system prompt
-
-COMMAND RESULTS:
-Observe the outcome, especially failures. Preserve error messages that may recur.
-
-BAD: Agent ran bun test
-GOOD: Agent ran bun test — 44 passed, 0 failed (memory tests)
-GOOD: Agent ran bun check:types — 5 errors in src/agent/index.ts (TS2345: type mismatch
-      on observationBlock argument)
-
-ARCHITECTURAL DECISIONS:
-When the user or agent makes a design choice, observe the decision AND the reasoning.
-
-GOOD: 🔴 (14:45) Decided to use SQLite single-record design for observation storage
-      (simpler than per-observation rows, matches Mastra pattern, all state in one place)
-
-USER REQUESTS AND GOALS:
-User messages are always high priority. Observe the intent, not just the words.
-
-GOOD: 🔴 (14:00) User wants to implement observational memory following Mastra's approach
-      — Observer/Reflector pattern, async buffering, coding-specific prompts
-      
-GIT AND VERSION CONTROL:
-Observe branch context, commits, PR state.
-
-GOOD: 🟡 (15:00) On branch feat/observational-memory, committed "fix: cap errors at 10",
-      PR #70 ready for merge
-
-TEST RESULTS:
-Preserve pass/fail counts and specific failure details.
-
-GOOD: 🔴 (15:30) Tests: 44 passed, 2 failed
-  * -> test-observer.ts: "expected observations to contain file path" — Observer not
-       extracting file paths from edit_file results
-  * -> test-om-integration.ts: timeout on async buffering activation
-```
-
-### Output Format
-
-```
-Use priority levels:
-- 🔴 High: user requests, goals, decisions, completed tasks, errors, test failures
-- 🟡 Medium: file modifications, command results, tool sequences, codebase discoveries
-- 🟢 Low: file reads (unless something significant was discovered), routine operations
-
-Group related tool call sequences by indenting under a semantic header.
-Group observations by date, then list each with 24-hour time.
-
-<observations>
-Date: Feb 25, 2026
-* 🔴 (14:00) User wants to implement full Observer/Reflector memory system
-* 🟡 (14:05) Agent researched Mastra OM source code
-  * -> read observer-agent.ts — massive prompt (~800 lines), domain-agnostic
-  * -> read reflector-agent.ts — compression escalation levels 0-3
-  * -> read observational-memory.ts — 6115 lines, async buffering with chunks
-* 🔴 (14:30) Decision: go full Mastra-style, remove programmatic extraction layer
-  * Rationale: Observer captures meaning not just artifacts, dual maintenance burden
-* 🟡 (14:45) Agent drafted implementation plan
-  * -> new files: observer.ts, reflector.ts, om.ts, buffering.ts
-  * -> rewrite: types.ts, store.ts
-  * -> delete: extractors.ts, working-memory.ts
-</observations>
-
-<current-task>
-- Primary: Implementing observational memory v2 (Observer/Reflector system)
-- Phase: Planning — implementation plan drafted, awaiting user approval
-</current-task>
-
-<suggested-response>
-Present the implementation plan to the user for review. Key decisions to confirm:
-Observer prompt design, async buffering scope, migration strategy for existing sessions.
-</suggested-response>
-```
+The deprecated `observedMessageIds` JSON array is kept for DB compatibility but
+not read. Migration v7 backfills `observedUpTo` from the array length.
 
 ---
 
 ## Async Buffering Design
 
-### Three Zones
+### Three Zones (Observation)
 
 | Token Range | Behavior |
 |-------------|----------|
@@ -380,26 +215,19 @@ Observer prompt design, async buffering scope, migration strategy for existing s
 |---------|---------|-----------|
 | `messageTokens` | 30,000 | Mastra default; ~15k words of conversation |
 | `bufferTokens` | 0.2 (= 6,000) | Buffer every 20% of threshold |
-| `bufferActivation` | 0.8 | Retain ~20% of raw messages after activation |
+| `bufferActivation` | 0.933 | Retain ~2k tokens of raw messages (tuned from Mastra's 0.8) |
 | `blockAfter` | 1.2 (= 36,000) | Force sync at 120% of threshold |
 | `observationTokens` | 40,000 | Reflection threshold |
 
-### Buffering Lifecycle
+### Mid-Loop Buffering
 
-1. **Interval trigger**: Every ~6k tokens of unobserved messages, fire a background
-   Observer call. Near the threshold, halve the interval for finer chunks.
+During the agent loop, `checkMidLoopBuffering` runs after each tool iteration.
+It only fires Zone 1 async buffering (no activation or sync fallback — those
+require message array mutation which can't happen mid-loop).
 
-2. **Chunk storage**: Each background call produces a `BufferedObservationChunk` with
-   observation text, message IDs, and token counts. Stored as JSON in the OM record.
-
-3. **Activation**: When message tokens exceed threshold, activate buffered chunks:
-   - Move chunk observations to `active_observations`
-   - Remove activated chunks from buffer
-   - Exclude observed messages from model context
-   - Apply retention floor (keep ~6k tokens of raw messages)
-
-4. **Safety fallback**: If messages exceed `blockAfter` and no buffered chunks are
-   available, run a synchronous Observer call (blocking).
+To prevent chunk overlap, slice tracking records where the last trigger cut the
+agent message array. Subsequent triggers only observe NEW messages since the
+last slice point.
 
 ### Ramp Mechanism
 
@@ -410,10 +238,6 @@ the retention floor target.
 ---
 
 ## Reflector Design
-
-### Trigger
-
-When `observation_token_count` exceeds `observationTokens` threshold (default 40k).
 
 ### Compression Escalation
 
@@ -426,190 +250,150 @@ When `observation_token_count` exceeds `observationTokens` threshold (default 40
 
 If output tokens exceed the target, retry at the next level. Max 4 attempts.
 
-### Reflection Lifecycle
+### Async Reflection Buffering (Three-Tier Strategy)
 
-1. Reflector receives all current observations
-2. Produces condensed version (same format, fewer tokens)
-3. Creates a new generation record (`generation_count + 1`)
-4. Old record pushed to history
-5. `origin_type` changes from `'observation'` to `'reflection'`
-6. Recursive: reflections can be reflected upon when they grow too large
+| Tier | Token Range | Behavior |
+|------|-------------|----------|
+| 1. Async buffer | observations ≥ 50% of threshold (20k) | Fire background Reflector on oldest 80% of lines |
+| 2. Activate | observations ≥ threshold (40k) | Try instant activation of pre-computed reflection |
+| 3. Sync fallback | observations ≥ blockAfter (44k) | Block and run sync reflection |
 
-### Async Buffered Reflection
+When async reflection activates:
+1. Split current observations at the recorded line boundary
+2. Replace oldest lines with compressed reflection
+3. Append unreflected new lines verbatim
+4. Create new generation record
 
-When observations reach 50% of reflection threshold:
-1. Background Reflector starts on first N lines of observations
-2. Records `reflected_observation_line_count` boundary
-3. New observations can still be appended while Reflector runs
-4. At activation: lines before boundary replaced by reflection, lines after kept
+### Reflection Config
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `observationTokens` | 40,000 | Threshold to trigger reflection |
+| `temperature` | 0 | Reflector LLM temperature |
+| `bufferActivation` | 0.5 | Start async reflection at 50% of threshold |
+| `blockAfter` | 1.1 | Force sync reflection at 110% of threshold |
+| `reflectionSplit` | 0.8 | Reflect oldest 80% of observation lines |
 
 ---
 
-## Integration Points
-
-### `runAgent()` Changes
-
-The agent loop currently builds messages once and iterates. With OM, each iteration
-step needs to:
-
-1. **Count unobserved message tokens** (including new tool results from this iteration)
-2. **Check thresholds**: trigger async buffering or activate chunks
-3. **Rebuild context** if activation occurred: inject observations, filter messages
-4. **Continue iteration** with updated context
-
-This means OM logic runs **per iteration**, not per turn. The observation block is no
-longer a static string passed to `runAgent` — it's dynamically managed within the loop.
-
-### `use-message-store.ts` Changes
-
-The `history()` memo needs a new mode: observation-aware filtering.
-
-When OM is active:
-- No summary pointer (`summaryMsgId` is not used)
-- Instead, filter by `lastObservedAt` and `observedMessageIds`
-- History = only unobserved messages (messages after the observation cursor)
-- Observations are injected separately as a system message, not through history
-
-When OM is not active (fallback):
-- Current behavior with summary pointer
-
-### Config Schema
-
-New `memory` section in config:
+## Config Schema
 
 ```typescript
 memory: {
-  enabled: boolean,           // default true
-  model: string,              // default: same as main model
+  enabled: boolean,              // default true
+  model?: string,                // default: same as main agent model
   observation: {
-    messageTokens: number,    // default 30000
-    bufferTokens: number,     // default 0.2 (fraction of messageTokens)
-    bufferActivation: number, // default 0.8
-    blockAfter: number,       // default 1.2 (multiplier)
-    temperature: number,      // default 0.3
+    messageTokens: number,       // default 30000
+    bufferTokens: number | false,// default 0.2 (fraction of messageTokens)
+    bufferActivation: number,    // default 0.933
+    blockAfter: number,          // default 1.2 (multiplier)
+    temperature: number,         // default 0.3
   },
   reflection: {
-    observationTokens: number, // default 40000
-    temperature: number,       // default 0
+    observationTokens: number,   // default 40000
+    temperature: number,         // default 0
+    bufferActivation: number | false, // default 0.5
+    blockAfter: number,          // default 1.1
+    reflectionSplit: number,     // default 0.8
   },
 }
 ```
 
 ---
 
-## Migration Strategy
+## Performance Optimizations
 
-### Existing sessions
-
-Existing sessions have:
-- Messages in `messages` table (unchanged)
-- Possible `summary_message_id` pointer (from old compaction)
-- Possible rows in `observations` table (from PR #70 programmatic extraction)
-
-Migration v6:
-1. Create `observational_memory` table
-2. Leave `observations` table in place (no data loss) but stop reading from it
-3. Leave `summary_message_id` on sessions (old compaction still works as fallback)
-
-When loading an existing session:
-- If no OM record exists, create one with `origin_type: 'initial'`
-- The Observer will lazily observe the backlog when the threshold is first exceeded
-  (same as Mastra's approach for migrating existing threads)
-
-### New sessions
-
-Created with an OM record from the start. No compaction, no summary pointer.
+- **OM record cache**: In-memory `Map<sessionId, record>` avoids SQLite SELECT +
+  `JSON.parse(buffered_observation_chunks)` on every agent iteration. Refreshed
+  after processOMStep and DB writes.
+- **Action signature pre-compute**: `actionSignatures` computed once on step creation
+  instead of re-serialized on every loop detection comparison.
+- **Cached `strippedMessages`**: Agent loop caches `stripSystemPrompt(messages)` to
+  avoid re-filtering the full array on every callback/return path.
+- **Skip DB writes mid-loop**: `pendingMessageTokens` is stats-only; mid-loop
+  buffering skips the SQLite UPDATE to avoid blocking the agent loop.
 
 ---
 
-## Implementation Phases
+## Implementation Phases (Completed)
 
-### Phase 1: Core Observer (sync only, no buffering)
+### Phase 1: Core Observer ✅
 
-**Goal:** Observer extracts observations, context is assembled correctly, messages
-are filtered. Sync-only (blocking when threshold is hit). Proves the concept.
+Sync observation, types, store, orchestrator, migration v6, agent integration,
+observation-aware message filtering, config schema.
 
-1. Rewrite `src/memory/types.ts` with new type definitions
-2. Create `src/memory/observer.ts` — coding-specific prompt, output parser
-3. Rewrite `src/memory/store.ts` — CRUD for `observational_memory` table
-4. Create `src/memory/om.ts` — core orchestrator (sync observation only)
-5. Add migration v6
-6. Modify `src/agent/index.ts` — integrate OM into iteration loop
-7. Modify `src/tui/hooks/use-agent-submit.ts` — remove programmatic extraction
-8. Modify `src/tui/hooks/use-message-store.ts` — observation-aware history
-9. Update prompts (`shared.ts`, `build.ts`, `plan.ts`)
-10. Add config schema for `memory` section
-11. Write tests for observer, store, integration
-12. Manual testing with real conversations
+### Phase 2: Reflector ✅
 
-### Phase 2: Reflector
+Compression escalation (levels 0-3), reflection trigger, generation count.
 
-**Goal:** Observations are condensed when they grow too large.
+### Phase 3: Async Observation Buffering ✅
 
-1. Create `src/memory/reflector.ts` — prompt, compression escalation, parser
-2. Integrate reflection trigger into `om.ts`
-3. Add generation count and history support to store
-4. Write tests for reflector, compression validation
-5. Manual testing with long conversations that exceed observation threshold
+`buffering.ts`, three-zone pipeline, ramp mechanism, retention floor, chunk
+activation, `blockAfter` sync fallback.
 
-### Phase 3: Async Buffering
+### Phase 3.5: Async Reflection Buffering + Performance ✅
 
-**Goal:** Background observation so activation is instant. "Never compacts" experience.
+Background Reflector, `splitObservationLines`, three-tier reflection strategy,
+mid-loop buffering, OM record cache, action signature pre-compute, migration v7
+(`observed_up_to`).
 
-1. Create `src/memory/buffering.ts` — interval triggers, chunk management, activation
-2. Integrate buffering into `om.ts` step pipeline
-3. Add ramp mechanism near threshold
-4. Add retention floor calculation
-5. Add `blockAfter` synchronous fallback
-6. Write tests for buffering intervals, activation, edge cases
-7. Manual testing — verify no blocking pauses during conversation
+### Phase 4: Cleanup ✅
 
-### Phase 4: Cleanup
-
-**Goal:** Remove old code, update issues, docs.
-
-1. Delete `src/memory/extractors.ts`, `src/memory/working-memory.ts`
-2. Delete old test files
-3. Evaluate whether compaction code should be removed or kept as dead code
-4. Update `OBSERVATIONAL_MEMORY_PLAN.md` (or replace with this doc)
-5. Close #66 (superseded), update #69
-6. Update AGENTS.md if needed
+Deleted dead v1 code (`extractors.ts`, `working-memory.ts`, old tests).
+Updated this plan document.
 
 ---
 
-## Open Questions
+## Resolved Design Decisions
 
-1. **Model for Observer/Reflector**: Same model as the main agent, or a dedicated
-   model? Mastra defaults to Gemini 2.5 Flash. Our users configure their own model.
-   Should we use the same model (simpler) or add a `memory.model` config option
-   (allows a cheaper/faster model for observation)?
-
-2. **Token counting accuracy**: Our `estimateTokens()` is a heuristic. Mastra uses
-   tiktoken with `o200k_base`. Should we adopt tiktoken for OM token counting, or is
-   our heuristic accurate enough for threshold decisions?
-
-3. **Observation prompt iteration**: The Observer prompt is the most important piece
-   and will need iteration based on real-world testing. How do we plan for prompt
-   refinement cycles?
-
-4. **Existing session migration**: When a user opens an old session that has a
-   compaction summary, should we: (a) keep using the summary until OM naturally takes
-   over, (b) immediately observe the backlog, or (c) start fresh with OM from the
-   next message?
-
-5. **Observation format in context**: Mastra strips 🟡 and 🟢 emojis before showing
-   observations to the Actor (only 🔴 survives). Should we do the same, or show all
-   priorities to the Actor?
+| Question | Decision |
+|----------|----------|
+| Model for Observer/Reflector | `memory.model` config option (optional, defaults to main model) |
+| Token counting | `estimateTokens` heuristic (2.5 chars/token). Sufficient for threshold decisions. Tiktoken available if accuracy becomes an issue. |
+| Priority format | `HIGH/MED/LOW` text labels (not emoji). Better for local models. `optimizeObservationsForContext()` strips all labels before Actor sees them. |
+| Existing session migration | Lazy init: `getOrCreateOMRecord` creates initial record on first access. Old sessions get OM when threshold is first crossed. |
+| Message tracking | `observedUpTo` integer boundary (not `observedMessageIds` array). Simpler, faster, no JSON parsing. |
+| `bufferActivation` | 0.933 (retains ~2k raw tokens). Tuned from Mastra's 0.8 during testing. |
+| Compaction fallback | Kept but disabled when OM is active. Can be removed in follow-up. |
 
 ---
 
-## Risk Assessment
+## Known Limitations & Future Work
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Observer produces low-quality observations | Medium | High | Coding-specific prompt, degenerate detection, manual testing |
-| Observer LLM call adds latency | Medium | Medium | Async buffering (Phase 3) eliminates perceived latency |
-| Reflector loses important context | Low | High | Compression escalation, "your reflections are the ENTIRE memory" instruction |
-| Token counting inaccuracy causes premature/late triggering | Low | Medium | Can tune thresholds; evaluate tiktoken if needed |
-| Compaction fallback needed during development | Expected | Low | Keep compaction code, disable when OM is active |
-| Migration breaks existing sessions | Low | Medium | Lazy initialization, graceful fallback to old compaction |
+Deferred architecture issues from code review. None are blockers for the initial
+ship, but should be addressed as OM matures in production use.
+
+- [ ] **Reflector prompt size**: The Reflector system prompt embeds the full Observer
+  prompt (~5.2k tokens total). On small models (8k context), this consumes 65% of
+  context before any observation content. Consider a condensed Reflector prompt that
+  summarizes Observer conventions instead of embedding verbatim.
+
+- [ ] **Token counting heuristic**: All threshold decisions use `estimateTokens` (2.5
+  chars/token heuristic). Ollama returns actual token counts in responses but these
+  aren't fed back into OM tracking. Could be off by 20-30% depending on content type.
+  Consider calibrating against actual counts from `onIterationComplete`.
+
+- [ ] **No observation history**: Reflections replace `activeObservations` in-place.
+  `generationCount` increments but previous generations aren't stored. If a reflection
+  loses critical info, it's gone. A simple `observational_memory_history` table would
+  preserve previous generations.
+
+- [ ] **Remove compaction fallback**: `compaction.ts` and related code paths remain in
+  the codebase, gated by `memoryConfig.enabled`. Once OM is validated in production,
+  remove compaction entirely to reduce code surface.
+
+- [ ] **In-memory state coupling**: Process-level Maps are spread across `om.ts`
+  (`cachedOMRecord`) and `buffering.ts` (`activeBufferingOps`, `lastBufferedBoundary`,
+  `lastMidLoopSliceEnd`, `activeReflectionOps`). These must be cleared together but
+  have separate reset functions. Consider bundling into a single `OMSessionState`
+  object if concurrent sessions or hot-reload are ever needed.
+
+- [ ] **Sync fallback doesn't check in-flight ops**: `needsSyncFallback` triggers sync
+  observation when tokens exceed `blockAfter` and no chunks exist, even if a buffering
+  op is in-flight. The sync result is correct but redundant. Low risk — would require
+  a ~6k token jump in one agent step.
+
+- [ ] **Async chunk race after sync observation**: `updateAfterObservation` clears
+  `buffered_observation_chunks` to `[]`. If an in-flight async op lands after this, the
+  chunk covers already-observed messages. `pruneStaleChunks` handles this at activation
+  time, but the race isn't prevented upstream.

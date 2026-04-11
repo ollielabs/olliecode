@@ -88,32 +88,70 @@ export type RunAgentArgs = {
 
   /** Observation block from observational memory (injected into system prompt) */
   observationBlock?: string;
+
+  /**
+   * Continuation hint for OM — injected as a system message after
+   * the observation block when observations exist. Tells the model
+   * to continue from observations rather than expecting full history.
+   */
+  continuationHint?: string;
+
+  /**
+   * Called after each tool iteration with the current message array
+   * (system prompt stripped) and token counts from the latest model
+   * response. Used for:
+   * - OM async buffering (Zone 1 check every agent step, per Mastra)
+   * - Sidebar context stats updates (live token usage during long runs)
+   */
+  onIterationComplete?: (
+    messages: Message[],
+    tokenInfo?: {
+      promptTokens: number;
+      completionTokens: number;
+      maxTokens: number;
+    },
+  ) => void;
 };
 
 /**
  * Creates the initial message array for the agent.
+ *
+ * When continuationHint is provided (OM active with observations),
+ * it's injected as a system message right after the system prompt
+ * and before the history. This tells the model to continue from
+ * observations rather than expecting full conversation history.
  */
 function buildInitialMessages(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
+  continuationHint?: string,
 ): Message[] {
-  return [
-    { role: 'system', content: systemPrompt },
-    ...history,
-    { role: 'user', content: userMessage },
-  ];
+  const messages: Message[] = [{ role: 'system', content: systemPrompt }];
+
+  if (continuationHint) {
+    messages.push({ role: 'system', content: continuationHint });
+  }
+
+  messages.push(...history);
+  messages.push({ role: 'user', content: userMessage });
+
+  return messages;
 }
 
 /**
- * Strip the system prompt (index 0) from the messages array.
- * The system prompt is added fresh each turn by buildInitialMessages,
- * so it must not be included in the returned history.
+ * Strip ALL system messages from the messages array.
+ *
+ * Multiple system messages can exist:
+ * - Index 0: the main system prompt (added by buildInitialMessages)
+ * - Index 1: continuation hint (OM, added by buildInitialMessages)
+ * - Mid-loop: wrap-up warning, not-found warning (injected during agent loop)
+ *
+ * None of these should leak into the persisted history or be passed
+ * to OM for observation tracking — they're ephemeral per-turn injections.
  */
 function stripSystemPrompt(messages: Message[]): Message[] {
-  return messages.length > 0 && messages[0]?.role === 'system'
-    ? messages.slice(1)
-    : messages;
+  return messages.filter((m) => m.role !== 'system');
 }
 
 /**
@@ -252,6 +290,7 @@ export async function runAgent(
     systemPrompt,
     args.history,
     args.userMessage,
+    args.continuationHint,
   );
 
   log('Initial messages count:', messages.length);
@@ -492,15 +531,42 @@ export async function runAgent(
 
       totalToolCalls += toolResults.executedCount;
 
-      // Record the step
+      // Record the step (pre-compute action signatures for loop detection)
       const step: AgentStep = {
         thought: content,
         actions: toolCalls,
         observations: toolResults.observations,
         durationMs: Date.now() - stepStartTime,
+        actionSignatures: toolCalls.map(
+          (tc) =>
+            `${tc.function.name}:${JSON.stringify(tc.function.arguments)}`,
+        ),
       };
       steps.push(step);
       args.onStepComplete(step);
+
+      // Cache stripped messages for this iteration (avoids re-filtering
+      // the full array on every callback/return path).
+      const strippedMessages = stripSystemPrompt(messages);
+
+      // Mid-loop: OM buffering check + sidebar stats update.
+      // Fire-and-forget — does not block the agent loop.
+      if (args.onIterationComplete) {
+        try {
+          args.onIterationComplete(
+            strippedMessages,
+            lastPromptTokens !== undefined && maxContextTokens !== undefined
+              ? {
+                  promptTokens: lastPromptTokens,
+                  completionTokens: lastCompletionTokens ?? 0,
+                  maxTokens: maxContextTokens,
+                }
+              : undefined,
+          );
+        } catch {
+          // Enhancement — never break the agent loop
+        }
+      }
 
       // Soft warning at 80% of maxIterations — nudge the model to wrap up
       const warningThreshold = Math.floor(config.maxIterations * 0.8);

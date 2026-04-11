@@ -27,11 +27,25 @@ export type DoomLoopResult = {
 /**
  * Creates a unique signature for a tool call action.
  * Used to compare actions across steps.
+ *
+ * Prefer using pre-computed `step.actionSignatures[i]` when available
+ * to avoid redundant JSON.stringify calls in the hot path.
  */
 function getActionSignature(action: {
   function: { name: string; arguments: unknown };
 }): string {
   return `${action.function.name}:${JSON.stringify(action.function.arguments)}`;
+}
+
+/**
+ * Get the pre-computed signature for action at index `i` in a step.
+ * Falls back to computing it if signatures aren't cached.
+ */
+function getStepActionSignature(step: AgentStep, actionIndex: number): string {
+  return (
+    step.actionSignatures[actionIndex] ??
+    getActionSignature(step.actions[actionIndex]!)
+  );
 }
 
 /**
@@ -59,12 +73,11 @@ export function detectLoop(
     return { detected: false };
   }
 
-  const targetSignature = getActionSignature(firstAction);
+  const targetSignature = getStepActionSignature(recentSteps[0]!, 0);
 
   const allSame = recentSteps.every((step) => {
-    const action = step.actions[0];
-    if (!action) return false;
-    return getActionSignature(action) === targetSignature;
+    if (!step.actions[0]) return false;
+    return getStepActionSignature(step, 0) === targetSignature;
   });
 
   if (allSame) {
@@ -102,12 +115,18 @@ export function detectLoopExtended(
     return { detected: false };
   }
 
-  const targetSignatures = firstStepActions.map(getActionSignature);
-  const targetKey = targetSignatures.join('|');
+  const targetKey = (
+    recentSteps[0]!.actionSignatures.length > 0
+      ? recentSteps[0]!.actionSignatures
+      : firstStepActions.map(getActionSignature)
+  ).join('|');
 
   const allSame = recentSteps.every((step) => {
-    const stepSignatures = step.actions.map(getActionSignature);
-    return stepSignatures.join('|') === targetKey;
+    const sigs =
+      step.actionSignatures.length > 0
+        ? step.actionSignatures
+        : step.actions.map(getActionSignature);
+    return sigs.join('|') === targetKey;
   });
 
   if (allSame) {
@@ -200,10 +219,10 @@ export function detectDoomLoop(
       if (!isSearchOscillation) {
         // Check if arguments are actually repeating — if the agent is calling
         // the same tools with different arguments, it's making progress
-        const sigA0 = getActionSignature(recent[0]!.actions[0]!);
-        const sigA1 = getActionSignature(recent[2]!.actions[0]!);
-        const sigB0 = getActionSignature(recent[1]!.actions[0]!);
-        const sigB1 = getActionSignature(recent[3]!.actions[0]!);
+        const sigA0 = getStepActionSignature(recent[0]!, 0);
+        const sigA1 = getStepActionSignature(recent[2]!, 0);
+        const sigB0 = getStepActionSignature(recent[1]!, 0);
+        const sigB1 = getStepActionSignature(recent[3]!, 0);
 
         const argsRepeating = sigA0 === sigA1 && sigB0 === sigB1;
 
@@ -243,42 +262,40 @@ export function detectConsecutiveLoop(
   steps: AgentStep[],
   threshold: number,
 ): LoopDetectionResult {
-  // Flatten all tool calls across all steps into a single sequence
-  const allCalls: Array<{ function: { name: string; arguments: unknown } }> =
-    [];
+  // Flatten all pre-computed signatures across all steps into a single sequence
+  const allSigs: Array<{ sig: string; name: string }> = [];
   for (const step of steps) {
-    for (const action of step.actions) {
-      allCalls.push(action);
+    for (let i = 0; i < step.actions.length; i++) {
+      allSigs.push({
+        sig: getStepActionSignature(step, i),
+        name: step.actions[i]!.function.name,
+      });
     }
   }
 
-  if (allCalls.length < threshold) {
+  if (allSigs.length < threshold) {
     return { detected: false };
   }
 
   // Check for consecutive identical calls
   let consecutiveCount = 1;
-  let currentSignature = allCalls[0] ? getActionSignature(allCalls[0]) : '';
+  let currentSignature = allSigs[0]?.sig ?? '';
 
-  for (let i = 1; i < allCalls.length; i++) {
-    const call = allCalls[i];
-    if (!call) continue;
+  for (let i = 1; i < allSigs.length; i++) {
+    const entry = allSigs[i]!;
 
-    const signature = getActionSignature(call);
-
-    if (signature === currentSignature) {
+    if (entry.sig === currentSignature) {
       consecutiveCount++;
       if (consecutiveCount >= threshold) {
         return {
           detected: true,
-          action: call.function.name,
-          signature,
+          action: entry.name,
+          signature: entry.sig,
         };
       }
     } else {
-      // Different tool - reset counter
       consecutiveCount = 1;
-      currentSignature = signature;
+      currentSignature = entry.sig;
     }
   }
 

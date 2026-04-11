@@ -1,0 +1,1054 @@
+/**
+ * Observational Memory orchestrator.
+ *
+ * Core logic for the Observer/Reflector system. Manages the lifecycle:
+ * 1. Track unobserved message tokens
+ * 2. Trigger observation when threshold is exceeded
+ * 3. Call the Observer LLM to extract observations
+ * 4. Store observations and update the record
+ * 5. Build the observation block for the Actor's context
+ * 6. Filter observed messages from the Actor's context
+ *
+ * Three-zone threshold system:
+ * - Zone 1 (below messageTokens): async buffering at intervals
+ * - Zone 2 (messageTokens → blockAfter): activate buffered chunks
+ * - Zone 3 (above blockAfter): synchronous blocking observation
+ */
+
+import type { Message } from 'ollama';
+import { Ollama } from 'ollama';
+
+import { log } from '../agent/logger';
+import {
+  getLatestChunkMetadata,
+  getMidLoopSliceEnd,
+  mergeChunkObservations,
+  needsSyncFallback,
+  needsSyncReflection,
+  pruneStaleChunks,
+  recordBufferingTrigger,
+  registerBufferingOp,
+  registerReflectionOp,
+  resetSessionBoundary,
+  resolveBlockAfter,
+  selectChunksForActivation,
+  setMidLoopSliceEnd,
+  shouldTriggerAsyncBuffering,
+  shouldTriggerAsyncReflection,
+  splitObservationLines,
+  waitForBuffering,
+  waitForReflection,
+} from './buffering';
+import {
+  buildObserverPrompt,
+  getObserverSystemPrompt,
+  optimizeObservationsForContext,
+  parseObserverOutput,
+} from './observer';
+import { runReflector } from './reflector';
+import {
+  addBufferedChunk,
+  clearBufferedReflection,
+  getOrCreateOMRecord,
+  setBufferingObservationFlag,
+  setBufferingReflectionFlag,
+  setObservingFlag,
+  setReflectingFlag,
+  updateAfterActivation,
+  updateAfterObservation,
+  updateAfterReflection,
+  updateBufferedReflection,
+  updatePendingTokens,
+} from './store';
+import { countMessagesTokens, countTextTokens } from './token-counter';
+import {
+  DEFAULT_MEMORY_CONFIG,
+  formatMessagesForObserver,
+  type MemoryConfig,
+  type ObservationalMemoryRecord,
+} from './types';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/**
+ * Continuation hint injected as a system message when observations exist.
+ * Tells the Actor to continue from observations rather than expecting full history.
+ */
+const CONTINUATION_HINT = `The conversation history was compressed into the observations above. Continue from where the observations left off. Do not mention your "observations" or "memory" directly to the user — just continue the conversation naturally.`;
+
+/**
+ * Preamble for the observation block injected into the Actor's context.
+ */
+const OBSERVATION_CONTEXT_PREAMBLE = `The following observations are your memory of this coding session. They contain key facts, decisions, file modifications, and current progress. Reference specific details from observations when relevant.`;
+
+// ============================================================================
+// In-memory OM record cache (avoids SQLite SELECT + JSON.parse per iteration)
+// ============================================================================
+
+/**
+ * Cached OM record per session. Set after processOMStep, read by
+ * checkMidLoopBuffering to avoid a synchronous SQLite round-trip
+ * + JSON.parse(buffered_observation_chunks) on every agent iteration.
+ *
+ * Invalidated when async buffering/reflection completes (store writes),
+ * or on next processOMStep call.
+ */
+const cachedOMRecord = new Map<string, ObservationalMemoryRecord>();
+
+/** Get cached record or fall back to DB. */
+function getCachedOrFetchRecord(sessionId: string): ObservationalMemoryRecord {
+  const cached = cachedOMRecord.get(sessionId);
+  if (cached) return cached;
+  const record = getOrCreateOMRecord(sessionId);
+  cachedOMRecord.set(sessionId, record);
+  return record;
+}
+
+/** Clear cache for a session (called on session clear/delete). */
+export function clearOMRecordCache(sessionId: string): void {
+  cachedOMRecord.delete(sessionId);
+}
+
+// ============================================================================
+// Core orchestrator
+// ============================================================================
+
+/**
+ * Check if observation should be triggered based on message token count.
+ * Returns true if unobserved messages exceed the threshold.
+ */
+export function shouldObserve(
+  unobservedTokens: number,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): boolean {
+  return unobservedTokens >= config.observation.messageTokens;
+}
+
+/**
+ * Check if reflection should be triggered based on observation token count.
+ * Returns true if observations exceed the reflection threshold.
+ */
+export function shouldReflect(
+  observationTokenCount: number,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): boolean {
+  return observationTokenCount >= config.reflection.observationTokens;
+}
+
+/**
+ * Get unobserved messages — messages that haven't been observed yet.
+ *
+ * Uses `observedUpTo` as a slice boundary: the number of Ollama messages
+ * from the start of history that have already been observed.
+ *
+ * The Ollama message array can grow between processOMStep calls (as tool
+ * calls complete and results are added), so we clamp the boundary to never
+ * exceed the current array length.
+ */
+export function getUnobservedMessages(
+  allMessages: Message[],
+  record: ObservationalMemoryRecord,
+): Message[] {
+  if (record.observedUpTo <= 0) {
+    return allMessages;
+  }
+
+  // Clamp to array length — if the array shrank (e.g., session change),
+  // don't return an empty array
+  const boundary = Math.min(record.observedUpTo, allMessages.length);
+  return allMessages.slice(boundary);
+}
+
+/**
+ * Run synchronous observation. Calls the Observer LLM to extract
+ * observations from unobserved messages.
+ *
+ * This is the blocking path — the agent pauses while the Observer runs.
+ * Used as Zone 3 fallback when no buffered chunks are available.
+ */
+export async function runSyncObservation(
+  sessionId: string,
+  allMessages: Message[],
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): Promise<{
+  success: boolean;
+  record: ObservationalMemoryRecord;
+  observedCount: number;
+}> {
+  const record = getOrCreateOMRecord(sessionId);
+
+  // Get unobserved messages
+  const unobserved = getUnobservedMessages(allMessages, record);
+  if (unobserved.length === 0) {
+    return { success: true, record, observedCount: 0 };
+  }
+
+  // Set observing flag
+  setObservingFlag(sessionId, true);
+
+  try {
+    // Format messages for the Observer
+    const formattedMessages = formatMessagesForObserver(unobserved);
+
+    // Build the Observer prompt
+    const prompt = buildObserverPrompt(
+      record.activeObservations || undefined,
+      formattedMessages,
+    );
+
+    log(
+      `[OM] Running sync observation: ${unobserved.length} messages, ${formattedMessages.length} chars`,
+    );
+
+    // Call the Observer LLM
+    const client = new Ollama({ host });
+    const response = await client.chat({
+      model,
+      messages: [
+        { role: 'system', content: getObserverSystemPrompt() },
+        { role: 'user', content: prompt },
+      ],
+      stream: false,
+      options: {
+        temperature: config.observation.temperature,
+      },
+    });
+
+    // Parse the Observer's output
+    let parsed = parseObserverOutput(response.message.content);
+
+    // Retry once if degenerate
+    if (parsed.degenerate) {
+      log('[OM] Observer produced degenerate output, retrying...');
+      const retryResponse = await client.chat({
+        model,
+        messages: [
+          { role: 'system', content: getObserverSystemPrompt() },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        options: {
+          temperature: config.observation.temperature + 0.1,
+        },
+      });
+      parsed = parseObserverOutput(retryResponse.message.content);
+
+      if (parsed.degenerate) {
+        log('[OM] Observer produced degenerate output after retry, aborting');
+        setObservingFlag(sessionId, false);
+        return { success: false, record, observedCount: 0 };
+      }
+    }
+
+    if (!parsed.observations) {
+      log('[OM] Observer produced empty observations');
+      setObservingFlag(sessionId, false);
+      return { success: false, record, observedCount: 0 };
+    }
+
+    // Append new observations to existing
+    const newObservations = record.activeObservations
+      ? `${record.activeObservations}\n\n${parsed.observations}`
+      : parsed.observations;
+
+    const observationTokenCount = countTextTokens(newObservations);
+
+    // All messages passed to this function are now observed.
+    // observedUpTo = total Ollama message count at observation time.
+    const newObservedUpTo = allMessages.length;
+
+    // Calculate token stats
+    const unobservedTokens = countMessagesTokens(unobserved);
+
+    // Update the record
+    updateAfterObservation(sessionId, {
+      activeObservations: newObservations,
+      observationTokenCount,
+      lastObservedAt: Date.now(),
+      observedUpTo: newObservedUpTo,
+      pendingMessageTokens: 0,
+      totalTokensObserved: record.totalTokensObserved + unobservedTokens,
+      currentTask: parsed.currentTask ?? record.currentTask,
+      suggestedResponse: parsed.suggestedResponse ?? record.suggestedResponse,
+    });
+
+    log(
+      `[OM] Observation complete: ${parsed.observations.length} chars, ${observationTokenCount} tokens`,
+    );
+
+    const updatedRecord = getOrCreateOMRecord(sessionId);
+    return {
+      success: true,
+      record: updatedRecord,
+      observedCount: unobserved.length,
+    };
+  } catch (error) {
+    log('[OM] Observation failed:', error);
+    setObservingFlag(sessionId, false);
+    return { success: false, record, observedCount: 0 };
+  }
+}
+
+/**
+ * Fire an async buffering Observer call (non-blocking).
+ * Produces a BufferedObservationChunk and stores it on the record.
+ */
+export function fireAsyncBuffering(
+  sessionId: string,
+  allMessages: Message[],
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  unobservedTokens: number,
+): void {
+  const unobserved = getUnobservedMessages(allMessages, record);
+  if (unobserved.length === 0) return;
+
+  fireBufferingOp(
+    sessionId,
+    unobserved,
+    record.observedUpTo,
+    record.activeObservations,
+    model,
+    host,
+    config,
+    unobservedTokens,
+  );
+}
+
+/**
+ * Fire async buffering for mid-loop use. Accepts a slice of the agent's
+ * message array — only the NEW messages since the last buffering trigger.
+ *
+ * @param agentSlice - The new messages to observe (already sliced by caller)
+ * @param agentSliceStart - Index in the full agent array where this slice starts.
+ *   Used to compute session-level messageIds: observedUpTo + agentSliceStart + i.
+ */
+export function fireMidLoopBufferingOp(
+  sessionId: string,
+  agentSlice: Message[],
+  agentSliceStart: number,
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  currentTokens: number,
+): void {
+  if (agentSlice.length === 0) return;
+
+  fireBufferingOp(
+    sessionId,
+    agentSlice,
+    record.observedUpTo + agentSliceStart,
+    record.activeObservations,
+    model,
+    host,
+    config,
+    currentTokens,
+  );
+}
+
+/**
+ * Core buffering operation — shared by both session-level and mid-loop
+ * callers. Takes explicit messages to observe and a base offset for
+ * building chunk messageIds.
+ */
+function fireBufferingOp(
+  sessionId: string,
+  messagesToObserve: Message[],
+  observedUpToBase: number,
+  activeObservations: string | null,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+  tokenCount: number,
+): void {
+  recordBufferingTrigger(sessionId, tokenCount);
+  setBufferingObservationFlag(sessionId, true);
+
+  const op = (async () => {
+    try {
+      const formattedMessages = formatMessagesForObserver(messagesToObserve);
+      const prompt = buildObserverPrompt(
+        activeObservations || undefined,
+        formattedMessages,
+      );
+
+      const client = new Ollama({ host });
+      const response = await client.chat({
+        model,
+        messages: [
+          { role: 'system', content: getObserverSystemPrompt() },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        options: {
+          temperature: config.observation.temperature,
+        },
+      });
+
+      const parsed = parseObserverOutput(response.message.content);
+
+      if (parsed.degenerate || !parsed.observations) {
+        log('[OM] Async buffering produced empty/degenerate output');
+        try {
+          setBufferingObservationFlag(sessionId, false);
+        } catch (e) {
+          log('[OM] Flag cleanup failed (expected during shutdown):', e);
+        }
+        return;
+      }
+
+      // Build chunk — messageIds are position indices from the base offset
+      const messageIds = Array.from(
+        { length: messagesToObserve.length },
+        (_, i) => String(observedUpToBase + i),
+      );
+
+      const chunk = {
+        cycleId: crypto.randomUUID(),
+        observations: parsed.observations,
+        tokenCount: countTextTokens(parsed.observations),
+        messageIds,
+        messageTokens: countMessagesTokens(messagesToObserve),
+        lastObservedAt: Date.now(),
+        currentTask: parsed.currentTask,
+        suggestedResponse: parsed.suggestedResponse,
+      };
+
+      addBufferedChunk(sessionId, chunk);
+      // Invalidate cached record so next mid-loop read sees the new chunk
+      cachedOMRecord.delete(sessionId);
+
+      log(
+        `[OM] Async buffering complete: chunk ${chunk.cycleId}, ${chunk.tokenCount} tokens`,
+      );
+    } catch (error) {
+      log('[OM] Async buffering failed:', error);
+      try {
+        setBufferingObservationFlag(sessionId, false);
+      } catch (e) {
+        log('[OM] Flag cleanup failed (expected during shutdown):', e);
+      }
+    }
+  })();
+
+  registerBufferingOp(sessionId, op);
+}
+
+/**
+ * Run synchronous reflection. Calls the Reflector LLM to condense
+ * observations when they grow too large.
+ *
+ * Uses compression escalation: if the first attempt doesn't compress
+ * enough, the Reflector retries with progressively stronger guidance.
+ */
+export async function runSyncReflection(
+  sessionId: string,
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): Promise<{
+  success: boolean;
+  record: ObservationalMemoryRecord;
+}> {
+  const record = getOrCreateOMRecord(sessionId);
+
+  if (!record.activeObservations) {
+    return { success: false, record };
+  }
+
+  // Don't reflect if already reflecting
+  if (record.isReflecting) {
+    log('[OM] Reflection already in progress, skipping');
+    return { success: false, record };
+  }
+
+  setReflectingFlag(sessionId, true);
+
+  try {
+    log(
+      `[OM] Running sync reflection: ${record.observationTokenCount} observation tokens, generation ${record.generationCount}`,
+    );
+
+    const result = await runReflector(
+      record.activeObservations,
+      model,
+      host,
+      config.reflection.temperature,
+    );
+
+    if (!result || !result.observations) {
+      log('[OM] Reflection produced no output');
+      setReflectingFlag(sessionId, false);
+      return { success: false, record };
+    }
+
+    const newTokenCount = countTextTokens(result.observations);
+
+    log(
+      `[OM] Reflection complete: ${record.observationTokenCount} -> ${newTokenCount} tokens (gen ${record.generationCount + 1})`,
+    );
+
+    updateAfterReflection(sessionId, {
+      activeObservations: result.observations,
+      observationTokenCount: newTokenCount,
+      currentTask: result.currentTask ?? record.currentTask,
+      suggestedResponse: result.suggestedResponse ?? record.suggestedResponse,
+    });
+
+    const updatedRecord = getOrCreateOMRecord(sessionId);
+    return { success: true, record: updatedRecord };
+  } catch (error) {
+    log('[OM] Reflection failed:', error);
+    setReflectingFlag(sessionId, false);
+    return { success: false, record };
+  }
+}
+
+/**
+ * Fire an async reflection buffering operation (non-blocking).
+ *
+ * Reflects on the oldest N% of observation lines (default 80%) in the
+ * background. The result is stored in `bufferedReflection` and activated
+ * when observations cross the reflection threshold.
+ *
+ * Mastra pattern: pre-compute reflection at 50% of threshold so it's
+ * ready when the threshold is actually crossed.
+ */
+export function fireAsyncReflection(
+  sessionId: string,
+  record: ObservationalMemoryRecord,
+  model: string,
+  host: string,
+  config: MemoryConfig,
+): void {
+  if (!record.activeObservations) return;
+
+  const splitRatio = config.reflection.reflectionSplit;
+  const { oldestText, oldestLineCount } = splitObservationLines(
+    record.activeObservations,
+    splitRatio,
+  );
+
+  if (!oldestText.trim()) return;
+
+  const inputTokens = countTextTokens(oldestText);
+
+  log(
+    `[OM] Firing async reflection: ${oldestLineCount} lines (${inputTokens} tokens), split ${splitRatio}`,
+  );
+
+  setBufferingReflectionFlag(sessionId, true);
+
+  const op = (async () => {
+    try {
+      const result = await runReflector(
+        oldestText,
+        model,
+        host,
+        config.reflection.temperature,
+      );
+
+      if (!result || !result.observations) {
+        log('[OM] Async reflection produced no output');
+        try {
+          setBufferingReflectionFlag(sessionId, false);
+        } catch (e) {
+          log('[OM] Flag cleanup failed (expected during shutdown):', e);
+        }
+        return;
+      }
+
+      const outputTokens = countTextTokens(result.observations);
+
+      log(
+        `[OM] Async reflection complete: ${inputTokens} -> ${outputTokens} tokens`,
+      );
+
+      updateBufferedReflection(sessionId, {
+        bufferedReflection: result.observations,
+        bufferedReflectionTokens: outputTokens,
+        bufferedReflectionInputTokens: inputTokens,
+        reflectedObservationLineCount: oldestLineCount,
+      });
+      // Invalidate cached record so next read sees the buffered reflection
+      cachedOMRecord.delete(sessionId);
+    } catch (error) {
+      log('[OM] Async reflection failed:', error);
+      try {
+        setBufferingReflectionFlag(sessionId, false);
+      } catch (e) {
+        log('[OM] Flag cleanup failed (expected during shutdown):', e);
+      }
+    }
+  })();
+
+  registerReflectionOp(sessionId, op);
+}
+
+/**
+ * Try to activate a pre-computed buffered reflection.
+ *
+ * Mastra pattern: when observations cross the reflection threshold,
+ * check if we have a buffered reflection ready. If so:
+ * 1. Split current observations at the recorded line boundary
+ * 2. Replace the oldest lines with the compressed reflection
+ * 3. Append unreflected new lines verbatim
+ * 4. Update the record with the merged result
+ *
+ * Returns true if activation succeeded, false if no buffered reflection
+ * was available (caller should fall back to sync reflection).
+ */
+export async function tryActivateBufferedReflection(
+  sessionId: string,
+  _config: MemoryConfig,
+): Promise<{
+  success: boolean;
+  record: ObservationalMemoryRecord;
+}> {
+  // Wait for any in-flight async reflection to complete
+  await waitForReflection(sessionId);
+
+  const record = getOrCreateOMRecord(sessionId);
+
+  if (
+    !record.bufferedReflection ||
+    record.reflectedObservationLineCount === null ||
+    record.reflectedObservationLineCount <= 0
+  ) {
+    return { success: false, record };
+  }
+
+  if (!record.activeObservations) {
+    clearBufferedReflection(sessionId);
+    return { success: false, record };
+  }
+
+  // Split current observations at the recorded boundary.
+  // The newest lines (added since reflection started) are preserved verbatim.
+  const lines = record.activeObservations.split('\n');
+  const boundary = Math.min(record.reflectedObservationLineCount, lines.length);
+
+  const newestLines = lines.slice(boundary).join('\n');
+
+  // Merge: buffered reflection + unreflected new lines
+  const merged = newestLines.trim()
+    ? `${record.bufferedReflection}\n\n${newestLines}`
+    : record.bufferedReflection;
+
+  const newTokenCount = countTextTokens(merged);
+
+  log(
+    `[OM] Activating buffered reflection: ${record.observationTokenCount} -> ${newTokenCount} tokens (reflected ${boundary} lines, preserved ${lines.length - boundary} lines)`,
+  );
+
+  updateAfterReflection(sessionId, {
+    activeObservations: merged,
+    observationTokenCount: newTokenCount,
+    currentTask: record.currentTask,
+    suggestedResponse: record.suggestedResponse,
+  });
+
+  clearBufferedReflection(sessionId);
+
+  const updatedRecord = getOrCreateOMRecord(sessionId);
+  return { success: true, record: updatedRecord };
+}
+
+/**
+ * Build the observation block for the Actor's context window.
+ *
+ * Returns a formatted string containing:
+ * - Preamble explaining what observations are
+ * - The observation content (optimized for the Actor)
+ * - Current task and suggested response (if available)
+ *
+ * Returns null if no observations exist.
+ */
+export function buildObservationContextBlock(
+  record: ObservationalMemoryRecord,
+): string | null {
+  if (!record.activeObservations) return null;
+
+  const optimized = optimizeObservationsForContext(record.activeObservations);
+  if (!optimized) return null;
+
+  let block = `${OBSERVATION_CONTEXT_PREAMBLE}\n\n<observations>\n${optimized}\n</observations>`;
+
+  if (record.currentTask) {
+    block += `\n\n<current-task>\n${record.currentTask}\n</current-task>`;
+  }
+
+  if (record.suggestedResponse) {
+    block += `\n\n<suggested-response>\n${record.suggestedResponse}\n</suggested-response>`;
+  }
+
+  return block;
+}
+
+/**
+ * Get the continuation hint message.
+ * Injected as a system message when observations exist.
+ */
+export function getContinuationHint(): string {
+  return CONTINUATION_HINT;
+}
+
+/**
+ * Process a step in the agent loop using the three-zone threshold system.
+ *
+ * This is the main entry point called from the submit hook before each
+ * agent invocation.
+ *
+ * Three-zone pipeline:
+ * 1. Zone 1 (below messageTokens): fire async buffering at intervals
+ * 2. Zone 2 (messageTokens → blockAfter): activate buffered chunks
+ * 3. Zone 3 (above blockAfter): synchronous blocking observation
+ * 4. After observation/activation: check if reflection is needed
+ * 5. Build observation block and continuation hint for the Actor
+ * 6. Filter messages to only include unobserved ones
+ *
+ * Returns:
+ * - observationBlock: string to inject into system context (or null)
+ * - continuationHint: string to inject as system message (or null)
+ * - filteredMessages: messages with observed ones removed
+ * - didObserve: whether observation ran this step
+ * - didReflect: whether reflection ran this step
+ */
+export async function processOMStep(
+  sessionId: string,
+  allMessages: Message[],
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): Promise<{
+  observationBlock: string | null;
+  continuationHint: string | null;
+  filteredMessages: Message[];
+  didObserve: boolean;
+  didReflect: boolean;
+}> {
+  let currentRecord = getOrCreateOMRecord(sessionId);
+
+  // Get unobserved messages and token count
+  const unobserved = getUnobservedMessages(allMessages, currentRecord);
+  const unobservedTokens = countMessagesTokens(unobserved);
+
+  // Update pending token count
+  updatePendingTokens(sessionId, unobservedTokens);
+
+  let didObserve = false;
+  let didReflect = false;
+
+  const blockAfterTokens = resolveBlockAfter(config);
+
+  // === Zone 3: above blockAfter — synchronous blocking (last resort) ===
+  if (needsSyncFallback(unobservedTokens, currentRecord, config)) {
+    log(
+      `[OM] Zone 3: sync fallback — ${unobservedTokens} tokens > blockAfter ${blockAfterTokens}, no buffered chunks`,
+    );
+
+    const result = await runSyncObservation(
+      sessionId,
+      allMessages,
+      model,
+      host,
+      config,
+    );
+
+    didObserve = result.success;
+    currentRecord = result.record;
+
+    // Reset buffering boundary so intervals start fresh after sync observation
+    if (result.success) {
+      resetSessionBoundary(sessionId);
+    }
+  }
+  // === Zone 2: at/above messageTokens — try activate buffered chunks ===
+  else if (shouldObserve(unobservedTokens, config)) {
+    log(
+      `[OM] Zone 2: threshold reached — ${unobservedTokens} tokens >= ${config.observation.messageTokens}`,
+    );
+
+    // Wait for in-flight buffering to complete
+    await waitForBuffering(sessionId);
+
+    // Re-fetch record for latest chunks
+    currentRecord = getOrCreateOMRecord(sessionId);
+
+    // Pre-prune stale chunks before activation. Chunks from previous
+    // agent runs may have messageIds below the current observedUpTo.
+    const freshChunks = pruneStaleChunks(
+      currentRecord.bufferedObservationChunks,
+      currentRecord.observedUpTo,
+    );
+
+    if (freshChunks.length > 0) {
+      // Activate buffered chunks
+      const { chunksToActivate, remainingChunks, messageIdsToExclude } =
+        selectChunksForActivation(freshChunks, unobservedTokens, config);
+
+      if (chunksToActivate.length > 0) {
+        const mergedObservations = mergeChunkObservations(
+          currentRecord.activeObservations,
+          chunksToActivate,
+        );
+        const { currentTask, suggestedResponse } = getLatestChunkMetadata(
+          chunksToActivate,
+          currentRecord.currentTask,
+          currentRecord.suggestedResponse,
+        );
+
+        // Calculate new observed boundary.
+        // The highest message index in the activated chunks + 1 is the new boundary.
+        const maxActivatedIndex = Math.max(
+          ...messageIdsToExclude.map((id) => Number.parseInt(id, 10)),
+        );
+        const newObservedUpTo = Math.max(
+          currentRecord.observedUpTo,
+          maxActivatedIndex + 1,
+        );
+
+        // Prune remaining chunks whose messageIds are entirely within
+        // the new observed range. These are stale leftovers from a
+        // previous agent run whose content is already covered.
+        const prunedRemaining = pruneStaleChunks(
+          remainingChunks,
+          newObservedUpTo,
+        );
+
+        updateAfterActivation(sessionId, {
+          activeObservations: mergedObservations,
+          observationTokenCount: countTextTokens(mergedObservations),
+          observedUpTo: newObservedUpTo,
+          remainingChunks: prunedRemaining,
+          currentTask,
+          suggestedResponse,
+        });
+
+        currentRecord = getOrCreateOMRecord(sessionId);
+        didObserve = true;
+        resetSessionBoundary(sessionId);
+
+        log(
+          `[OM] Activated ${chunksToActivate.length} chunks, ${prunedRemaining.length} remaining (${remainingChunks.length - prunedRemaining.length} pruned)`,
+        );
+      }
+    }
+
+    // If no chunks were available or activation didn't help, fall back to sync
+    if (!didObserve) {
+      log(
+        '[OM] No buffered chunks available, falling back to sync observation',
+      );
+
+      const result = await runSyncObservation(
+        sessionId,
+        allMessages,
+        model,
+        host,
+        config,
+      );
+
+      didObserve = result.success;
+      currentRecord = result.record;
+
+      if (result.success) {
+        resetSessionBoundary(sessionId);
+      }
+    }
+  }
+  // === Zone 1: below threshold — check if async buffering should fire ===
+  else if (
+    shouldTriggerAsyncBuffering(
+      sessionId,
+      unobservedTokens,
+      currentRecord,
+      config,
+    )
+  ) {
+    log(`[OM] Zone 1: firing async buffering at ${unobservedTokens} tokens`);
+
+    fireAsyncBuffering(
+      sessionId,
+      allMessages,
+      currentRecord,
+      model,
+      host,
+      config,
+      unobservedTokens,
+    );
+  }
+
+  // === Reflection: async-first, sync fallback ===
+  //
+  // Three-tier reflection strategy (matching Mastra):
+  // 1. Async buffering: fire background Reflector at 50% of threshold
+  // 2. Activation: at threshold, try activating pre-computed reflection
+  // 3. Sync fallback: above blockAfter, block and run sync reflection
+  //
+  if (currentRecord.activeObservations) {
+    if (shouldReflect(currentRecord.observationTokenCount, config)) {
+      log(
+        `[OM] Reflection threshold reached: ${currentRecord.observationTokenCount} tokens >= ${config.reflection.observationTokens}`,
+      );
+
+      // Try activating buffered reflection first (instant)
+      const activateResult = await tryActivateBufferedReflection(
+        sessionId,
+        config,
+      );
+
+      if (activateResult.success) {
+        didReflect = true;
+        currentRecord = activateResult.record;
+        log('[OM] Buffered reflection activated successfully');
+      } else if (needsSyncReflection(currentRecord, config)) {
+        // Above blockAfter and no buffered reflection — sync fallback
+        log(
+          `[OM] Sync reflection fallback: ${currentRecord.observationTokenCount} tokens`,
+        );
+        const reflectResult = await runSyncReflection(
+          sessionId,
+          model,
+          host,
+          config,
+        );
+        if (reflectResult.success) {
+          didReflect = true;
+          currentRecord = reflectResult.record;
+        }
+      } else {
+        // At threshold but below blockAfter with no buffered reflection.
+        // Run sync reflection as the safe path — don't let observations
+        // grow unbounded while waiting for a buffer that doesn't exist.
+        log('[OM] No buffered reflection available, running sync reflection');
+        const reflectResult = await runSyncReflection(
+          sessionId,
+          model,
+          host,
+          config,
+        );
+        if (reflectResult.success) {
+          didReflect = true;
+          currentRecord = reflectResult.record;
+        }
+      }
+    } else if (shouldTriggerAsyncReflection(currentRecord, config)) {
+      // Below threshold but above buffer activation point — fire async
+      log(
+        `[OM] Firing async reflection buffer at ${currentRecord.observationTokenCount} observation tokens`,
+      );
+      fireAsyncReflection(sessionId, currentRecord, model, host, config);
+    }
+  }
+
+  // Cache the final record state for mid-loop reads
+  cachedOMRecord.set(sessionId, currentRecord);
+
+  // Build context for the Actor
+  const observationBlock = buildObservationContextBlock(currentRecord);
+  const continuationHint = observationBlock ? getContinuationHint() : null;
+
+  // Build filtered messages — only unobserved messages go to the Actor
+  const filteredMessages = getUnobservedMessages(allMessages, currentRecord);
+
+  return {
+    observationBlock,
+    continuationHint,
+    filteredMessages,
+    didObserve,
+    didReflect,
+  };
+}
+
+// ============================================================================
+// Mid-loop buffering (called between agent iterations)
+// ============================================================================
+
+/**
+ * Check and trigger async buffering mid-loop.
+ *
+ * Mastra runs processInputStep every agent iteration, but gates activation,
+ * reflection, and message filtering to step 0 only. Only the Zone 1 async
+ * buffering check runs every step — it's cheap (threshold comparison + fire-
+ * and-forget background LLM call).
+ *
+ * IMPORTANT: The agent's internal message array is NOT the same as
+ * store.history(). It starts fresh each runAgent call with
+ * [system prompt, continuation hint?, filtered history, user msg]
+ * and grows as tool results are appended. record.observedUpTo tracks
+ * the session-level history position, which doesn't map to indices in
+ * the agent's array.
+ *
+ * To prevent chunk overlap, we track where the last mid-loop buffering
+ * sliced and only send NEW messages (since last trigger) to the Observer.
+ * Token counting still uses the full agent array for threshold checks.
+ */
+export function checkMidLoopBuffering(
+  sessionId: string,
+  agentMessages: Message[],
+  model: string,
+  host: string,
+  config: MemoryConfig = DEFAULT_MEMORY_CONFIG,
+): void {
+  if (!config.enabled) return;
+
+  const record = getCachedOrFetchRecord(sessionId);
+
+  // Count tokens of the agent's full message array — everything the model
+  // is seeing this turn, which grows with each tool iteration.
+  const currentTokens = countMessagesTokens(agentMessages);
+
+  // Skip DB write — pendingMessageTokens is stats-only and not used for
+  // threshold decisions. Avoids a synchronous SQLite UPDATE every iteration.
+
+  // Only Zone 1: async buffering trigger. No activation, no sync fallback.
+  // Pass midLoop=true to skip the sync threshold guard — during the agent
+  // loop, sync observation can't run, so buffering is the only option.
+  if (
+    shouldTriggerAsyncBuffering(sessionId, currentTokens, record, config, true)
+  ) {
+    // Slice only NEW messages since the last mid-loop buffering trigger.
+    // This prevents chunk overlap where successive chunks during the same
+    // agent run re-observe the same messages and produce duplicate observations.
+    const sliceStart = getMidLoopSliceEnd(sessionId);
+    const newMessages = agentMessages.slice(sliceStart);
+
+    if (newMessages.length === 0) return;
+
+    log(
+      `[OM] Mid-loop Zone 1: firing async buffering at ${currentTokens} tokens (${newMessages.length} new msgs, ${agentMessages.length} total)`,
+    );
+
+    // Record where we sliced so the next trigger starts here
+    setMidLoopSliceEnd(sessionId, agentMessages.length);
+
+    fireMidLoopBufferingOp(
+      sessionId,
+      newMessages,
+      sliceStart,
+      record,
+      model,
+      host,
+      config,
+      currentTokens,
+    );
+  }
+
+  // Also check if async reflection should fire.
+  // Observations may have grown from chunk activation in processOMStep,
+  // and mid-loop is the next opportunity to start pre-computing reflection.
+  if (shouldTriggerAsyncReflection(record, config)) {
+    log(
+      `[OM] Mid-loop: firing async reflection at ${record.observationTokenCount} observation tokens`,
+    );
+    fireAsyncReflection(sessionId, record, model, host, config);
+  }
+}

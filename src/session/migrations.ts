@@ -141,6 +141,81 @@ const MIGRATIONS: Migration[] = [
         ON observations(session_id, importance DESC);
     `,
   },
+  {
+    version: 6,
+    name: 'add_observational_memory',
+    sql: `
+      -- Observational Memory v2: Observer/Reflector architecture.
+      -- Single-record design: one row per session holds all OM state.
+      -- Observations are plain markdown text (not structured JSON),
+      -- directly injectable into the LLM context window.
+      CREATE TABLE IF NOT EXISTS observational_memory (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL UNIQUE,
+
+        -- Active observations (what the Actor sees)
+        active_observations TEXT NOT NULL DEFAULT '',
+        observation_token_count INTEGER NOT NULL DEFAULT 0,
+
+        -- Observation tracking
+        origin_type TEXT NOT NULL DEFAULT 'initial',
+        generation_count INTEGER NOT NULL DEFAULT 0,
+        last_observed_at INTEGER,
+        observed_message_ids TEXT NOT NULL DEFAULT '[]',
+
+        -- Async buffering: observation chunks
+        buffered_observation_chunks TEXT NOT NULL DEFAULT '[]',
+        is_buffering_observation INTEGER NOT NULL DEFAULT 0,
+        last_buffered_at_tokens INTEGER NOT NULL DEFAULT 0,
+        last_buffered_at_time INTEGER,
+
+        -- Async buffering: reflection
+        buffered_reflection TEXT,
+        buffered_reflection_tokens INTEGER,
+        buffered_reflection_input_tokens INTEGER,
+        reflected_observation_line_count INTEGER,
+        is_buffering_reflection INTEGER NOT NULL DEFAULT 0,
+
+        -- Lock flags
+        is_observing INTEGER NOT NULL DEFAULT 0,
+        is_reflecting INTEGER NOT NULL DEFAULT 0,
+
+        -- Token tracking
+        pending_message_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens_observed INTEGER NOT NULL DEFAULT 0,
+
+        -- Thread metadata (continuation hints)
+        current_task TEXT,
+        suggested_response TEXT,
+
+        -- Timestamps
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_om_session
+        ON observational_memory(session_id);
+    `,
+  },
+  {
+    version: 7,
+    name: 'add_observed_up_to_column',
+    sql: `
+      -- Add proper integer column for observed boundary tracking.
+      -- Previously, observedUpTo was derived from JSON.parse(observed_message_ids).length
+      -- which is wasteful (5KB JSON array for observedUpTo=1000).
+      -- The old observed_message_ids column is kept for backward compat but no longer written.
+      ALTER TABLE observational_memory ADD COLUMN observed_up_to INTEGER NOT NULL DEFAULT 0;
+
+      -- Backfill from existing JSON array length.
+      -- SQLite json_array_length requires the json1 extension (built-in since 3.38).
+      UPDATE observational_memory
+        SET observed_up_to = json_array_length(observed_message_ids)
+        WHERE observed_message_ids != '[]';
+    `,
+  },
 ];
 
 /**

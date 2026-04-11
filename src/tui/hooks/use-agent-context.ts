@@ -10,6 +10,9 @@ import { createSignal } from 'solid-js';
 import { summarizeConversation } from '../../agent/compaction';
 import type { ResolvedConfig } from '../../config/schema';
 import { fetchModelInfo, getContextStats } from '../../lib/tokenizer';
+import { resetBufferingState } from '../../memory/buffering';
+import { clearOMRecordCache } from '../../memory/om';
+import { deleteOMRecord } from '../../memory/store';
 import {
   NOTIFICATION_DURATION_LONG,
   NOTIFICATION_DURATION_SHORT,
@@ -86,6 +89,11 @@ export function useAgentContext(
     const sid = props.sessionId();
     if (sid) {
       store.clear(sid);
+      // Clear OM record and in-memory buffering state so a fresh
+      // conversation doesn't inherit stale observations/chunks.
+      deleteOMRecord(sid);
+      clearOMRecordCache(sid);
+      resetBufferingState();
     } else {
       // No session yet — just reset in-memory state
       store.reset();

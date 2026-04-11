@@ -139,6 +139,43 @@ export const TuiSchema = TuiObjectSchema.default(() =>
   TuiObjectSchema.parse({}),
 );
 
+// === Memory schema ===
+
+const MemoryObservationObjectSchema = z.object({
+  messageTokens: z.number().int().min(1000).default(30000),
+  bufferTokens: z
+    .union([z.number().min(0).max(1), z.literal(false)])
+    .default(0.2),
+  bufferActivation: z.number().min(0).max(1).default(0.933),
+  blockAfter: z.number().min(1).max(2).default(1.2),
+  temperature: z.number().min(0).max(2).default(0.3),
+});
+
+const MemoryReflectionObjectSchema = z.object({
+  observationTokens: z.number().int().min(1000).default(40000),
+  temperature: z.number().min(0).max(2).default(0),
+  bufferActivation: z
+    .union([z.number().min(0).max(1), z.literal(false)])
+    .default(0.5),
+  blockAfter: z.number().min(1).max(2).default(1.1),
+  reflectionSplit: z.number().min(0.1).max(1).default(0.8),
+});
+
+const MemoryObjectSchema = z.object({
+  enabled: z.boolean().default(true),
+  model: z.string().optional(),
+  observation: MemoryObservationObjectSchema.default(() =>
+    MemoryObservationObjectSchema.parse({}),
+  ),
+  reflection: MemoryReflectionObjectSchema.default(() =>
+    MemoryReflectionObjectSchema.parse({}),
+  ),
+});
+
+export const MemorySchema = MemoryObjectSchema.default(() =>
+  MemoryObjectSchema.parse({}),
+);
+
 // === Top-level config schema ===
 
 export const ConfigSchema = z.object({
@@ -148,6 +185,7 @@ export const ConfigSchema = z.object({
 
   agent: AgentSchema,
   compaction: CompactionSchema,
+  memory: MemorySchema,
 
   autonomy: AutonomyLevelSchema.default('cautious'),
   permissions: PermissionsSchema,

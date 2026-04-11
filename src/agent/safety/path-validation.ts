@@ -131,13 +131,14 @@ function matchesPattern(path: string, pattern: string): boolean {
     !normalizedPattern.startsWith('*')
   ) {
     const prefix = normalizedPattern.slice(0, -1);
-    if (normalizedPattern.includes('/')) {
-      // Path-based trailing wildcard: match against full path
-      if (normalizedPath.startsWith(prefix)) {
-        return true;
-      }
-    } else {
-      // Filename-based trailing wildcard: match against basename only
+
+    // Path-based trailing wildcard: match against full path
+    if (normalizedPattern.includes('/') && normalizedPath.startsWith(prefix)) {
+      return true;
+    }
+
+    // Filename-based trailing wildcard: match against basename only
+    if (!normalizedPattern.includes('/')) {
       const fileName = normalizedPath.split('/').pop() ?? '';
       if (fileName.startsWith(prefix)) {
         return true;
