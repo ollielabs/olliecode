@@ -373,10 +373,10 @@ ship, but should be addressed as OM matures in production use.
   aren't fed back into OM tracking. Could be off by 20-30% depending on content type.
   Consider calibrating against actual counts from `onIterationComplete`.
 
-- [ ] **No observation history**: Reflections replace `activeObservations` in-place.
-  `generationCount` increments but previous generations aren't stored. If a reflection
-  loses critical info, it's gone. A simple `observational_memory_history` table would
-  preserve previous generations.
+- [x] **Observation history**: ~~Reflections replace `activeObservations` in-place.~~
+  `updateAfterReflection` now snapshots the current state into
+  `observational_memory_history` before overwriting (migration v8). Previous
+  generations are preserved and queryable via `getOMHistory()`. (#77)
 
 - [ ] **Remove compaction fallback**: `compaction.ts` and related code paths remain in
   the codebase, gated by `memoryConfig.enabled`. Once OM is validated in production,

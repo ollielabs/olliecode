@@ -65,6 +65,7 @@ import {
 import {
   clearBufferedReflection,
   deleteOMRecord,
+  getOMHistory,
   getOMRecord,
   getOrCreateOMRecord,
   setBufferingReflectionFlag,
@@ -383,6 +384,11 @@ function createTestSession(sessionId: string): void {
       now,
     ],
   );
+}
+
+/** Delete a session row (cascades to OM records and history) */
+function deleteTestSession(sessionId: string): void {
+  testDb.run('DELETE FROM sessions WHERE id = ?', [sessionId]);
 }
 
 describe('OM store', () => {
@@ -1063,6 +1069,135 @@ describe('Reflector store operations', () => {
       beforeReflection?.lastObservedAt ?? null,
     );
     expect(afterReflection?.totalTokensObserved).toBe(5000);
+  });
+});
+
+// ============================================================================
+// Observation history
+// ============================================================================
+
+describe('observation history', () => {
+  const sessionId = 'om-history-test';
+
+  test('reflection creates a history snapshot of the pre-reflection state', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // Simulate an observation
+    updateAfterObservation(sessionId, {
+      activeObservations: '* HIGH (14:00) User wants feature X',
+      observationTokenCount: 100,
+      lastObservedAt: Date.now(),
+      observedUpTo: 3,
+      pendingMessageTokens: 0,
+      totalTokensObserved: 1000,
+      currentTask: 'Build feature X',
+      suggestedResponse: null,
+    });
+
+    // Reflect — should snapshot the observation state first
+    updateAfterReflection(sessionId, {
+      activeObservations: '* HIGH Condensed: feature X in progress',
+      observationTokenCount: 50,
+      currentTask: 'Continue feature X',
+      suggestedResponse: null,
+    });
+
+    const history = getOMHistory(sessionId);
+    expect(history.length).toBe(1);
+    expect(history[0]!.generation).toBe(0);
+    expect(history[0]!.activeObservations).toBe(
+      '* HIGH (14:00) User wants feature X',
+    );
+    expect(history[0]!.observationTokenCount).toBe(100);
+    expect(history[0]!.originType).toBe('observation');
+  });
+
+  test('multiple reflections create multiple history entries', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // Gen 0 → observation
+    updateAfterObservation(sessionId, {
+      activeObservations: 'gen 0 observations',
+      observationTokenCount: 200,
+      lastObservedAt: Date.now(),
+      observedUpTo: 5,
+      pendingMessageTokens: 0,
+      totalTokensObserved: 2000,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    // Reflect: gen 0 → gen 1
+    updateAfterReflection(sessionId, {
+      activeObservations: 'gen 1 condensed',
+      observationTokenCount: 100,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    // Reflect: gen 1 → gen 2
+    updateAfterReflection(sessionId, {
+      activeObservations: 'gen 2 condensed',
+      observationTokenCount: 60,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    const history = getOMHistory(sessionId);
+    expect(history.length).toBe(2);
+    // Most recent first (generation DESC)
+    expect(history[0]!.generation).toBe(1);
+    expect(history[0]!.activeObservations).toBe('gen 1 condensed');
+    expect(history[1]!.generation).toBe(0);
+    expect(history[1]!.activeObservations).toBe('gen 0 observations');
+  });
+
+  test('no history entry when record has no observations', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    // Reflect on empty record — should not create a history entry
+    updateAfterReflection(sessionId, {
+      activeObservations: 'from nothing',
+      observationTokenCount: 10,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    const history = getOMHistory(sessionId);
+    expect(history.length).toBe(0);
+  });
+
+  test('cascade delete cleans up history', () => {
+    createTestSession(sessionId);
+    getOrCreateOMRecord(sessionId);
+
+    updateAfterObservation(sessionId, {
+      activeObservations: 'will be deleted',
+      observationTokenCount: 50,
+      lastObservedAt: Date.now(),
+      observedUpTo: 1,
+      pendingMessageTokens: 0,
+      totalTokensObserved: 500,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    updateAfterReflection(sessionId, {
+      activeObservations: 'condensed',
+      observationTokenCount: 20,
+      currentTask: null,
+      suggestedResponse: null,
+    });
+
+    expect(getOMHistory(sessionId).length).toBe(1);
+
+    // Delete the session — should cascade to history
+    deleteTestSession(sessionId);
+
+    expect(getOMHistory(sessionId).length).toBe(0);
   });
 });
 

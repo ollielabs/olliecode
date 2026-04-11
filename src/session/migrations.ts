@@ -216,6 +216,30 @@ const MIGRATIONS: Migration[] = [
         WHERE observed_message_ids != '[]';
     `,
   },
+  {
+    version: 8,
+    name: 'add_observational_memory_history',
+    sql: `
+      -- Observation history: preserves previous observation generations
+      -- before they are overwritten by reflection. Safety net in case a
+      -- Reflector compression loses critical information.
+      CREATE TABLE IF NOT EXISTS observational_memory_history (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        generation INTEGER NOT NULL,
+        active_observations TEXT NOT NULL,
+        observation_token_count INTEGER NOT NULL,
+        origin_type TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_om_history_session
+        ON observational_memory_history(session_id);
+      CREATE INDEX IF NOT EXISTS idx_om_history_generation
+        ON observational_memory_history(session_id, generation DESC);
+    `,
+  },
 ];
 
 /**
