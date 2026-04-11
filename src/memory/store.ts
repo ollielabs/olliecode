@@ -276,6 +276,29 @@ export function updateAfterReflection(
   },
 ): void {
   const db = getDatabase();
+
+  // Snapshot current state into history before overwriting.
+  // Safety net: if a reflection loses critical info, previous
+  // generations are preserved in observational_memory_history.
+  const current = getOMRecord(sessionId);
+  if (current?.activeObservations) {
+    db.run(
+      `INSERT INTO observational_memory_history (
+        id, session_id, generation, active_observations,
+        observation_token_count, origin_type, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        crypto.randomUUID(),
+        sessionId,
+        current.generationCount,
+        current.activeObservations,
+        current.observationTokenCount,
+        current.originType,
+        Date.now(),
+      ],
+    );
+  }
+
   db.run(
     `UPDATE observational_memory SET
       active_observations = ?,
@@ -451,4 +474,52 @@ export function clearBufferedReflection(sessionId: string): void {
 export function deleteOMRecord(sessionId: string): void {
   const db = getDatabase();
   db.run('DELETE FROM observational_memory WHERE session_id = ?', [sessionId]);
+}
+
+// ============================================================================
+// Observation history
+// ============================================================================
+
+export type OMHistoryEntry = {
+  id: string;
+  sessionId: string;
+  generation: number;
+  activeObservations: string;
+  observationTokenCount: number;
+  originType: string;
+  createdAt: number;
+};
+
+type OMHistoryRow = {
+  id: string;
+  session_id: string;
+  generation: number;
+  active_observations: string;
+  observation_token_count: number;
+  origin_type: string;
+  created_at: number;
+};
+
+/**
+ * Get observation history for a session, ordered by generation descending
+ * (most recent first). Returns all previous generations preserved before
+ * reflection overwrites.
+ */
+export function getOMHistory(sessionId: string): OMHistoryEntry[] {
+  const db = getDatabase();
+  const rows = db
+    .query(
+      'SELECT * FROM observational_memory_history WHERE session_id = ? ORDER BY generation DESC',
+    )
+    .all(sessionId) as OMHistoryRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    generation: row.generation,
+    activeObservations: row.active_observations,
+    observationTokenCount: row.observation_token_count,
+    originType: row.origin_type,
+    createdAt: row.created_at,
+  }));
 }
