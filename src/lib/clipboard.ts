@@ -6,7 +6,7 @@
  */
 
 import { $ } from 'bun';
-import { platform } from 'os';
+import { platform } from 'node:os';
 import clipboard from 'clipboardy';
 
 /**
@@ -46,7 +46,7 @@ const getCopyMethod = lazy(() => {
   // Linux: Try Wayland first, then X11 tools
   if (os === 'linux') {
     // Wayland: wl-copy
-    if (process.env['WAYLAND_DISPLAY'] && Bun.which('wl-copy')) {
+    if (process.env.WAYLAND_DISPLAY && Bun.which('wl-copy')) {
       return async (text: string) => {
         const proc = Bun.spawn(['wl-copy'], {
           stdin: 'pipe',

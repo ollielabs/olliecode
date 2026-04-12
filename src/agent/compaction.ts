@@ -88,7 +88,7 @@ function buildSummarizerInput(messages: Message[]): string {
   const parts: string[] = [];
 
   for (const m of messages) {
-    const role = m.role.charAt(0).toUpperCase() + m.role.slice(1);
+    const _role = m.role.charAt(0).toUpperCase() + m.role.slice(1);
     const content = m.content ?? '';
 
     if (m.role === 'tool') {
@@ -148,7 +148,7 @@ function buildSummarizerInput(messages: Message[]): string {
 
     // Final hard cap
     if (result.length > MAX_SUMMARIZER_INPUT_CHARS) {
-      result = result.slice(0, MAX_SUMMARIZER_INPUT_CHARS) + '\n[truncated]';
+      result = `${result.slice(0, MAX_SUMMARIZER_INPUT_CHARS)}\n[truncated]`;
     }
   }
 
