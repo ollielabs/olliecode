@@ -163,6 +163,7 @@ const MemoryReflectionObjectSchema = z.object({
 
 const MemoryObjectSchema = z.object({
   enabled: z.boolean().default(true),
+  host: z.string().url().optional(),
   model: z.string().optional(),
   observation: MemoryObservationObjectSchema.default(() =>
     MemoryObservationObjectSchema.parse({}),
