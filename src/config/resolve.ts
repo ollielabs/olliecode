@@ -201,6 +201,7 @@ export function extractTuiConfig(config: ResolvedConfig): TuiConfig {
 export function extractMemoryConfig(config: ResolvedConfig): MemoryConfig {
   return {
     enabled: config.memory.enabled,
+    host: config.memory.host,
     model: config.memory.model,
     observation: {
       messageTokens: config.memory.observation.messageTokens,

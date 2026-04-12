@@ -233,6 +233,8 @@ export type ReflectionConfig = {
 export type MemoryConfig = {
   /** Enable observational memory (default: true) */
   enabled: boolean;
+  /** Ollama host for Observer/Reflector (default: same as main host) */
+  host?: string;
   /** Model for Observer/Reflector (default: same as main agent model) */
   model?: string;
   /** Observation settings */

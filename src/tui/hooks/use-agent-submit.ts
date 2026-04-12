@@ -210,7 +210,7 @@ export function useAgentSubmit(
           session.id,
           store.history(),
           memoryConfig.model ?? model,
-          host,
+          memoryConfig.host ?? host,
           memoryConfig,
         );
         omObservationBlock = omResult.observationBlock ?? undefined;
@@ -253,7 +253,7 @@ export function useAgentSubmit(
             session.id,
             msgs,
             memoryConfig.model ?? model,
-            host,
+            memoryConfig.host ?? host,
             memoryConfig,
           );
         }
