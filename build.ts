@@ -36,7 +36,7 @@ const parserWorker = './node_modules/@opentui/core/parser.worker.js';
 const workerRelativePath = 'node_modules/@opentui/core/parser.worker.js';
 
 // The compile object API is supported by Bun but not yet in bun-types.
-// @ts-expect-error — compile object API ahead of type definitions
+// Excluded from tsconfig type checking (see tsconfig.json "exclude").
 const result = await Bun.build({
   entrypoints: ['src/index.tsx', parserWorker],
   plugins: [plugin],
