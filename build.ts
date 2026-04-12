@@ -35,19 +35,21 @@ const plugin = createSolidTransformPlugin();
 const parserWorker = './node_modules/@opentui/core/parser.worker.js';
 const workerRelativePath = 'node_modules/@opentui/core/parser.worker.js';
 
+// The compile object API is supported by Bun but not yet in bun-types.
+// biome-ignore lint/suspicious/noExplicitAny: Bun.build compile API ahead of type defs
 const result = await Bun.build({
   entrypoints: ['src/index.tsx', parserWorker],
   plugins: [plugin],
   compile: {
     autoloadBunfig: false,
     autoloadDotenv: false,
-    target: (target ?? `bun-${process.platform}-${process.arch}`) as any,
+    target: target ?? `bun-${process.platform}-${process.arch}`,
     outfile,
   },
   define: {
     OTUI_TREE_SITTER_WORKER_PATH: `"/$bunfs/root/${workerRelativePath}"`,
   },
-});
+} as any);
 
 if (!result.success) {
   console.error('Build failed:');
