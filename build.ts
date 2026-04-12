@@ -1,9 +1,11 @@
 /**
  * Production build script using Bun.build() with the Solid JSX plugin.
  *
- * The Solid JSX transform requires a Bun plugin which can't be registered
- * via the CLI `bun build --compile` command. This script wraps Bun.build()
- * to register the plugin before compilation.
+ * Uses the compile object API (not `compile: true`) to produce standalone
+ * binaries with the Solid JSX transform applied via Bun plugin.
+ *
+ * Based on OpenCode's build approach:
+ * https://github.com/anomalyco/opencode/blob/dev/packages/opencode/script/build.ts
  *
  * Usage:
  *   bun run build.ts                                           # default: compile for current platform
@@ -12,7 +14,7 @@
  */
 
 import { parseArgs } from 'node:util';
-import solidPlugin from '@opentui/solid/bun-plugin';
+import { createSolidTransformPlugin } from '@opentui/solid/bun-plugin';
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -29,20 +31,25 @@ const target = values.target as
   | 'bun-darwin-x64'
   | undefined;
 
+const plugin = createSolidTransformPlugin();
+const parserWorker = './node_modules/@opentui/core/parser.worker.js';
+const workerRelativePath = 'node_modules/@opentui/core/parser.worker.js';
+
+// The compile object API is supported by Bun but not yet in bun-types.
+// Excluded from tsconfig type checking (see tsconfig.json "exclude").
 const result = await Bun.build({
-  entrypoints: [
-    'src/index.tsx',
-    './node_modules/@opentui/core/parser.worker.js',
-  ],
-  target: (target ?? 'bun') as 'bun',
-  outfile,
-  plugins: [solidPlugin],
-  define: {
-    OTUI_TREE_SITTER_WORKER_PATH:
-      '"/$bunfs/root/node_modules/@opentui/core/parser.worker.js"',
+  entrypoints: ['src/index.tsx', parserWorker],
+  plugins: [plugin],
+  compile: {
+    autoloadBunfig: false,
+    autoloadDotenv: false,
+    target: target ?? `bun-${process.platform}-${process.arch}`,
+    outfile,
   },
-  compile: true,
-} as Parameters<typeof Bun.build>[0] & { compile: boolean });
+  define: {
+    OTUI_TREE_SITTER_WORKER_PATH: `"/$bunfs/root/${workerRelativePath}"`,
+  },
+});
 
 if (!result.success) {
   console.error('Build failed:');

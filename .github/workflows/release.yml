@@ -79,15 +79,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build
-        run: |
-          NODE_ENV=production bun build src/index.tsx ./node_modules/@opentui/core/parser.worker.js \
-            --compile \
-            --outfile=ollie \
-            --define 'OTUI_TREE_SITTER_WORKER_PATH="/$bunfs/root/node_modules/@opentui/core/parser.worker.js"'
+        run: bun run build:${{ matrix.target }}
 
       - name: Create archive
         run: |
-          tar -czf ollie-${{ matrix.target }}.tar.gz ollie
+          tar -czf ollie-${{ matrix.target }}.tar.gz -C dist ollie-${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
