@@ -1,5 +1,11 @@
 # olliecode
 
+## 0.5.1
+
+### Patch Changes
+
+- [#82](https://github.com/ollielabs/olliecode/pull/82) [`382f630`](https://github.com/ollielabs/olliecode/commit/382f6302f7fbba1d4719c000bc87415b13ae34f2) Thanks [@platypusrex](https://github.com/platypusrex)! - Update @opentui/solid and @opentui/core from 0.1.79 to 0.1.97. Fix production build to use Bun's compile object API with createSolidTransformPlugin().
+
 ## 0.5.0
 
 ### Minor Changes
