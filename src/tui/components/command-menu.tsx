@@ -4,9 +4,9 @@
  */
 
 import type { ScrollBoxRenderable } from '@opentui/core';
-import { useKeyboard } from '@opentui/solid';
 import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
 import { getScrollChildBounds, scrollIntoView } from '../utils';
 
 export type SlashCommand = {
@@ -60,7 +60,9 @@ export function CommandMenu(rawProps: CommandMenuProps) {
     if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
-  useKeyboard((key: { name?: string }) => {
+  useFocusLayer(FocusLayer.COMMAND_MENU);
+
+  useScopedKeyboard(FocusLayer.COMMAND_MENU, (key) => {
     const cmds = filteredCommands();
     switch (key.name) {
       case 'up':

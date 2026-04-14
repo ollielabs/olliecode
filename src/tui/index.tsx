@@ -9,6 +9,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider, useTheme } from '../design';
 import { listSessions } from '../session';
+import { FocusLayer, KeyboardFocusProvider, useFocusLayer } from './keyboard';
 import {
   AssistantMessage,
   CommandMenu,
@@ -52,13 +53,15 @@ If there's already an AGENTS.md, improve it.`;
 export function App(props: AppProps) {
   return (
     <ThemeProvider initialTheme={props.config.tui.theme}>
-      <AppContent
-        config={props.config}
-        configLayers={props.configLayers}
-        configWarnings={props.configWarnings}
-        projectPath={props.projectPath}
-        initialSessionId={props.initialSessionId}
-      />
+      <KeyboardFocusProvider>
+        <AppContent
+          config={props.config}
+          configLayers={props.configLayers}
+          configWarnings={props.configWarnings}
+          projectPath={props.projectPath}
+          initialSessionId={props.initialSessionId}
+        />
+      </KeyboardFocusProvider>
     </ThemeProvider>
   );
 }
@@ -68,6 +71,9 @@ function AppContent(props: AppProps) {
   const configWarnings = props.configWarnings ?? [];
   const model = props.config.model;
   const { tokens } = useTheme();
+
+  // Register the "app" focus layer — active when no modal/overlay is open
+  useFocusLayer(FocusLayer.APP);
   let textareaRef: TextareaRenderable | undefined;
   const [toast, setToast] = createSignal<string | null>(null);
   const [showConfigModal, setShowConfigModal] = createSignal(false);
@@ -124,8 +130,6 @@ function AppContent(props: AppProps) {
   // Command menu hook
   const commands = useCommandMenu({
     getTextareaRef,
-    status: agent.status,
-    showSessionPicker: session.showSessionPicker,
     handlers: {
       handleNewSession: session.handleNewSession,
       handleClearContext: context.handleClearContext,
@@ -142,9 +146,6 @@ function AppContent(props: AppProps) {
   // File picker hook for @ mentions
   const filePicker = useFilePicker({
     getTextareaRef,
-    status: agent.status,
-    isModalOpen: () =>
-      session.showSessionPicker() || commands.showCommandMenu(),
   });
 
   // Global keyboard shortcuts
@@ -153,8 +154,6 @@ function AppContent(props: AppProps) {
     mode: session.mode,
     setMode: session.setMode,
     abort: agent.abort,
-    showCommandMenu: commands.showCommandMenu,
-    showSessionPicker: session.showSessionPicker,
     currentSession: session.currentSession,
     onCopySuccess: (message: string) => setToast(message),
     tuiConfig: tuiConfig(),
@@ -397,10 +396,6 @@ function AppContent(props: AppProps) {
                           agent.handleToolConfirmation(response);
                         }}
                         expanded={toolsExpanded()}
-                        isModalOpen={() =>
-                          session.showSessionPicker() ||
-                          commands.showCommandMenu()
-                        }
                       />
                     </Show>
                     <Show when={msg.type === 'compaction_summary' && msg}>

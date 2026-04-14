@@ -5,9 +5,10 @@
  */
 
 import type { InputRenderable, ScrollBoxRenderable } from '@opentui/core';
-import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
+import { useTerminalDimensions } from '@opentui/solid';
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import { deleteSession, type Session, updateSession } from '../../session';
 import { scrollIntoView } from '../utils';
 import { Modal } from './modal';
@@ -220,7 +221,7 @@ export function SessionPicker(props: SessionPickerProps) {
     props.onSessionsChanged();
   };
 
-  useKeyboard((key: { name?: string; ctrl?: boolean }) => {
+  useScopedKeyboard(FocusLayer.MODAL, (key) => {
     if (mode() === 'rename') {
       if (key.name === 'escape') setMode('browse');
       else if (key.name === 'return') handleRenameSubmit();

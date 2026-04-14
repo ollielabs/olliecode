@@ -6,13 +6,14 @@
  * In Solid, signal accessors always return current values — no ref-mirror pattern needed.
  */
 
-import { useKeyboard, useRenderer } from '@opentui/solid';
+import { useRenderer } from '@opentui/solid';
 import { createSignal } from 'solid-js';
 import { toggleMode } from '../../agent/modes';
 import type { TuiConfig } from '../../config/resolve';
 import { Clipboard } from '../../lib/clipboard';
 import { updateSession } from '../../session';
 import { DOUBLE_ESCAPE_THRESHOLD_MS } from '../constants';
+import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import type { AgentMode, Session, Status } from '../types';
 
 export type UseKeyboardShortcutsProps = {
@@ -24,10 +25,6 @@ export type UseKeyboardShortcutsProps = {
   setMode: (mode: AgentMode) => void;
   /** Abort function */
   abort: () => void;
-  /** Whether command menu is open (signal accessor) */
-  showCommandMenu: () => boolean;
-  /** Whether session picker is open (signal accessor) */
-  showSessionPicker: () => boolean;
   /** Current session for persisting mode changes (signal accessor) */
   currentSession: () => Session | null;
   /** Callback when copy succeeds (shows toast) */
@@ -55,60 +52,53 @@ export function useKeyboardShortcuts(
   const [toolsExpanded, setToolsExpanded] = createSignal(false);
   const [showHelp, setShowHelp] = createSignal(false);
 
-  // No ref-mirror pattern needed — signal accessors return current values
-  useKeyboard((key: { ctrl?: boolean; name?: string }) => {
-    // Ctrl+P: Toggle keyboard shortcuts help
-    if (key.ctrl && key.name === 'p') {
-      setShowHelp((prev) => !prev);
-      return;
-    }
+  // Global shortcuts — always fire regardless of focus layer
+  useScopedKeyboard(
+    FocusLayer.BASE,
+    (key) => {
+      // Ctrl+P: Toggle keyboard shortcuts help
+      if (key.ctrl && key.name === 'p') {
+        setShowHelp((prev) => !prev);
+        return;
+      }
 
-    // Ctrl+Y: Copy selected text to clipboard
-    if (key.ctrl && key.name === 'y') {
-      const selection = renderer.getSelection();
-      if (selection) {
-        const selectedText = selection.getSelectedText();
+      // Ctrl+Y: Copy selected text to clipboard
+      if (key.ctrl && key.name === 'y') {
+        const selectedText = renderer.getSelection()?.getSelectedText();
         if (selectedText) {
           void Clipboard.copy(selectedText).then(() => {
             props.onCopySuccess('Copied to clipboard');
           });
         }
+        return;
       }
-      return;
-    }
 
-    // Ctrl+K: Toggle debug overlay
-    if (key.ctrl && key.name === 'k') {
-      renderer.toggleDebugOverlay();
-      renderer.console.toggle();
-      return;
-    }
+      // Ctrl+K: Toggle debug overlay
+      if (key.ctrl && key.name === 'k') {
+        renderer.toggleDebugOverlay();
+        renderer.console.toggle();
+      }
+    },
+    { global: true },
+  );
 
-    // Tab: Toggle mode (only when idle and no modals open)
-    if (
-      key.name === 'tab' &&
-      props.status() !== 'thinking' &&
-      !props.showCommandMenu() &&
-      !props.showSessionPicker()
-    ) {
+  // App-layer shortcuts — suppressed when a modal/overlay has focus
+  useScopedKeyboard(FocusLayer.APP, (key) => {
+    // Tab: Toggle mode (only when idle)
+    if (key.name === 'tab' && props.status() !== 'thinking') {
       const newMode = toggleMode(props.mode());
       props.setMode(newMode);
-      const session = props.currentSession();
-      if (session) {
-        updateSession(session.id, { mode: newMode });
-      }
+      const sessionId = props.currentSession()?.id;
+      if (sessionId) updateSession(sessionId, { mode: newMode });
       return;
     }
 
     // Double-Escape: Abort agent (only when thinking)
     if (key.name === 'escape' && props.status() === 'thinking') {
       const now = Date.now();
-      if (now - lastEscape < doubleEscapeThreshold) {
-        props.abort();
-        lastEscape = 0;
-      } else {
-        lastEscape = now;
-      }
+      const isDouble = now - lastEscape < doubleEscapeThreshold;
+      lastEscape = isDouble ? 0 : now;
+      if (isDouble) props.abort();
       return;
     }
 
