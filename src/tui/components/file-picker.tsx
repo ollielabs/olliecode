@@ -5,10 +5,10 @@
  */
 
 import type { ScrollBoxRenderable } from '@opentui/core';
-import { useKeyboard } from '@opentui/solid';
 import type { JSX } from 'solid-js';
 import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
+import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
 import { type FuzzyMatch, fuzzySearch } from '../../lib/fuzzy';
 import { getScrollChildBounds, scrollIntoView } from '../utils';
 
@@ -72,7 +72,9 @@ export function FilePicker(rawProps: FilePickerProps) {
     if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
-  useKeyboard((key: { name?: string }) => {
+  useFocusLayer(FocusLayer.FILE_PICKER);
+
+  useScopedKeyboard(FocusLayer.FILE_PICKER, (key) => {
     const r = results();
     switch (key.name) {
       case 'up':

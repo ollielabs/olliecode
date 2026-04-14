@@ -3,18 +3,14 @@
  * Manages command filtering, selection, and actions.
  */
 
-import { useKeyboard } from '@opentui/solid';
 import { createSignal, type Setter } from 'solid-js';
 import type { SlashCommand } from '../components/command-menu';
-import type { Status, TextareaRef } from '../types';
+import { FocusLayer, useScopedKeyboard } from '../keyboard';
+import type { TextareaRef } from '../types';
 
 export type UseCommandMenuProps = {
   /** Getter for textarea ref */
   getTextareaRef: () => TextareaRef;
-  /** Current status (signal accessor) */
-  status: () => Status;
-  /** Whether session picker is open (signal accessor) */
-  showSessionPicker: () => boolean;
   /** Handlers from other hooks */
   handlers: {
     handleNewSession: () => void;
@@ -145,25 +141,31 @@ export function useCommandMenu(
     },
   ];
 
-  // Detect / in textarea and show command menu
-  useKeyboard(() => {
-    setTimeout(() => {
-      const ref = props.getTextareaRef();
-      if (!ref || ref.isDestroyed) return;
-      const currentText = ref.plainText ?? '';
-      if (props.status() !== 'thinking' && !props.showSessionPicker()) {
-        if (currentText.startsWith('/')) {
-          const newFilter = currentText.slice(1);
-          if (!showCommandMenu()) setShowCommandMenu(true);
-          setCommandFilter(newFilter);
-        } else if (showCommandMenu()) {
+  // Detect / in textarea and show command menu.
+  // Global because this monitor must keep running while the command-menu
+  // overlay is open (to detect when the user removes the "/" trigger).
+  useScopedKeyboard(
+    FocusLayer.APP,
+    () => {
+      setTimeout(() => {
+        const ref = props.getTextareaRef();
+        if (!ref || ref.isDestroyed) return;
+        const currentText = ref.plainText ?? '';
+        if (!currentText.startsWith('/')) {
+          // No slash — close menu if open
+          if (!showCommandMenu()) return;
           setShowCommandMenu(false);
           setCommandFilter('');
           setCommandSelectedIndex(0);
+          return;
         }
-      }
-    }, 0);
-  });
+
+        if (!showCommandMenu()) setShowCommandMenu(true);
+        setCommandFilter(currentText.slice(1));
+      }, 0);
+    },
+    { global: true },
+  );
 
   const handleCommandSelect = (command: SlashCommand) => {
     setShowCommandMenu(false);

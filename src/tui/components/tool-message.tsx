@@ -6,12 +6,12 @@
  * This replaces the old separate tool_call + tool_result + ConfirmationDialog pattern.
  */
 
-import { useKeyboard } from '@opentui/solid';
 import type { JSX } from 'solid-js';
 import { Show } from 'solid-js';
 import type { ConfirmationResponse } from '../../agent/safety/types';
 import { useTheme } from '../../design';
 import type { SemanticTokens } from '../../design/tokens';
+import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import type { ToolDisplayMessage, ToolMetadata, ToolState } from '../types';
 import { DiffView } from './diff-view';
 
@@ -23,8 +23,6 @@ export type ToolMessageProps = {
   isActiveConfirmation?: boolean;
   /** Whether to show expanded output for read-only tools (toggle with Ctrl+E) */
   expanded?: boolean;
-  /** Whether a modal (command menu, session picker) is open — suppresses confirmation keys */
-  isModalOpen?: () => boolean;
 };
 
 /** Read-only tools that support expand/collapse */
@@ -283,15 +281,13 @@ function ConfirmingView(props: {
   message: ToolDisplayMessage;
   onResponse?: (response: ConfirmationResponse) => void;
   isActive?: boolean;
-  isModalOpen?: () => boolean;
   tokens: SemanticTokens;
 }) {
   let responded = false;
 
-  useKeyboard((key: { name?: string }) => {
+  useScopedKeyboard(FocusLayer.APP, (key) => {
     if (props.message.state.status !== 'confirming') return;
     if (!props.isActive || responded || !props.onResponse) return;
-    if (props.isModalOpen?.()) return;
 
     switch (key.name?.toLowerCase()) {
       case 'y':
@@ -639,7 +635,6 @@ export function ToolMessage(props: ToolMessageProps) {
           message={props.message}
           onResponse={props.onConfirmationResponse}
           isActive={props.isActiveConfirmation}
-          isModalOpen={props.isModalOpen}
           tokens={tokens}
         />
       );

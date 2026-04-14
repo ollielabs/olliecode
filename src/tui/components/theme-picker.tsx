@@ -4,9 +4,9 @@
  */
 
 import { Index, createEffect, createSignal } from 'solid-js';
-import { useKeyboard } from '@opentui/solid';
 import { Modal } from './modal';
 import { useTheme, getThemeList } from '../../design';
+import { FocusLayer, useScopedKeyboard } from '../keyboard';
 
 export type ThemePickerProps = {
   onSelect: (themeId: string) => void;
@@ -36,7 +36,7 @@ export function ThemePicker(props: ThemePickerProps) {
     props.onCancel();
   };
 
-  useKeyboard((key: { name?: string }) => {
+  useScopedKeyboard(FocusLayer.MODAL, (key) => {
     switch (key.name) {
       case 'up':
       case 'k':

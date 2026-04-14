@@ -5,9 +5,10 @@
 
 import type { JSX } from 'solid-js';
 import { createMemo, mergeProps } from 'solid-js';
-import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
+import { useTerminalDimensions } from '@opentui/solid';
 import { RGBA } from '@opentui/core';
 import { useTheme } from '../../design';
+import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
 
 export type ModalProps = {
   title: string;
@@ -21,7 +22,10 @@ export function Modal(rawProps: ModalProps) {
   const { tokens } = useTheme();
   const dimensions = useTerminalDimensions();
 
-  useKeyboard((key: { name?: string }) => {
+  // Push "modal" layer — all children sharing this layer receive keys
+  useFocusLayer(FocusLayer.MODAL);
+
+  useScopedKeyboard(FocusLayer.MODAL, (key) => {
     if (key.name === 'escape' || key.name === 'q') {
       props.onClose();
     }
