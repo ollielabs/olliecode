@@ -114,6 +114,16 @@ const TaskToolObjectSchema = z.object({
   ),
 });
 
+const WebFetchToolObjectSchema = z.object({
+  timeout: z.number().int().min(1000).max(120000).default(30000),
+  maxResponseSize: z
+    .number()
+    .int()
+    .min(1024)
+    .max(10 * 1024 * 1024)
+    .default(5 * 1024 * 1024),
+});
+
 const ToolsObjectSchema = z.object({
   read_file: ReadFileToolObjectSchema.default(() =>
     ReadFileToolObjectSchema.parse({}),
@@ -122,6 +132,9 @@ const ToolsObjectSchema = z.object({
     RunCommandToolObjectSchema.parse({}),
   ),
   task: TaskToolObjectSchema.default(() => TaskToolObjectSchema.parse({})),
+  web_fetch: WebFetchToolObjectSchema.default(() =>
+    WebFetchToolObjectSchema.parse({}),
+  ),
 });
 
 export const ToolsSchema = ToolsObjectSchema.default(() =>

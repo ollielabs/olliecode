@@ -177,6 +177,10 @@ export function extractToolsConfig(config: ResolvedConfig): ToolsConfig {
         thorough: config.tools.task.iterationLimits.thorough,
       },
     },
+    web_fetch: {
+      timeout: config.tools.web_fetch.timeout,
+      maxResponseSize: config.tools.web_fetch.maxResponseSize,
+    },
   };
 }
 

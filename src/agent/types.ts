@@ -20,6 +20,7 @@ export type ToolsConfig = {
   task: {
     iterationLimits: { quick: number; medium: number; thorough: number };
   };
+  web_fetch: { timeout: number; maxResponseSize: number };
 };
 
 /**

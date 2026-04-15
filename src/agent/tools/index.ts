@@ -1,17 +1,18 @@
-import { z } from 'zod';
 import type { Tool } from 'ollama';
-import type { ToolDefinition, ToolResult, ToolContext } from '../types';
+import { z } from 'zod';
 import type { AgentMode } from '../modes';
 import { MODE_TOOLS } from '../modes';
-import { readFileTool } from './read-file';
-import { listDirTool } from './list-dir';
+import type { ToolContext, ToolDefinition, ToolResult } from '../types';
+import { editFileTool } from './edit-file';
 import { globTool } from './glob';
 import { grepTool } from './grep';
-import { writeFileTool } from './write-file';
-import { editFileTool } from './edit-file';
+import { listDirTool } from './list-dir';
+import { readFileTool } from './read-file';
 import { runCommandTool } from './run-command';
-import { todoWriteTool, todoReadTool } from './todo';
 import { taskTool } from './task';
+import { todoReadTool, todoWriteTool } from './todo';
+import { webFetchTool } from './web-fetch';
+import { writeFileTool } from './write-file';
 
 // All registered tools
 // biome-ignore lint/suspicious/noExplicitAny: Tools array holds heterogeneous tool types with different schemas
@@ -26,6 +27,7 @@ const tools: ToolDefinition<any, any>[] = [
   todoWriteTool,
   todoReadTool,
   taskTool,
+  webFetchTool,
 ];
 
 // Tool name constants for reference
@@ -40,6 +42,7 @@ export const TOOL_NAMES = {
   TODO_WRITE: 'todo_write',
   TODO_READ: 'todo_read',
   TASK: 'task',
+  WEB_FETCH: 'web_fetch',
 } as const;
 
 // Convert ToolDefinition to Ollama Tool format

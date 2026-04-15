@@ -27,6 +27,7 @@ export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
     'todo_write',
     'todo_read',
     'task',
+    'web_fetch',
   ] as const,
   build: [
     'read_file',
@@ -39,6 +40,7 @@ export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
     'todo_write',
     'todo_read',
     'task',
+    'web_fetch',
   ] as const,
 };
 
