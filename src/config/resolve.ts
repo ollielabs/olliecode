@@ -7,6 +7,7 @@
  */
 
 import type { CompactionConfig } from '../agent/compaction';
+import type { McpToolInfo } from '../agent/mcp/types';
 import type { SafetyConfig } from '../agent/safety/types';
 import type { AgentConfig, ToolsConfig } from '../agent/types';
 import type { MemoryConfig } from '../memory/types';
@@ -91,15 +92,32 @@ const AUTONOMY_BASELINES: Record<string, ToolPermissionMap> = {
 /**
  * Resolve the effective per-tool permission map.
  *
- * Starts from the autonomy level baseline, then applies
- * any explicit permission overrides from config.
+ * Starts from the autonomy level baseline, then registers MCP tool
+ * permissions (defaulting to 'ask' unless autonomous or autoApproved),
+ * then applies any explicit permission overrides from config.
  */
-export function resolvePermissions(config: ResolvedConfig): ToolPermissionMap {
+export function resolvePermissions(
+  config: ResolvedConfig,
+  mcpTools?: McpToolInfo[],
+): ToolPermissionMap {
   const baseline =
     AUTONOMY_BASELINES[config.autonomy] ?? AUTONOMY_BASELINES.cautious;
   const resolved = { ...baseline };
 
-  // Apply explicit overrides
+  // Register MCP tools with default permissions
+  if (mcpTools) {
+    const defaultPerm: PermissionValue =
+      config.autonomy === 'autonomous' ? 'allow' : 'ask';
+    for (const tool of mcpTools) {
+      // Server may not have a config entry (e.g., dynamically discovered) — defaults to 'ask'
+      const serverConfig = config.mcp[tool.serverName];
+      const isAutoApproved =
+        serverConfig?.autoApprove?.includes(tool.name) ?? false;
+      resolved[tool.qualifiedName] = isAutoApproved ? 'allow' : defaultPerm;
+    }
+  }
+
+  // Explicit overrides take highest priority
   for (const [tool, permission] of Object.entries(config.permissions)) {
     resolved[tool] = permission;
   }
@@ -139,12 +157,14 @@ export function extractCompactionConfig(
  *
  * Resolves autonomy level + permission overrides into a per-tool
  * permission map using the unified allow/ask/deny vocabulary.
+ * When mcpTools is provided, MCP tool permissions are included.
  */
 export function extractSafetyConfig(
   config: ResolvedConfig,
   projectRoot: string,
+  mcpTools?: McpToolInfo[],
 ): SafetyConfig {
-  const toolPermissions = resolvePermissions(config);
+  const toolPermissions = resolvePermissions(config, mcpTools);
 
   return {
     projectRoot,
