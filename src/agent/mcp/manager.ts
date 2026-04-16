@@ -272,6 +272,12 @@ export class McpManager {
       );
     }
 
+    if (!conn.client) {
+      throw new Error(
+        `MCP server "${parsed.serverName}" has no active client. Tool unavailable.`,
+      );
+    }
+
     const result = await conn.client.callTool({
       name: parsed.toolName,
       arguments: args,
