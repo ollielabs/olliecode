@@ -10,6 +10,7 @@
  * is requested — some doc sites serve markdown natively.
  *
  * Security: blocks requests to private/reserved IP ranges (SSRF protection).
+ * Redirects are followed manually with per-hop SSRF validation.
  */
 
 import TurndownService from 'turndown';
@@ -24,6 +25,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000; // ~12K tokens
+const MAX_REDIRECTS = 5;
 
 const OUTPUT_FORMATS = ['markdown', 'text', 'html'] as const;
 type OutputFormat = (typeof OUTPUT_FORMATS)[number];
@@ -68,7 +70,7 @@ const DENIED_HOSTS = new Set([
   'metadata.google.internal',
 ]);
 
-/** IP patterns for private/reserved ranges */
+/** IP patterns for private/reserved ranges (IPv4 + IPv6 + IPv4-mapped IPv6) */
 const DENIED_IP_PATTERNS = [
   /^127\./, // Loopback
   /^10\./, // RFC 1918 Class A
@@ -81,11 +83,21 @@ const DENIED_IP_PATTERNS = [
   /^fc00:/i, // IPv6 unique local
   /^fe80:/i, // IPv6 link-local
   /^fd/i, // IPv6 unique local
+  // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+  /^::ffff:(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.)/i,
 ];
 
 /**
+ * Check if a resolved IP address is private/reserved.
+ */
+function isPrivateIP(addr: string): boolean {
+  return DENIED_IP_PATTERNS.some((pattern) => pattern.test(addr));
+}
+
+/**
  * Validate a URL is not targeting private/internal networks.
- * Resolves hostname to IP and checks against denied ranges.
+ * Uses dns.lookup() (OS resolver) to match what fetch() will actually connect to.
+ * Denies by default on resolution failure.
  */
 async function validateURLSafety(url: string): Promise<string | null> {
   let parsed: URL;
@@ -102,20 +114,17 @@ async function validateURLSafety(url: string): Promise<string | null> {
     return `Blocked: requests to ${hostname} are not allowed (private/reserved address)`;
   }
 
-  // Resolve hostname to IP and check
+  // Resolve hostname to IP via OS resolver and check
   try {
-    const { resolve } = await import('node:dns/promises');
-    const addresses = await resolve(hostname).catch(() => [hostname]);
+    const dns = await import('node:dns/promises');
+    const { address } = await dns.lookup(hostname);
 
-    for (const addr of addresses) {
-      for (const pattern of DENIED_IP_PATTERNS) {
-        if (pattern.test(addr)) {
-          return `Blocked: ${hostname} resolves to private address ${addr}`;
-        }
-      }
+    if (isPrivateIP(address)) {
+      return `Blocked: ${hostname} resolves to private address ${address}`;
     }
   } catch {
-    // DNS resolution failed — let fetch handle it
+    // DNS resolution failed — deny by default for safety
+    return `Blocked: could not resolve ${hostname} — cannot verify address safety`;
   }
 
   return null; // Safe
@@ -263,7 +272,8 @@ async function extractTextFromHTML(html: string): Promise<string> {
 // ============================================================================
 
 /**
- * Perform the HTTP fetch with content negotiation, timeout, and Cloudflare retry.
+ * Perform the HTTP fetch with content negotiation, timeout, Cloudflare retry,
+ * and manual redirect following with per-hop SSRF validation.
  */
 async function fetchURL(
   url: string,
@@ -289,11 +299,57 @@ async function fetchURL(
   }
 
   try {
-    let response = await fetch(url, {
-      headers,
-      signal: controller.signal,
-      redirect: 'follow',
-    });
+    let currentUrl = url;
+    let redirectCount = 0;
+    let response: Response;
+
+    // Manual redirect loop with per-hop SSRF validation
+    while (true) {
+      response = await fetch(currentUrl, {
+        headers,
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      // Handle redirects (3xx)
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          // Consume body before throwing
+          await response.arrayBuffer().catch(() => {});
+          throw new Error(
+            `HTTP ${response.status} redirect with no Location header`,
+          );
+        }
+
+        redirectCount++;
+        if (redirectCount > MAX_REDIRECTS) {
+          await response.arrayBuffer().catch(() => {});
+          throw new Error(
+            `Too many redirects (${MAX_REDIRECTS}) following ${url}`,
+          );
+        }
+
+        // Consume redirect response body
+        await response.arrayBuffer().catch(() => {});
+
+        // Resolve relative redirect URLs
+        const redirectUrl = new URL(location, currentUrl).toString();
+
+        // Validate redirect target for SSRF
+        const ssrfError = await validateURLSafety(redirectUrl);
+        if (ssrfError) {
+          throw new Error(
+            `Redirect blocked: ${currentUrl} → ${redirectUrl} — ${ssrfError}`,
+          );
+        }
+
+        currentUrl = redirectUrl;
+        continue;
+      }
+
+      break;
+    }
 
     // Cloudflare bot detection: retry with honest UA
     if (
@@ -303,22 +359,25 @@ async function fetchURL(
       // Consume the first response body to prevent resource leak
       await response.arrayBuffer().catch(() => {});
 
-      response = await fetch(url, {
+      response = await fetch(currentUrl, {
         headers: { ...headers, 'User-Agent': HONEST_USER_AGENT },
         signal: controller.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       });
     }
 
     if (!response.ok) {
+      // Consume body before throwing to prevent resource leak
+      await response.arrayBuffer().catch(() => {});
       throw new Error(
-        `HTTP ${response.status}: ${response.statusText} for ${url}`,
+        `HTTP ${response.status}: ${response.statusText} for ${currentUrl}`,
       );
     }
 
     // Check content-length header before downloading body
     const contentLength = response.headers.get('content-length');
     if (contentLength && Number.parseInt(contentLength, 10) > maxResponseSize) {
+      await response.arrayBuffer().catch(() => {});
       throw new Error(
         `Response too large: ${contentLength} bytes exceeds ${maxResponseSize} byte limit`,
       );
@@ -402,7 +461,12 @@ async function formatContent(
 
 /** Escape characters that would break the XML-like output wrapper */
 function escapeAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // ============================================================================
@@ -460,18 +524,18 @@ Notes:
 
     // Resolve timeout from params → config → default, always clamped
     const configTimeout =
-      context?.toolsConfig?.web_fetch.timeout ?? DEFAULT_TIMEOUT_MS;
+      context?.toolsConfig?.web_fetch?.timeout ?? DEFAULT_TIMEOUT_MS;
     const timeoutMs = Math.min(
       params.timeout ? params.timeout * 1000 : configTimeout,
       MAX_TIMEOUT_MS,
     );
 
     const maxResponseSize =
-      context?.toolsConfig?.web_fetch.maxResponseSize ??
+      context?.toolsConfig?.web_fetch?.maxResponseSize ??
       DEFAULT_MAX_RESPONSE_SIZE;
 
     const maxOutputChars =
-      context?.toolsConfig?.web_fetch.maxOutputChars ??
+      context?.toolsConfig?.web_fetch?.maxOutputChars ??
       DEFAULT_MAX_OUTPUT_CHARS;
 
     try {
