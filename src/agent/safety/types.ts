@@ -104,6 +104,7 @@ export const DEFAULT_SAFETY_CONFIG: SafetyConfig = {
     task: 'allow',
     todo_read: 'allow',
     todo_write: 'allow',
+    web_fetch: 'ask',
   },
 
   deniedPaths: [
