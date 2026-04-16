@@ -48,7 +48,8 @@ export const TOOL_NAMES = {
 // Convert ToolDefinition to Ollama Tool format
 // biome-ignore lint/suspicious/noExplicitAny: Generic tool definition accepts any schema
 function toOllamaTool(def: ToolDefinition<any, any>): Tool {
-  const jsonSchema = z.toJSONSchema(def.parameters);
+  // Prefer raw JSON Schema (MCP tools) over Zod conversion to avoid lossy round-trip
+  const jsonSchema = def.rawInputSchema ?? z.toJSONSchema(def.parameters);
 
   // Extract only the fields Ollama expects
   type OllamaParameters = NonNullable<Tool['function']['parameters']>;
