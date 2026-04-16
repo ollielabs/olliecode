@@ -8,6 +8,8 @@
  *
  * Content negotiation: sends Accept: text/markdown when markdown format
  * is requested — some doc sites serve markdown natively.
+ *
+ * Security: blocks requests to private/reserved IP ranges (SSRF protection).
  */
 
 import TurndownService from 'turndown';
@@ -21,6 +23,7 @@ import type { ToolContext, ToolDefinition } from '../types';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
+const DEFAULT_MAX_OUTPUT_CHARS = 50_000; // ~12K tokens
 
 const OUTPUT_FORMATS = ['markdown', 'text', 'html'] as const;
 type OutputFormat = (typeof OUTPUT_FORMATS)[number];
@@ -53,6 +56,72 @@ const STRIPPED_ELEMENTS = [
 ] as const;
 
 // ============================================================================
+// SSRF Protection
+// ============================================================================
+
+/** Hosts always blocked regardless of resolution */
+const DENIED_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '[::1]',
+  '0.0.0.0',
+  'metadata.google.internal',
+]);
+
+/** IP patterns for private/reserved ranges */
+const DENIED_IP_PATTERNS = [
+  /^127\./, // Loopback
+  /^10\./, // RFC 1918 Class A
+  /^172\.(1[6-9]|2\d|3[01])\./, // RFC 1918 Class B
+  /^192\.168\./, // RFC 1918 Class C
+  /^169\.254\./, // Link-local
+  /^0\./, // Current network
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // Shared address space (CGN)
+  /^::1$/, // IPv6 loopback
+  /^fc00:/i, // IPv6 unique local
+  /^fe80:/i, // IPv6 link-local
+  /^fd/i, // IPv6 unique local
+];
+
+/**
+ * Validate a URL is not targeting private/internal networks.
+ * Resolves hostname to IP and checks against denied ranges.
+ */
+async function validateURLSafety(url: string): Promise<string | null> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'Invalid URL format';
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, ''); // Strip IPv6 brackets
+
+  // Check denied hostnames
+  if (DENIED_HOSTS.has(hostname.toLowerCase())) {
+    return `Blocked: requests to ${hostname} are not allowed (private/reserved address)`;
+  }
+
+  // Resolve hostname to IP and check
+  try {
+    const { resolve } = await import('node:dns/promises');
+    const addresses = await resolve(hostname).catch(() => [hostname]);
+
+    for (const addr of addresses) {
+      for (const pattern of DENIED_IP_PATTERNS) {
+        if (pattern.test(addr)) {
+          return `Blocked: ${hostname} resolves to private address ${addr}`;
+        }
+      }
+    }
+  } catch {
+    // DNS resolution failed — let fetch handle it
+  }
+
+  return null; // Safe
+}
+
+// ============================================================================
 // Schemas
 // ============================================================================
 
@@ -65,6 +134,8 @@ const inputSchema = z.object({
     .describe('Output format: "markdown" (default), "text", or "html"'),
   timeout: z
     .number()
+    .int()
+    .min(1)
     .optional()
     .describe('Timeout in seconds (default 30, max 120)'),
 });
@@ -77,17 +148,17 @@ const outputSchema = z
 // HTML Conversion
 // ============================================================================
 
+/** Module-level TurndownService singleton — config is static */
+const turndown = new TurndownService({
+  headingStyle: 'atx',
+  hr: '---',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced',
+  emDelimiter: '*',
+});
+turndown.remove([...STRIPPED_ELEMENTS]);
+
 function convertHTMLToMarkdown(html: string): string {
-  const turndown = new TurndownService({
-    headingStyle: 'atx',
-    hr: '---',
-    bulletListMarker: '-',
-    codeBlockStyle: 'fenced',
-    emDelimiter: '*',
-  });
-
-  turndown.remove(STRIPPED_ELEMENTS as unknown as string[]);
-
   return turndown.turndown(html);
 }
 
@@ -114,27 +185,55 @@ const BLOCK_ELEMENTS = new Set([
   'dd',
 ]);
 
+/**
+ * Stripped elements split by whether they can have children.
+ * Void elements (meta, link, embed) never have end tags — onEndTag throws.
+ * Container elements (script, style, etc.) need depth tracking.
+ */
+const STRIPPED_CONTAINERS = [
+  'script',
+  'style',
+  'nav',
+  'footer',
+  'header',
+  'noscript',
+  'iframe',
+  'object',
+] as const;
+
+const STRIPPED_VOID = ['meta', 'link', 'embed'] as const;
+
 async function extractTextFromHTML(html: string): Promise<string> {
   let text = '';
-  let skipContent = false;
+  let skipDepth = 0;
 
   const skipTags = new Set(STRIPPED_ELEMENTS);
 
   const rewriter = new HTMLRewriter()
-    .on(STRIPPED_ELEMENTS.join(', '), {
-      element() {
-        skipContent = true;
+    .on(STRIPPED_CONTAINERS.join(', '), {
+      element(element) {
+        skipDepth++;
+        element.onEndTag(() => {
+          skipDepth--;
+        });
       },
       text() {
-        // Discard text inside stripped elements
+        // Discard text inside stripped container elements
       },
+    })
+    .on(STRIPPED_VOID.join(', '), {
+      // Void elements: no children, no end tag — just mark as skip
+      element() {},
+      text() {},
     })
     .on('*', {
       element(element) {
+        if (skipDepth > 0) {
+          return;
+        }
         if (
           !skipTags.has(element.tagName as (typeof STRIPPED_ELEMENTS)[number])
         ) {
-          skipContent = false;
           // Add newline before block elements for readable spacing
           if (BLOCK_ELEMENTS.has(element.tagName) && text.length > 0) {
             text += '\n';
@@ -142,7 +241,7 @@ async function extractTextFromHTML(html: string): Promise<string> {
         }
       },
       text(input) {
-        if (!skipContent) {
+        if (skipDepth === 0) {
           text += input.text;
         }
       },
@@ -183,8 +282,10 @@ async function fetchURL(
 
   // Combine external abort signal with our timeout
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const onExternalAbort = () => controller.abort();
   if (signal) {
-    signal.addEventListener('abort', () => controller.abort(), { once: true });
+    signal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   try {
@@ -199,6 +300,9 @@ async function fetchURL(
       response.status === 403 &&
       response.headers.get('cf-mitigated') === 'challenge'
     ) {
+      // Consume the first response body to prevent resource leak
+      await response.arrayBuffer().catch(() => {});
+
       response = await fetch(url, {
         headers: { ...headers, 'User-Agent': HONEST_USER_AGENT },
         signal: controller.signal,
@@ -233,7 +337,33 @@ async function fetchURL(
     return { content, contentType };
   } finally {
     clearTimeout(timeoutId);
+    // Remove the abort listener to prevent leaks on long-lived signals
+    if (signal) {
+      signal.removeEventListener('abort', onExternalAbort);
+    }
   }
+}
+
+// ============================================================================
+// Output Truncation
+// ============================================================================
+
+/**
+ * Truncate output to stay within context window limits.
+ * Returns the truncated string with a notice if content was cut.
+ */
+function truncateOutput(content: string, maxChars: number): string {
+  if (content.length <= maxChars) {
+    return content;
+  }
+
+  const truncated = content.slice(0, maxChars);
+
+  // Try to break at a newline boundary for cleaner output
+  const lastNewline = truncated.lastIndexOf('\n', maxChars - 200);
+  const breakPoint = lastNewline > maxChars * 0.8 ? lastNewline : maxChars;
+
+  return `${truncated.slice(0, breakPoint)}\n\n[Content truncated at ${maxChars.toLocaleString()} chars (${content.length.toLocaleString()} total). Use format="text" for a more compact view, or fetch a more specific URL.]`;
 }
 
 // ============================================================================
@@ -267,6 +397,15 @@ async function formatContent(
 }
 
 // ============================================================================
+// Utility
+// ============================================================================
+
+/** Escape characters that would break the XML-like output wrapper */
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+// ============================================================================
 // Tool Definition
 // ============================================================================
 
@@ -292,13 +431,14 @@ Format details:
 Content negotiation: When markdown format is requested, the Accept header prefers text/markdown — some documentation sites serve markdown directly, avoiding lossy conversion.
 
 Notes:
-- Maximum response size is 5MB
+- Maximum response size is 5MB; output is truncated to ~50K chars to fit context window
 - Non-HTML responses (JSON, plain text, markdown) are returned as-is regardless of format
-- Images and binary content are not supported`,
+- Images and binary content are not supported
+- Requests to private/internal networks are blocked for security`,
 
   parameters: inputSchema,
   outputSchema,
-  risk: 'safe',
+  risk: 'low',
 
   execute: async (
     params: { url: string; format?: OutputFormat; timeout?: number },
@@ -312,16 +452,27 @@ Notes:
       return `Error: URL must start with http:// or https:// — received: ${url}`;
     }
 
-    // Resolve timeout from params → config → default
+    // SSRF protection — block private/reserved addresses
+    const ssrfError = await validateURLSafety(url);
+    if (ssrfError) {
+      return `Error: ${ssrfError}`;
+    }
+
+    // Resolve timeout from params → config → default, always clamped
     const configTimeout =
       context?.toolsConfig?.web_fetch.timeout ?? DEFAULT_TIMEOUT_MS;
-    const timeoutMs = params.timeout
-      ? Math.min(params.timeout * 1000, MAX_TIMEOUT_MS)
-      : configTimeout;
+    const timeoutMs = Math.min(
+      params.timeout ? params.timeout * 1000 : configTimeout,
+      MAX_TIMEOUT_MS,
+    );
 
     const maxResponseSize =
       context?.toolsConfig?.web_fetch.maxResponseSize ??
       DEFAULT_MAX_RESPONSE_SIZE;
+
+    const maxOutputChars =
+      context?.toolsConfig?.web_fetch.maxOutputChars ??
+      DEFAULT_MAX_OUTPUT_CHARS;
 
     try {
       const { content, contentType } = await fetchURL(
@@ -333,15 +484,16 @@ Notes:
       );
 
       const formatted = await formatContent(content, contentType, format);
+      const output = truncateOutput(formatted, maxOutputChars);
 
-      return `<web_fetch url="${url}" format="${format}" content_type="${contentType}">\n${formatted}\n</web_fetch>`;
+      return `<web_fetch url="${escapeAttr(url)}" format="${format}" content_type="${escapeAttr(contentType)}">\n${output}\n</web_fetch>`;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (message.includes('abort')) {
+      // Distinguish timeout/abort from other errors
+      if (error instanceof DOMException && error.name === 'AbortError') {
         return `Error: Request timed out after ${Math.round(timeoutMs / 1000)}s for ${url}`;
       }
 
+      const message = error instanceof Error ? error.message : String(error);
       return `Error fetching ${url}: ${message}`;
     }
   },

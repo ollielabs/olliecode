@@ -122,6 +122,7 @@ const WebFetchToolObjectSchema = z.object({
     .min(1024)
     .max(10 * 1024 * 1024)
     .default(5 * 1024 * 1024),
+  maxOutputChars: z.number().int().min(1000).max(500_000).default(50_000),
 });
 
 const ToolsObjectSchema = z.object({

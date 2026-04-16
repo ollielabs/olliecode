@@ -45,6 +45,7 @@ const AUTONOMY_BASELINES: Record<string, ToolPermissionMap> = {
     task: 'ask',
     todo_read: 'ask',
     todo_write: 'ask',
+    web_fetch: 'ask',
   },
   cautious: {
     read_file: 'allow',
@@ -57,6 +58,7 @@ const AUTONOMY_BASELINES: Record<string, ToolPermissionMap> = {
     task: 'allow',
     todo_read: 'allow',
     todo_write: 'allow',
+    web_fetch: 'ask',
   },
   balanced: {
     read_file: 'allow',
@@ -69,6 +71,7 @@ const AUTONOMY_BASELINES: Record<string, ToolPermissionMap> = {
     task: 'allow',
     todo_read: 'allow',
     todo_write: 'allow',
+    web_fetch: 'allow',
   },
   autonomous: {
     read_file: 'allow',
@@ -81,6 +84,7 @@ const AUTONOMY_BASELINES: Record<string, ToolPermissionMap> = {
     task: 'allow',
     todo_read: 'allow',
     todo_write: 'allow',
+    web_fetch: 'allow',
   },
 };
 
@@ -180,6 +184,7 @@ export function extractToolsConfig(config: ResolvedConfig): ToolsConfig {
     web_fetch: {
       timeout: config.tools.web_fetch.timeout,
       maxResponseSize: config.tools.web_fetch.maxResponseSize,
+      maxOutputChars: config.tools.web_fetch.maxOutputChars,
     },
   };
 }
