@@ -125,6 +125,10 @@ const WebFetchToolObjectSchema = z.object({
   maxOutputChars: z.number().int().min(1000).max(500_000).default(50_000),
 });
 
+const McpToolConfigObjectSchema = z.object({
+  maxOutputChars: z.number().int().min(1000).max(500_000).default(50_000),
+});
+
 const ToolsObjectSchema = z.object({
   read_file: ReadFileToolObjectSchema.default(() =>
     ReadFileToolObjectSchema.parse({}),
@@ -135,6 +139,9 @@ const ToolsObjectSchema = z.object({
   task: TaskToolObjectSchema.default(() => TaskToolObjectSchema.parse({})),
   web_fetch: WebFetchToolObjectSchema.default(() =>
     WebFetchToolObjectSchema.parse({}),
+  ),
+  mcp: McpToolConfigObjectSchema.default(() =>
+    McpToolConfigObjectSchema.parse({}),
   ),
 });
 
@@ -191,6 +198,61 @@ export const MemorySchema = MemoryObjectSchema.default(() =>
   MemoryObjectSchema.parse({}),
 );
 
+// === MCP server config schemas ===
+
+/**
+ * Server name: lowercase alphanumeric with hyphens/underscores.
+ * No "__" sequences (prevents ambiguity in mcp__server__tool qualified names).
+ */
+const McpServerNameSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9_-]*$/,
+    'Server name must start with alphanumeric, contain only lowercase alphanumeric, hyphens, or underscores',
+  )
+  .refine((s) => !s.includes('__'), {
+    message: 'Server name must not contain "__" (double underscore)',
+  });
+
+const McpServerLocalSchema = z.object({
+  type: z.literal('local'),
+  command: z.array(z.string()).min(1),
+  environment: z.record(z.string(), z.string()).default({}),
+  enabled: z.boolean().default(true),
+  timeout: z.number().int().min(1000).max(120_000).default(10_000),
+  autoApprove: z.array(z.string()).default([]),
+});
+
+const McpServerRemoteSchema = z.object({
+  type: z.literal('remote'),
+  url: z.string().url(),
+  headers: z.record(z.string(), z.string()).default({}),
+  enabled: z.boolean().default(true),
+  timeout: z.number().int().min(1000).max(120_000).default(10_000),
+  autoApprove: z.array(z.string()).default([]),
+  oauth: z
+    .union([
+      z.object({
+        clientId: z.string().optional(),
+        clientSecret: z.string().optional(),
+        scope: z.string().optional(),
+      }),
+      z.literal(false),
+    ])
+    .optional(),
+});
+
+const McpServerConfigSchema = z.discriminatedUnion('type', [
+  McpServerLocalSchema,
+  McpServerRemoteSchema,
+]);
+
+export { McpServerNameSchema, McpServerConfigSchema };
+
+export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
+export type McpLocalServerConfig = z.infer<typeof McpServerLocalSchema>;
+export type McpRemoteServerConfig = z.infer<typeof McpServerRemoteSchema>;
+
 // === Top-level config schema ===
 
 export const ConfigSchema = z.object({
@@ -208,6 +270,8 @@ export const ConfigSchema = z.object({
 
   tools: ToolsSchema,
   tui: TuiSchema,
+
+  mcp: z.record(McpServerNameSchema, McpServerConfigSchema).default({}),
 
   instructions: z.array(z.string()).default([]),
 

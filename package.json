@@ -65,6 +65,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "^0.1.97",
     "@opentui/solid": "^0.1.97",
     "clipboardy": "^5.3.0",

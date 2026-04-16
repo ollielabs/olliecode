@@ -25,6 +25,9 @@ export type ToolsConfig = {
     maxResponseSize: number;
     maxOutputChars: number;
   };
+  mcp: {
+    maxOutputChars: number;
+  };
 };
 
 /**
@@ -68,6 +71,8 @@ export type ToolDefinition<
   parameters: TParams;
   outputSchema: TOutput;
   risk: ToolRisk;
+  /** Raw JSON Schema for Ollama tool format (MCP tools). Overrides z.toJSONSchema(parameters). */
+  rawInputSchema?: object;
   execute: (
     params: z.infer<TParams>,
     signal?: AbortSignal,

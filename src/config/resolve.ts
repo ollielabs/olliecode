@@ -186,6 +186,9 @@ export function extractToolsConfig(config: ResolvedConfig): ToolsConfig {
       maxResponseSize: config.tools.web_fetch.maxResponseSize,
       maxOutputChars: config.tools.web_fetch.maxOutputChars,
     },
+    mcp: {
+      maxOutputChars: config.tools.mcp.maxOutputChars,
+    },
   };
 }
 
