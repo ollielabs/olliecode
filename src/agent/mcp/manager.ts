@@ -13,17 +13,20 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { z, fromJSONSchema } from 'zod';
 import type {
   McpLocalServerConfig,
   McpServerConfig,
 } from '../../config/schema';
 import { expandArray, expandRecord } from '../../config/env-expand';
+import type { ToolDefinition } from '../types';
 import type {
   McpConnectionStatus,
   McpStatusMap,
   McpToolAnnotations,
   McpToolInfo,
 } from './types';
+import { mcpAnnotationsToRisk } from './types';
 
 // Package version for MCP client identification
 const PKG_VERSION = '0.5.1';
@@ -72,9 +75,101 @@ function timeoutPromise(
   return { promise, cancel: () => clearTimeout(timer!) };
 }
 
+/**
+ * Create a ToolDefinition from an MCP tool discovery result.
+ *
+ * Uses fromJSONSchema() for real Zod validation of MCP tool parameters.
+ * Falls back to z.any() only when the JSON Schema is too exotic to convert.
+ */
+export function createMcpToolDef(
+  mcpTool: McpToolInfo,
+  client: Client,
+  serverTimeout: number,
+  maxOutputChars: number,
+  // biome-ignore lint/suspicious/noExplicitAny: MCP tools have dynamic schemas
+): ToolDefinition<any, any> {
+  // Convert JSON Schema -> Zod for real validation
+  let zodParams: z.ZodType;
+  try {
+    zodParams = fromJSONSchema(mcpTool.inputSchema);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `MCP tool ${mcpTool.qualifiedName}: JSON Schema conversion failed, falling back to z.any(): ${message}`,
+    );
+    zodParams = z.any();
+  }
+
+  return {
+    name: mcpTool.qualifiedName,
+    description: mcpTool.description,
+    parameters: zodParams,
+    rawInputSchema: mcpTool.inputSchema,
+    outputSchema: z.string(),
+    risk: mcpAnnotationsToRisk(mcpTool.annotations),
+    execute: async (args: unknown, _signal?: AbortSignal) => {
+      const result = await client.callTool(
+        {
+          name: mcpTool.name,
+          arguments: (args as Record<string, unknown>) ?? {},
+        },
+        undefined,
+        { timeout: serverTimeout },
+      );
+
+      // Serialize MCP content array to string
+      const parts: string[] = [];
+      const contentItems = (result.content ?? []) as McpContentItem[];
+      for (const item of contentItems) {
+        switch (item.type) {
+          case 'text':
+            parts.push((item as { type: 'text'; text: string }).text);
+            break;
+          case 'image':
+            parts.push(
+              `[Image content (${(item as { type: 'image'; mimeType: string }).mimeType}) omitted — not supported by current model]`,
+            );
+            break;
+          case 'resource': {
+            const res = (
+              item as {
+                type: 'resource';
+                resource: { uri: string; text?: string };
+              }
+            ).resource;
+            const text = res?.text ?? '';
+            parts.push(text || `[Resource: ${res?.uri}]`);
+            break;
+          }
+          default:
+            parts.push(`[${item.type} content omitted — not supported]`);
+        }
+      }
+
+      let output = parts.join('\n');
+
+      // Truncate to maxOutputChars
+      if (output.length > maxOutputChars) {
+        output =
+          output.slice(0, maxOutputChars) +
+          `\n\n[OUTPUT TRUNCATED — showing first ${maxOutputChars.toLocaleString()} chars]`;
+      }
+
+      if (result.isError) {
+        throw new Error(output || 'MCP tool returned an error with no content');
+      }
+
+      return output;
+    },
+  };
+}
+
 export class McpManager {
   private connections = new Map<string, McpConnection>();
   private toolsChangedListeners: McpToolsChangedListener[] = [];
+  /** MCP ToolDefinitions currently registered in the shared tools array */
+  // biome-ignore lint/suspicious/noExplicitAny: MCP tools have dynamic schemas
+  private registeredToolDefs: ToolDefinition<any, any>[] = [];
 
   static readonly TOOL_COUNT_WARNING_THRESHOLD = 30;
 
@@ -346,6 +441,69 @@ export class McpManager {
       const idx = this.toolsChangedListeners.indexOf(listener);
       if (idx >= 0) this.toolsChangedListeners.splice(idx, 1);
     };
+  }
+
+  /**
+   * Register MCP tools into the shared tools array as ToolDefinitions.
+   * Called after connectAll() or when tools change dynamically.
+   *
+   * @param toolsArray - The mutable shared tools array from tools/index.ts
+   * @param maxOutputChars - Max chars for MCP tool output truncation
+   */
+  registerTools(
+    // biome-ignore lint/suspicious/noExplicitAny: Shared tools array holds heterogeneous types
+    toolsArray: ToolDefinition<any, any>[],
+    maxOutputChars: number,
+  ): void {
+    // First remove any previously registered MCP tools
+    this.unregisterTools(toolsArray);
+
+    const newDefs: ToolDefinition<any, any>[] = [];
+
+    for (const conn of this.connections.values()) {
+      if (conn.status !== 'connected' || !conn.client) continue;
+
+      for (const mcpTool of conn.tools) {
+        const def = createMcpToolDef(
+          mcpTool,
+          conn.client,
+          conn.config.timeout,
+          maxOutputChars,
+        );
+        newDefs.push(def);
+      }
+    }
+
+    // Push into shared array
+    toolsArray.push(...newDefs);
+    this.registeredToolDefs = newDefs;
+  }
+
+  /**
+   * Remove all MCP tools from the shared tools array.
+   */
+  unregisterTools(
+    // biome-ignore lint/suspicious/noExplicitAny: Shared tools array holds heterogeneous types
+    toolsArray: ToolDefinition<any, any>[],
+  ): void {
+    if (this.registeredToolDefs.length === 0) return;
+
+    const mcpNames = new Set(this.registeredToolDefs.map((d) => d.name));
+    // Remove in-place by filtering
+    for (let i = toolsArray.length - 1; i >= 0; i--) {
+      if (mcpNames.has(toolsArray[i]!.name)) {
+        toolsArray.splice(i, 1);
+      }
+    }
+    this.registeredToolDefs = [];
+  }
+
+  /**
+   * Get the currently registered MCP ToolDefinitions.
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: MCP tools have dynamic schemas
+  getRegisteredToolDefs(): ToolDefinition<any, any>[] {
+    return [...this.registeredToolDefs];
   }
 
   /**

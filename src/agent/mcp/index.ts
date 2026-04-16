@@ -2,7 +2,7 @@
  * MCP module — re-exports for external consumption.
  */
 
-export { McpManager } from './manager';
+export { McpManager, createMcpToolDef } from './manager';
 export type { McpContentItem, McpToolsChangedListener } from './manager';
 
 export {

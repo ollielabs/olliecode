@@ -2,6 +2,8 @@ import type { Tool } from 'ollama';
 import { z } from 'zod';
 import type { AgentMode } from '../modes';
 import { MODE_TOOLS } from '../modes';
+import { isMcpToolReadOnly } from '../mcp/types';
+import type { McpToolInfo } from '../mcp/types';
 import type { ToolContext, ToolDefinition, ToolResult } from '../types';
 import { editFileTool } from './edit-file';
 import { globTool } from './glob';
@@ -14,7 +16,7 @@ import { todoReadTool, todoWriteTool } from './todo';
 import { webFetchTool } from './web-fetch';
 import { writeFileTool } from './write-file';
 
-// All registered tools
+// All registered tools — mutable to allow MCP tool registration/unregistration
 // biome-ignore lint/suspicious/noExplicitAny: Tools array holds heterogeneous tool types with different schemas
 const tools: ToolDefinition<any, any>[] = [
   readFileTool,
@@ -29,6 +31,15 @@ const tools: ToolDefinition<any, any>[] = [
   taskTool,
   webFetchTool,
 ];
+
+/**
+ * Get the mutable tools array for MCP registration.
+ * McpManager.registerTools() and unregisterTools() operate on this array.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: Tools array holds heterogeneous tool types
+export function getToolsArray(): ToolDefinition<any, any>[] {
+  return tools;
+}
 
 // Tool name constants for reference
 export const TOOL_NAMES = {
@@ -69,8 +80,13 @@ function toOllamaTool(def: ToolDefinition<any, any>): Tool {
   };
 }
 
-// Ollama-compatible tool schemas (all tools)
-export const ollamaTools: Tool[] = tools.map(toOllamaTool);
+/**
+ * Get Ollama-compatible tool schemas for all currently registered tools.
+ * Dynamic — includes MCP tools when registered.
+ */
+export function getOllamaTools(): Tool[] {
+  return tools.map(toOllamaTool);
+}
 
 /**
  * Get a tool definition by name.
@@ -100,13 +116,35 @@ export function getSafeParallelTools(): string[] {
 }
 
 /**
- * Get Ollama-compatible tools filtered by mode
- * Plan mode: read-only tools only
- * Build mode: all tools
+ * Check if a tool name is an MCP tool (mcp__server__tool pattern).
  */
-export function getToolsForMode(mode: AgentMode): Tool[] {
-  const allowedTools = MODE_TOOLS[mode];
-  return tools.filter((t) => allowedTools.includes(t.name)).map(toOllamaTool);
+function isMcpTool(name: string): boolean {
+  return name.startsWith('mcp__');
+}
+
+/**
+ * Get Ollama-compatible tools filtered by mode.
+ *
+ * Native tools: filtered by MODE_TOOLS[mode] (static list).
+ * MCP tools: build mode includes all, plan mode includes only readOnlyHint tools.
+ */
+export function getToolsForMode(
+  mode: AgentMode,
+  mcpTools?: McpToolInfo[],
+): Tool[] {
+  const allowedNative = MODE_TOOLS[mode];
+
+  return tools
+    .filter((t) => {
+      if (isMcpTool(t.name)) {
+        if (mode === 'build') return true;
+        // Plan mode: only include MCP tools with readOnlyHint
+        const mcpInfo = mcpTools?.find((m) => m.qualifiedName === t.name);
+        return mcpInfo ? isMcpToolReadOnly(mcpInfo) : false;
+      }
+      return allowedNative.includes(t.name);
+    })
+    .map(toOllamaTool);
 }
 
 // Execute a tool by name with validated args
