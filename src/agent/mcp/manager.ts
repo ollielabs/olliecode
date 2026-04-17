@@ -31,6 +31,17 @@ import { mcpAnnotationsToRisk } from './types';
 // Package version for MCP client identification
 const PKG_VERSION = '0.5.1';
 
+/** Max stderr lines to retain per server for debugging */
+const STDERR_BUFFER_SIZE = 50;
+
+/** Auto-reconnect configuration */
+const RECONNECT = {
+  maxAttempts: 3,
+  initialDelayMs: 1_000,
+  maxDelayMs: 30_000,
+  backoffMultiplier: 2,
+} as const;
+
 /**
  * Internal state for a single MCP server connection.
  * `client` and `transport` are undefined until connection succeeds.
@@ -43,6 +54,14 @@ type McpConnection = {
   status: McpConnectionStatus;
   error?: string;
   config: McpLocalServerConfig;
+  /** Last N lines of stderr from the server process */
+  stderrBuffer: string[];
+  /** Number of reconnect attempts since last successful connection */
+  reconnectAttempts: number;
+  /** Whether a reconnect is currently in progress */
+  reconnecting: boolean;
+  /** Timer for scheduled reconnect (for cancellation) */
+  reconnectTimer?: ReturnType<typeof setTimeout>;
 };
 
 /**
@@ -107,14 +126,14 @@ export function createMcpToolDef(
     rawInputSchema: mcpTool.inputSchema,
     outputSchema: z.string(),
     risk: mcpAnnotationsToRisk(mcpTool.annotations),
-    execute: async (args: unknown, _signal?: AbortSignal) => {
+    execute: async (args: unknown, signal?: AbortSignal) => {
       const result = await client.callTool(
         {
           name: mcpTool.name,
           arguments: (args as Record<string, unknown>) ?? {},
         },
         undefined,
-        { timeout: serverTimeout },
+        { timeout: serverTimeout, signal },
       );
 
       // Serialize MCP content array to string
@@ -170,6 +189,11 @@ export class McpManager {
   /** MCP ToolDefinitions currently registered in the shared tools array */
   // biome-ignore lint/suspicious/noExplicitAny: MCP tools have dynamic schemas
   private registeredToolDefs: ToolDefinition<any, any>[] = [];
+  /** Cached reference to the shared tools array for re-registration after reconnect */
+  // biome-ignore lint/suspicious/noExplicitAny: Shared tools array holds heterogeneous types
+  private toolsArrayRef?: ToolDefinition<any, any>[];
+  /** Cached maxOutputChars for re-registration after reconnect */
+  private maxOutputCharsRef = 50_000;
 
   static readonly TOOL_COUNT_WARNING_THRESHOLD = 30;
 
@@ -192,6 +216,9 @@ export class McpManager {
             status: 'error',
             error: message,
             config: config as McpLocalServerConfig,
+            stderrBuffer: [],
+            reconnectAttempts: 0,
+            reconnecting: false,
           });
         }),
       );
@@ -205,12 +232,16 @@ export class McpManager {
    * Connect a single local (stdio) MCP server.
    */
   async connect(name: string, config: McpLocalServerConfig): Promise<void> {
-    // Mark as connecting
+    // Mark as connecting (preserve existing stderr/reconnect state if reconnecting)
+    const existing = this.connections.get(name);
     this.connections.set(name, {
       name,
-      tools: [],
+      tools: existing?.tools ?? [],
       status: 'connecting',
       config,
+      stderrBuffer: existing?.stderrBuffer ?? [],
+      reconnectAttempts: existing?.reconnectAttempts ?? 0,
+      reconnecting: existing?.reconnecting ?? false,
     });
 
     const client = new Client(
@@ -252,6 +283,10 @@ export class McpManager {
       timeout.cancel();
     }
 
+    // Capture stderr for debugging (D.5)
+    const stderrBuffer = this.connections.get(name)?.stderrBuffer ?? [];
+    this.captureStderr(name, transport, stderrBuffer);
+
     // Discover tools (paginated)
     const tools = await this.fetchAllTools(name, client);
 
@@ -262,6 +297,9 @@ export class McpManager {
       tools,
       status: 'connected',
       config,
+      stderrBuffer,
+      reconnectAttempts: 0, // Reset on successful connection
+      reconnecting: false,
     });
 
     // Subscribe to dynamic tool list changes (MCP notification)
@@ -455,6 +493,10 @@ export class McpManager {
     toolsArray: ToolDefinition<any, any>[],
     maxOutputChars: number,
   ): void {
+    // Cache refs for auto-re-registration after reconnect
+    this.toolsArrayRef = toolsArray;
+    this.maxOutputCharsRef = maxOutputChars;
+
     // First remove any previously registered MCP tools
     this.unregisterTools(toolsArray);
 
@@ -513,6 +555,10 @@ export class McpManager {
     const promises = Array.from(this.connections.entries()).map(
       async ([name, conn]) => {
         try {
+          // Cancel any pending reconnect
+          if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
+          conn.reconnecting = false;
+
           if (conn.client && conn.status === 'connected') {
             await conn.client.close();
           }
@@ -536,6 +582,10 @@ export class McpManager {
     const conn = this.connections.get(name);
     if (!conn) return;
 
+    // Cancel any pending reconnect
+    if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
+    conn.reconnecting = false;
+
     try {
       if (conn.client && conn.status === 'connected') {
         await conn.client.close();
@@ -555,8 +605,12 @@ export class McpManager {
     if (conn) {
       conn.status = 'error';
       conn.error = err.message;
+      conn.client = undefined;
+      conn.transport = undefined;
       console.error(`MCP "${name}" transport error: ${err.message}`);
       this.notifyToolsChanged();
+      // Attempt auto-reconnect
+      this.scheduleReconnect(name);
     }
   }
 
@@ -564,9 +618,115 @@ export class McpManager {
     const conn = this.connections.get(name);
     if (conn && conn.status === 'connected') {
       conn.status = 'disconnected';
+      conn.client = undefined;
+      conn.transport = undefined;
       console.error(`MCP "${name}" transport closed unexpectedly`);
       this.notifyToolsChanged();
+      // Attempt auto-reconnect (D.2)
+      this.scheduleReconnect(name);
     }
+  }
+
+  /**
+   * Schedule an auto-reconnect attempt with exponential backoff (D.2).
+   * Max 3 attempts, delays: 1s, 2s, 4s (capped at 30s).
+   */
+  private scheduleReconnect(name: string): void {
+    const conn = this.connections.get(name);
+    if (!conn || conn.reconnecting) return;
+    if (conn.reconnectAttempts >= RECONNECT.maxAttempts) {
+      console.error(
+        `MCP "${name}" exceeded max reconnect attempts (${RECONNECT.maxAttempts}). Giving up.`,
+      );
+      conn.status = 'error';
+      conn.error = `Disconnected after ${RECONNECT.maxAttempts} reconnect attempts`;
+      this.notifyToolsChanged();
+      return;
+    }
+
+    const delay = Math.min(
+      RECONNECT.initialDelayMs *
+        RECONNECT.backoffMultiplier ** conn.reconnectAttempts,
+      RECONNECT.maxDelayMs,
+    );
+    conn.reconnectAttempts++;
+    conn.reconnecting = true;
+
+    console.error(
+      `MCP "${name}" scheduling reconnect attempt ${conn.reconnectAttempts}/${RECONNECT.maxAttempts} in ${delay}ms`,
+    );
+
+    conn.reconnectTimer = setTimeout(async () => {
+      const current = this.connections.get(name);
+      if (!current || current.status === 'connected') {
+        if (current) current.reconnecting = false;
+        return;
+      }
+
+      // Reset flag before connect so transport errors during connect can re-trigger
+      current.reconnecting = false;
+
+      try {
+        await this.connect(name, current.config);
+        console.error(`MCP "${name}" reconnected successfully`);
+        // Re-register tools with fresh client references
+        if (this.toolsArrayRef) {
+          this.registerTools(this.toolsArrayRef, this.maxOutputCharsRef);
+        }
+        this.notifyToolsChanged();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`MCP "${name}" reconnect failed: ${message}`);
+        const c = this.connections.get(name);
+        if (c) {
+          c.status = 'error';
+          c.error = message;
+          // Try again if we haven't hit the limit
+          this.scheduleReconnect(name);
+        }
+      }
+    }, delay);
+  }
+
+  /**
+   * Capture stderr output from the server process (D.5).
+   * Stores the last STDERR_BUFFER_SIZE lines for debugging.
+   */
+  private captureStderr(
+    name: string,
+    transport: StdioClientTransport,
+    buffer: string[],
+  ): void {
+    // Access the underlying process stderr via the transport
+    // StdioClientTransport exposes stderr when configured with stderr: 'pipe'
+    const proc = (
+      transport as unknown as { _process?: { stderr?: NodeJS.ReadableStream } }
+    )._process;
+    const stderr = proc?.stderr;
+    if (!stderr) return;
+
+    let partial = '';
+    stderr.on('data', (chunk: Buffer) => {
+      partial += chunk.toString();
+      const lines = partial.split('\n');
+      // Keep the last incomplete line as partial
+      partial = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.trim()) {
+          buffer.push(line);
+          if (buffer.length > STDERR_BUFFER_SIZE) {
+            buffer.shift();
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Get captured stderr lines for a server (for /mcp command display).
+   */
+  getServerStderr(serverName: string): string[] {
+    return [...(this.connections.get(serverName)?.stderrBuffer ?? [])];
   }
 
   private checkToolCountWarning(): void {
