@@ -25,6 +25,7 @@ import {
   extractSafetyConfig,
   extractToolsConfig,
 } from '../../config/resolve';
+import type { McpToolInfo } from '../../agent/mcp/types';
 import type { ResolvedConfig } from '../../config/schema';
 import { checkMidLoopBuffering, processOMStep } from '../../memory/om';
 import { getTodos } from '../../session/todo';
@@ -71,6 +72,8 @@ export type UseAgentSubmitProps = {
   ) => void;
   /** Show a context info notification */
   setContextInfo?: (info: string | null) => void;
+  /** MCP tool metadata for permissions and mode filtering (populated by #93 TUI integration) */
+  mcpTools?: McpToolInfo[];
 };
 
 export type UseAgentSubmitReturn = {
@@ -231,10 +234,15 @@ export function useAgentSubmit(
       sessionId: session.id,
       signal: abortController.signal,
       config: extractAgentConfig(props.config),
-      safetyConfig: extractSafetyConfig(props.config, props.projectPath),
+      safetyConfig: extractSafetyConfig(
+        props.config,
+        props.projectPath,
+        props.mcpTools,
+      ),
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
+      mcpTools: props.mcpTools,
       observationBlock: omObservationBlock,
       continuationHint: omContinuationHint,
       onIterationComplete: (msgs, tokenInfo) => {

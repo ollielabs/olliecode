@@ -86,6 +86,9 @@ export type RunAgentArgs = {
   /** Override the system prompt (used by subagents) */
   systemPromptOverride?: string;
 
+  /** MCP tool metadata for mode filtering (plan mode: readOnlyHint only) */
+  mcpTools?: import('./mcp/types').McpToolInfo[];
+
   /** Observation block from observational memory (injected into system prompt) */
   observationBlock?: string;
 
@@ -244,8 +247,8 @@ export async function runAgent(
   const mode = args.mode ?? DEFAULT_MODE;
   const temperature = args.temperature ?? 0.2;
 
-  // Get mode-specific tools and prompt
-  const modeTools = getToolsForMode(mode);
+  // Get mode-specific tools and prompt (pass mcpTools for plan mode filtering)
+  const modeTools = getToolsForMode(mode, args.mcpTools);
   const ctx = getDefaultContext(
     args.safetyConfig.projectRoot,
     args.configInstructions,
