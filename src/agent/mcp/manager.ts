@@ -11,14 +11,21 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z, fromJSONSchema } from 'zod';
 import type {
   McpLocalServerConfig,
+  McpRemoteServerConfig,
   McpServerConfig,
 } from '../../config/schema';
-import { expandArray, expandRecord } from '../../config/env-expand';
+import {
+  expandArray,
+  expandEnvVars,
+  expandRecord,
+} from '../../config/env-expand';
 import type { ToolDefinition } from '../types';
 import type {
   McpConnectionStatus,
@@ -46,15 +53,25 @@ const RECONNECT = {
  * Internal state for a single MCP server connection.
  * `client` and `transport` are undefined until connection succeeds.
  */
+/** Supported MCP transport types */
+type McpTransport =
+  | StdioClientTransport
+  | StreamableHTTPClientTransport
+  | SSEClientTransport;
+
+/**
+ * Internal state for a single MCP server connection.
+ * `client` and `transport` are undefined until connection succeeds.
+ */
 type McpConnection = {
   name: string;
   client?: Client;
-  transport?: StdioClientTransport;
+  transport?: McpTransport;
   tools: McpToolInfo[];
   status: McpConnectionStatus;
   error?: string;
-  config: McpLocalServerConfig;
-  /** Last N lines of stderr from the server process */
+  config: McpLocalServerConfig | McpRemoteServerConfig;
+  /** Last N lines of stderr from the server process (local servers only) */
   stderrBuffer: string[];
   /** Number of reconnect attempts since last successful connection */
   reconnectAttempts: number;
@@ -204,9 +221,13 @@ export class McpManager {
   async connectAll(servers: Record<string, McpServerConfig>): Promise<void> {
     const promises = Object.entries(servers)
       .filter(([_, config]) => config.enabled !== false)
-      .filter(([_, config]) => config.type === 'local') // Only stdio in Issue #89
-      .map(([name, config]) =>
-        this.connect(name, config as McpLocalServerConfig).catch((err) => {
+      .map(([name, config]) => {
+        const connectFn =
+          config.type === 'remote'
+            ? this.connectRemote(name, config as McpRemoteServerConfig)
+            : this.connect(name, config as McpLocalServerConfig);
+
+        return connectFn.catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           console.error(`MCP server "${name}" failed to connect: ${message}`);
           // Record error state so TUI can display it
@@ -215,13 +236,13 @@ export class McpManager {
             tools: [],
             status: 'error',
             error: message,
-            config: config as McpLocalServerConfig,
+            config,
             stderrBuffer: [],
             reconnectAttempts: 0,
             reconnecting: false,
           });
-        }),
-      );
+        });
+      });
 
     await Promise.allSettled(promises);
     this.checkToolCountWarning();
@@ -302,23 +323,139 @@ export class McpManager {
       reconnecting: false,
     });
 
-    // Subscribe to dynamic tool list changes (MCP notification)
-    client.setNotificationHandler(
-      ToolListChangedNotificationSchema,
-      async () => {
-        try {
-          const refreshed = await this.fetchAllTools(name, client);
-          const conn = this.connections.get(name);
-          if (conn) {
-            conn.tools = refreshed;
-            this.notifyToolsChanged();
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`MCP "${name}" failed to refresh tools: ${message}`);
-        }
-      },
+    this.subscribeToolListChanges(name, client);
+  }
+
+  /**
+   * Connect a single remote (HTTP/SSE) MCP server.
+   *
+   * Tries StreamableHTTPClientTransport first. On failure, falls back to
+   * SSEClientTransport for legacy servers (per MCP spec backwards compat).
+   */
+  async connectRemote(
+    name: string,
+    config: McpRemoteServerConfig,
+  ): Promise<void> {
+    // Mark as connecting (preserve existing state if reconnecting)
+    const existing = this.connections.get(name);
+    this.connections.set(name, {
+      name,
+      tools: existing?.tools ?? [],
+      status: 'connecting',
+      config,
+      stderrBuffer: [], // No stderr for remote servers
+      reconnectAttempts: existing?.reconnectAttempts ?? 0,
+      reconnecting: existing?.reconnecting ?? false,
+    });
+
+    // Expand env vars in URL and headers
+    const expandedUrl = expandEnvVars(config.url);
+    const expandedHeaders = expandRecord(config.headers);
+    let url: URL;
+    try {
+      url = new URL(expandedUrl);
+    } catch {
+      throw new Error(
+        `MCP "${name}" has invalid URL: "${expandedUrl}" (from config: "${config.url}")`,
+      );
+    }
+
+    let client: Client;
+    let transport: StreamableHTTPClientTransport | SSEClientTransport;
+    const deadline = Date.now() + config.timeout;
+
+    // Try StreamableHTTP first, fall back to SSE on failure
+    const httpTimeout = timeoutPromise(
+      config.timeout,
+      `MCP "${name}" HTTP transport timed out after ${config.timeout}ms`,
     );
+
+    try {
+      client = new Client(
+        { name: 'olliecode', version: PKG_VERSION },
+        { capabilities: {} },
+      );
+
+      transport = new StreamableHTTPClientTransport(url, {
+        requestInit: { headers: expandedHeaders },
+      });
+
+      transport.onerror = (err) => this.handleTransportError(name, err);
+      transport.onclose = () => this.handleTransportClose(name);
+
+      await Promise.race([client.connect(transport), httpTimeout.promise]);
+    } catch (httpErr) {
+      httpTimeout.cancel();
+
+      // Clean up failed HTTP transport to prevent stale handler callbacks
+      transport!.onerror = undefined;
+      transport!.onclose = undefined;
+      try {
+        await transport!.close();
+      } catch {
+        /* best effort */
+      }
+
+      // Fall back to SSE for legacy servers with remaining time budget
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(
+          `MCP "${name}" connection timed out after ${config.timeout}ms (no time left for SSE fallback)`,
+        );
+      }
+
+      const sseTimeout = timeoutPromise(
+        remaining,
+        `MCP "${name}" SSE transport timed out`,
+      );
+
+      try {
+        client = new Client(
+          { name: 'olliecode', version: PKG_VERSION },
+          { capabilities: {} },
+        );
+
+        transport = new SSEClientTransport(url, {
+          requestInit: { headers: expandedHeaders },
+        });
+
+        transport.onerror = (err) => this.handleTransportError(name, err);
+        transport.onclose = () => this.handleTransportClose(name);
+
+        await Promise.race([client.connect(transport), sseTimeout.promise]);
+      } catch (sseErr) {
+        sseTimeout.cancel();
+        const httpMsg =
+          httpErr instanceof Error ? httpErr.message : String(httpErr);
+        const sseMsg =
+          sseErr instanceof Error ? sseErr.message : String(sseErr);
+        throw new Error(
+          `Failed to connect with either transport — ` +
+            `HTTP: ${httpMsg}, SSE: ${sseMsg}`,
+        );
+      } finally {
+        sseTimeout.cancel();
+      }
+    } finally {
+      httpTimeout.cancel();
+    }
+
+    // Discover tools (paginated) — same as local servers
+    const tools = await this.fetchAllTools(name, client);
+
+    this.connections.set(name, {
+      name,
+      client,
+      transport,
+      tools,
+      status: 'connected',
+      config,
+      stderrBuffer: [],
+      reconnectAttempts: 0,
+      reconnecting: false,
+    });
+
+    this.subscribeToolListChanges(name, client);
   }
 
   /**
@@ -600,6 +737,29 @@ export class McpManager {
 
   // --- Internal handlers ---
 
+  /**
+   * Subscribe to dynamic tool list changes (MCP notification).
+   * Shared by both connect() and connectRemote().
+   */
+  private subscribeToolListChanges(name: string, client: Client): void {
+    client.setNotificationHandler(
+      ToolListChangedNotificationSchema,
+      async () => {
+        try {
+          const refreshed = await this.fetchAllTools(name, client);
+          const conn = this.connections.get(name);
+          if (conn) {
+            conn.tools = refreshed;
+            this.notifyToolsChanged();
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`MCP "${name}" failed to refresh tools: ${message}`);
+        }
+      },
+    );
+  }
+
   private handleTransportError(name: string, err: Error): void {
     const conn = this.connections.get(name);
     if (conn) {
@@ -667,7 +827,14 @@ export class McpManager {
       current.reconnecting = false;
 
       try {
-        await this.connect(name, current.config);
+        if (current.config.type === 'remote') {
+          await this.connectRemote(
+            name,
+            current.config as McpRemoteServerConfig,
+          );
+        } else {
+          await this.connect(name, current.config as McpLocalServerConfig);
+        }
         console.error(`MCP "${name}" reconnected successfully`);
         // Re-register tools with fresh client references
         if (this.toolsArrayRef) {
