@@ -72,8 +72,8 @@ export type UseAgentSubmitProps = {
   ) => void;
   /** Show a context info notification */
   setContextInfo?: (info: string | null) => void;
-  /** MCP tool metadata for permissions and mode filtering (populated by #93 TUI integration) */
-  mcpTools?: McpToolInfo[];
+  /** MCP tool metadata for permissions and mode filtering (signal accessor for reactivity) */
+  mcpTools?: () => McpToolInfo[];
 };
 
 export type UseAgentSubmitReturn = {
@@ -237,12 +237,12 @@ export function useAgentSubmit(
       safetyConfig: extractSafetyConfig(
         props.config,
         props.projectPath,
-        props.mcpTools,
+        props.mcpTools?.(),
       ),
       toolsConfig: extractToolsConfig(props.config),
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
-      mcpTools: props.mcpTools,
+      mcpTools: props.mcpTools?.(),
       observationBlock: omObservationBlock,
       continuationHint: omContinuationHint,
       onIterationComplete: (msgs, tokenInfo) => {

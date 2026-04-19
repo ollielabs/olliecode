@@ -13,6 +13,7 @@ import { useTheme } from '../../design';
 import type { SemanticTokens } from '../../design/tokens';
 import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import type { ToolDisplayMessage, ToolMetadata, ToolState } from '../types';
+import { getToolDisplayName } from '../utils/mcp-display';
 import { DiffView } from './diff-view';
 
 export type ToolMessageProps = {
@@ -32,6 +33,17 @@ const EXPANDABLE_TOOLS = ['read_file', 'glob', 'grep', 'list_dir'];
  * Format the tool header based on tool type and arguments.
  */
 function formatToolHeader(name: string, args: Record<string, unknown>): string {
+  // MCP tools: no special header formatting, just show args summary
+  if (name.startsWith('mcp__')) {
+    // Show first string arg as a brief hint, if any
+    for (const value of Object.values(args)) {
+      if (typeof value === 'string' && value.length > 0) {
+        return value.length > 60 ? `${value.slice(0, 60)}...` : value;
+      }
+    }
+    return '';
+  }
+
   switch (name) {
     case 'read_file':
       return String(args.path ?? '');
@@ -314,6 +326,7 @@ function ConfirmingView(props: {
 
   const preview = props.message.state.preview;
   const header = formatToolHeader(props.message.name, props.message.args);
+  const displayName = getToolDisplayName(props.message.name);
 
   return (
     <box
@@ -328,9 +341,7 @@ function ConfirmingView(props: {
       {/* Header */}
       <box style={{ flexDirection: 'row' }}>
         <text style={{ fg: props.tokens.warning }}>{'\u25B3'} </text>
-        <text style={{ fg: props.tokens.primaryBase }}>
-          {props.message.name}
-        </text>
+        <text style={{ fg: props.tokens.primaryBase }}>{displayName}</text>
         <Show when={header}>
           <text style={{ fg: props.tokens.textMuted }}> {header}</text>
         </Show>
@@ -547,7 +558,11 @@ function ExpandableTool(props: {
   const icon = getStatusIcon(props.message.state);
   const iconColor = getStatusColor(props.message.state, props.tokens);
   const header = formatToolHeader(props.message.name, props.message.args);
+  const displayName = getToolDisplayName(props.message.name);
   const isExpandable = EXPANDABLE_TOOLS.includes(props.message.name);
+  // MCP tools are always expandable (they aren't in the native EXPANDABLE_TOOLS list)
+  const isMcp = props.message.name.startsWith('mcp__');
+  const canExpand = isExpandable || isMcp;
 
   const outputSummary = formatCompletedOutput(
     props.message.name,
@@ -559,7 +574,7 @@ function ExpandableTool(props: {
     <Show
       when={
         props.expanded &&
-        isExpandable &&
+        canExpand &&
         props.message.state.status === 'completed' &&
         props.message.state.output
       }
@@ -567,12 +582,12 @@ function ExpandableTool(props: {
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={props.message.name}
+          name={displayName}
           header={header}
           suffix={
             outputSummary
-              ? `(${outputSummary})${isExpandable ? ' [ctrl+e to expand]' : ''}`
-              : isExpandable
+              ? `(${outputSummary})${canExpand ? ' [ctrl+e to expand]' : ''}`
+              : canExpand
                 ? '[ctrl+e to expand]'
                 : undefined
           }
@@ -583,7 +598,7 @@ function ExpandableTool(props: {
       <BlockTool
         icon={icon}
         iconColor={iconColor}
-        name={props.message.name}
+        name={displayName}
         header={header}
         tokens={props.tokens}
       >
@@ -606,6 +621,7 @@ export function ToolMessage(props: ToolMessageProps) {
   const icon = getStatusIcon(props.message.state);
   const iconColor = getStatusColor(props.message.state, tokens);
   const header = formatToolHeader(props.message.name, props.message.args);
+  const displayName = getToolDisplayName(props.message.name);
 
   // State-based rendering
   // NOTE: The switch runs once per ToolMessage creation. This is fine because
@@ -620,7 +636,7 @@ export function ToolMessage(props: ToolMessageProps) {
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={props.message.name}
+          name={displayName}
           header={header}
           suffix={
             props.message.state.status === 'executing' ? '(running...)' : ''
@@ -651,7 +667,7 @@ export function ToolMessage(props: ToolMessageProps) {
         return <CommandCompleted message={props.message} tokens={tokens} />;
       }
 
-      // Read-only tools: support expand/collapse via reactive <Show>
+      // MCP tools and read-only native tools: use expand/collapse
       return (
         <ExpandableTool
           message={props.message}
@@ -666,7 +682,7 @@ export function ToolMessage(props: ToolMessageProps) {
         <BlockTool
           icon={icon}
           iconColor={iconColor}
-          name={props.message.name}
+          name={displayName}
           header={header}
           tokens={tokens}
         >
@@ -679,7 +695,7 @@ export function ToolMessage(props: ToolMessageProps) {
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={props.message.name}
+          name={displayName}
           header={header}
           suffix={
             props.message.state.reason
@@ -696,7 +712,7 @@ export function ToolMessage(props: ToolMessageProps) {
         <InlineTool
           icon={icon}
           iconColor={iconColor}
-          name={props.message.name}
+          name={displayName}
           header={header}
           suffix={`(blocked: ${props.message.state.reason})`}
           dimmed

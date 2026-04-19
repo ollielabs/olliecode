@@ -21,6 +21,7 @@ import {
   FilePicker,
   InputBox,
   KeyboardShortcutsModal,
+  McpStatusModal,
   SessionPicker,
   SidePanel,
   ThemePicker,
@@ -34,6 +35,7 @@ import {
   useCommandMenu,
   useFilePicker,
   useKeyboardShortcuts,
+  useMcp,
   useSession,
 } from './hooks';
 import { useMessageStore } from './hooks/use-message-store';
@@ -77,6 +79,13 @@ function AppContent(props: AppProps) {
   let textareaRef: TextareaRenderable | undefined;
   const [toast, setToast] = createSignal<string | null>(null);
   const [showConfigModal, setShowConfigModal] = createSignal(false);
+  const [showMcpModal, setShowMcpModal] = createSignal(false);
+
+  // MCP hook — connects servers, registers tools, provides reactive status
+  const mcp = useMcp({
+    config: props.config,
+    onToast: (message) => setToast(message),
+  });
 
   // Getter for textarea ref
   const getTextareaRef = () => textareaRef;
@@ -114,6 +123,7 @@ function AppContent(props: AppProps) {
     setSidebarTodos: session.setSidebarTodos,
     updateRealTokenCounts: context.updateRealTokenCounts,
     setContextInfo: context.setContextInfo,
+    mcpTools: mcp.mcpTools,
   });
 
   // Status getter for InputBox
@@ -138,6 +148,7 @@ function AppContent(props: AppProps) {
       handleForget: context.handleForget,
       handleInit,
       handleConfig: () => setShowConfigModal(true),
+      handleMcp: () => setShowMcpModal(true),
       setShowSessionPicker: session.setShowSessionPicker,
       setShowThemePicker: session.setShowThemePicker,
     },
@@ -187,6 +198,14 @@ function AppContent(props: AppProps) {
               layers={configLayers}
               warnings={configWarnings}
               onClose={() => setShowConfigModal(false)}
+            />
+          </Show>
+
+          <Show when={showMcpModal()}>
+            <McpStatusModal
+              mcpStatus={mcp.mcpStatus()}
+              manager={mcp.manager}
+              onClose={() => setShowMcpModal(false)}
             />
           </Show>
 
@@ -280,6 +299,8 @@ function AppContent(props: AppProps) {
                 session.showSessionPicker() || session.showThemePicker()
               }
               suppressSubmit={filePicker.showFilePicker()}
+              mcpStatus={mcp.mcpStatus()}
+              mcpConnecting={mcp.connecting()}
             />
           </box>
 
@@ -318,6 +339,14 @@ function AppContent(props: AppProps) {
             layers={configLayers}
             warnings={configWarnings}
             onClose={() => setShowConfigModal(false)}
+          />
+        </Show>
+
+        <Show when={showMcpModal()}>
+          <McpStatusModal
+            mcpStatus={mcp.mcpStatus()}
+            manager={mcp.manager}
+            onClose={() => setShowMcpModal(false)}
           />
         </Show>
 
@@ -478,6 +507,8 @@ function AppContent(props: AppProps) {
                 session.showThemePicker()
               }
               suppressSubmit={filePicker.showFilePicker()}
+              mcpStatus={mcp.mcpStatus()}
+              mcpConnecting={mcp.connecting()}
             />
           </box>
         </box>
