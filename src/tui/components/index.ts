@@ -30,6 +30,10 @@ export {
 // Input components
 export { InputBox, type InputBoxProps } from './input-box';
 export { KeyboardShortcutsModal } from './keyboard-shortcuts-modal';
+export {
+  McpStatusModal,
+  type McpStatusModalProps,
+} from './mcp-status-modal';
 export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
 // Layout components

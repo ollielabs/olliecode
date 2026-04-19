@@ -32,6 +32,11 @@ export {
   useMessageStore,
 } from './use-message-store';
 export {
+  type UseMcpProps,
+  type UseMcpReturn,
+  useMcp,
+} from './use-mcp';
+export {
   type UseSessionProps,
   type UseSessionReturn,
   useSession,

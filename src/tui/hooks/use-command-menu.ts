@@ -20,6 +20,7 @@ export type UseCommandMenuProps = {
     handleForget: (n: number) => void;
     handleInit: (args?: string) => void;
     handleConfig: () => void;
+    handleMcp: () => void;
     setShowSessionPicker: Setter<boolean>;
     setShowThemePicker: Setter<boolean>;
   };
@@ -136,6 +137,14 @@ export function useCommandMenu(
       description: 'Show active configuration and sources',
       action: () => {
         props.handlers.handleConfig();
+        props.getTextareaRef()?.setText('');
+      },
+    },
+    {
+      name: 'mcp',
+      description: 'Show MCP server status and tools',
+      action: () => {
+        props.handlers.handleMcp();
         props.getTextareaRef()?.setText('');
       },
     },
