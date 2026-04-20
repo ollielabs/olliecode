@@ -1,7 +1,6 @@
 import { RGBA, SyntaxStyle, type TextareaRenderable } from '@opentui/core';
 import { createEffect } from 'solid-js';
 import type { AgentMode } from '../../agent/modes';
-import type { McpStatusMap } from '../../agent/mcp/types';
 import { useTheme } from '../../design';
 import type { Status } from '../types';
 import { StatusBar } from './status-bar';
@@ -30,10 +29,6 @@ export type InputBoxProps = {
   disabled?: boolean;
   /** When true, prevents submit on Enter (e.g., when file picker is open) */
   suppressSubmit?: boolean;
-  /** MCP server status map for status bar display */
-  mcpStatus?: McpStatusMap;
-  /** Whether MCP is still connecting on startup */
-  mcpConnecting?: boolean;
 };
 
 /** Regex to find @mentions: @ at start or after whitespace, followed by non-whitespace */
@@ -131,13 +126,7 @@ export function InputBox(props: InputBoxProps) {
         onSubmit={handleSubmit}
         onContentChange={updateMentionHighlights}
       />
-      <StatusBar
-        model={props.model}
-        status={props.status}
-        mode={props.mode}
-        mcpStatus={props.mcpStatus}
-        mcpConnecting={props.mcpConnecting}
-      />
+      <StatusBar model={props.model} status={props.status} mode={props.mode} />
     </box>
   );
 }

@@ -299,8 +299,6 @@ function AppContent(props: AppProps) {
                 session.showSessionPicker() || session.showThemePicker()
               }
               suppressSubmit={filePicker.showFilePicker()}
-              mcpStatus={mcp.mcpStatus()}
-              mcpConnecting={mcp.connecting()}
             />
           </box>
 
@@ -507,8 +505,6 @@ function AppContent(props: AppProps) {
                 session.showThemePicker()
               }
               suppressSubmit={filePicker.showFilePicker()}
-              mcpStatus={mcp.mcpStatus()}
-              mcpConnecting={mcp.connecting()}
             />
           </box>
         </box>
@@ -516,6 +512,8 @@ function AppContent(props: AppProps) {
         <SidePanel
           contextStats={context.sidebarStats()}
           todos={session.sidebarTodos()}
+          mcpStatus={mcp.mcpStatus()}
+          mcpConnecting={mcp.connecting()}
           width={40}
         />
 

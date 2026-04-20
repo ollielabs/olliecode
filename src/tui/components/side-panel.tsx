@@ -4,15 +4,21 @@
  */
 
 import { createMemo, createSignal, For, mergeProps, Show } from 'solid-js';
+import type { McpStatusMap } from '../../agent/mcp/types';
 import type { SemanticTokens } from '../../design';
 import { useTheme } from '../../design';
 import type { ContextStats } from '../../lib/tokenizer';
 import type { Todo, TodoStatus } from '../../session/todo';
+import { MCP_STATUS_ICONS, getMcpStatusDetail } from '../utils/mcp-display';
 
 export type SidePanelProps = {
   contextStats: ContextStats | null;
   todos: Todo[];
   width?: number;
+  /** MCP server status map (optional — omitted when no MCP servers configured) */
+  mcpStatus?: McpStatusMap;
+  /** Whether MCP is still connecting on startup */
+  mcpConnecting?: boolean;
 };
 
 const STATUS_ICONS: Record<TodoStatus, string> = {
@@ -182,6 +188,56 @@ function TodoSection(props: { todos: Todo[]; tokens: SemanticTokens }) {
   );
 }
 
+function mcpStatusColor(status: string, tokens: SemanticTokens): string {
+  switch (status) {
+    case 'connected':
+      return tokens.success;
+    case 'connecting':
+      return tokens.warning;
+    case 'error':
+      return tokens.error;
+    default:
+      return tokens.textSubtle;
+  }
+}
+
+function McpSection(props: {
+  mcpStatus: McpStatusMap;
+  connecting: boolean;
+  tokens: SemanticTokens;
+}) {
+  const entries = createMemo(() => Array.from(props.mcpStatus.entries()));
+
+  return (
+    <box flexDirection="column">
+      <text style={{ fg: props.tokens.textBase }}>
+        <b>MCP</b>
+      </text>
+
+      <Show when={props.connecting && entries().length === 0}>
+        <text style={{ fg: props.tokens.textMuted }}>connecting...</text>
+      </Show>
+
+      <For each={entries()}>
+        {([name, info]) => {
+          const icon = () =>
+            MCP_STATUS_ICONS[info.status] ?? MCP_STATUS_ICONS.disconnected;
+          const color = () => mcpStatusColor(info.status, props.tokens);
+          const detail = () => getMcpStatusDetail(info.status, info.toolCount);
+
+          return (
+            <box flexDirection="row">
+              <text style={{ fg: color() }}>{icon()} </text>
+              <text style={{ fg: props.tokens.textMuted }}>{name} </text>
+              <text style={{ fg: color() }}>{detail()}</text>
+            </box>
+          );
+        }}
+      </For>
+    </box>
+  );
+}
+
 export function SidePanel(rawProps: SidePanelProps) {
   const props = mergeProps({ width: 20 }, rawProps);
   const { tokens } = useTheme();
@@ -206,11 +262,32 @@ export function SidePanel(rawProps: SidePanelProps) {
         )}
       </Show>
 
+      <Show
+        when={
+          props.mcpConnecting || (props.mcpStatus && props.mcpStatus.size > 0)
+        }
+      >
+        <box style={{ marginBottom: 1 }}>
+          <McpSection
+            mcpStatus={props.mcpStatus ?? new Map()}
+            connecting={props.mcpConnecting ?? false}
+            tokens={tokens}
+          />
+        </box>
+      </Show>
+
       <Show when={props.todos.length > 0}>
         <TodoSection todos={props.todos} tokens={tokens} />
       </Show>
 
-      <Show when={!props.contextStats && props.todos.length === 0}>
+      <Show
+        when={
+          !props.contextStats &&
+          props.todos.length === 0 &&
+          !props.mcpConnecting &&
+          (!props.mcpStatus || props.mcpStatus.size === 0)
+        }
+      >
         <text style={{ fg: tokens.textSubtle }}>No activity</text>
       </Show>
     </box>

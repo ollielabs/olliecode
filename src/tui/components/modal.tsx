@@ -60,6 +60,7 @@ export function Modal(rawProps: ModalProps) {
           top: topOffset(),
           width: modalWidth(),
           maxWidth: dimensions().width - 2,
+          maxHeight: Math.floor(dimensions().height / 2),
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',
           paddingTop: 1,
@@ -82,7 +83,7 @@ export function Modal(rawProps: ModalProps) {
           <text style={{ fg: tokens.textSubtle }}>esc</text>
         </box>
 
-        {props.children}
+        <scrollbox flexGrow={1}>{props.children}</scrollbox>
       </box>
     </>
   );
