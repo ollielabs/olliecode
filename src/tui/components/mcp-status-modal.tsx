@@ -3,7 +3,7 @@
  * Shown via the /mcp slash command.
  */
 
-import { For, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import type { McpManager } from '../../agent/mcp';
 import type { McpStatusMap } from '../../agent/mcp/types';
 import { useTheme } from '../../design';
@@ -92,20 +92,49 @@ export function McpStatusModal(props: McpStatusModalProps) {
 
                 {/* Tool list */}
                 <Show when={tools.length > 0}>
-                  <box marginLeft={2} marginTop={0}>
-                    <text style={{ fg: tokens.textMuted }}>Tools:</text>
-                  </box>
                   <For each={tools}>
-                    {(tool) => (
-                      <text style={{ fg: tokens.textBase, marginLeft: 4 }}>
-                        - {tool.name}
-                        <span style={{ fg: tokens.textMuted }}>
-                          {tool.description
-                            ? ` — ${tool.description.slice(0, 60)}${tool.description.length > 60 ? '...' : ''}`
-                            : ''}
-                        </span>
-                      </text>
-                    )}
+                    {(tool, idx) => {
+                      const DESC_LIMIT = 120;
+                      const desc = tool.description ?? '';
+                      const needsTruncate = desc.length > DESC_LIMIT;
+                      const [expanded, setExpanded] = createSignal(false);
+                      const displayDesc = () =>
+                        expanded() || !needsTruncate
+                          ? desc
+                          : `${desc.slice(0, DESC_LIMIT)}...`;
+                      const num = `${idx() + 1}. `;
+
+                      return (
+                        <box flexDirection="column" marginBottom={1}>
+                          <Show
+                            when={needsTruncate}
+                            fallback={
+                              <text style={{ fg: tokens.textBase }}>
+                                {num}
+                                {tool.name}
+                              </text>
+                            }
+                          >
+                            <box flexDirection="row">
+                              <text style={{ fg: tokens.textBase }}>
+                                {num}
+                                {tool.name}{' '}
+                              </text>
+                              <box onMouseDown={() => setExpanded(!expanded())}>
+                                <text style={{ fg: tokens.primaryBase }}>
+                                  {expanded() ? '[-]' : '[+]'}
+                                </text>
+                              </box>
+                            </box>
+                          </Show>
+                          <Show when={desc}>
+                            <text style={{ fg: tokens.textMuted }}>
+                              {displayDesc()}
+                            </text>
+                          </Show>
+                        </box>
+                      );
+                    }}
                   </For>
                 </Show>
 

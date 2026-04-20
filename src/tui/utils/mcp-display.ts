@@ -3,8 +3,6 @@
  * Extracted from components for testability.
  */
 
-import type { McpStatusMap } from '../../agent/mcp/types';
-
 /**
  * Parse MCP qualified tool name (mcp__server__tool) into display parts.
  * Returns null if not an MCP tool name.
@@ -32,36 +30,33 @@ export function getToolDisplayName(name: string): string {
   return mcp ? mcp.displayName : name;
 }
 
+import type { McpConnectionStatus } from '../../agent/mcp/types';
+
+/** Status icons for the sidebar MCP section. */
+export const MCP_STATUS_ICONS: Record<McpConnectionStatus, string> = {
+  connected: '\u25CF', // ●
+  connecting: '\u25CB', // ○
+  error: '\u2717', // ✗
+  disconnected: '\u25CC', // ◌
+};
+
 /**
- * Format MCP status map for display in the status bar.
- *
- * Examples:
- *   "MCP: github(3) context7(2)"
- *   "MCP: github(err) context7(2)"
- *   "MCP: connecting..."
- *   null (no servers configured)
+ * Get the detail text for an MCP server status entry in the sidebar.
  */
-export function formatMcpStatus(
-  status: McpStatusMap | undefined,
-  connecting: boolean | undefined,
-): string | null {
-  if (!status || status.size === 0) return null;
-
-  if (connecting) return 'MCP: connecting...';
-
-  const parts: string[] = [];
-  for (const [name, info] of status) {
-    if (info.status === 'error') {
-      parts.push(`${name}(err)`);
-    } else if (info.status === 'connecting') {
-      parts.push(`${name}(...)`);
-    } else if (info.status === 'connected') {
-      parts.push(`${name}(${info.toolCount})`);
-    } else {
-      // disconnected
-      parts.push(`${name}(off)`);
-    }
+export function getMcpStatusDetail(
+  status: McpConnectionStatus,
+  toolCount: number,
+): string {
+  switch (status) {
+    case 'connected':
+      return `${toolCount} tool${toolCount !== 1 ? 's' : ''}`;
+    case 'connecting':
+      return 'connecting...';
+    case 'error':
+      return 'error';
+    case 'disconnected':
+      return 'off';
+    default:
+      return status;
   }
-
-  return parts.length > 0 ? `MCP: ${parts.join(' ')}` : null;
 }
