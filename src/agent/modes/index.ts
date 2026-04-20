@@ -45,9 +45,17 @@ export const MODE_TOOLS: Record<AgentMode, readonly string[]> = {
 };
 
 /**
- * Check if a tool is available in a given mode
+ * Check if a tool is available in a given mode.
+ *
+ * Native tools: checked against MODE_TOOLS[mode] (static list).
+ * MCP tools (mcp__server__tool): always allowed through here — mode filtering
+ * for MCP tools is handled by getToolsForMode() in tools/index.ts, which
+ * excludes non-read-only MCP tools from the Ollama tool list in plan mode.
+ * If the model calls an MCP tool, it was already mode-approved.
  */
 export function isToolAvailable(mode: AgentMode, toolName: string): boolean {
+  // MCP tools are mode-filtered at the Ollama tool list level, not here
+  if (toolName.startsWith('mcp__')) return true;
   return MODE_TOOLS[mode].includes(toolName);
 }
 
