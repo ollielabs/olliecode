@@ -24,6 +24,7 @@ export type { ToolPermissionMap, TuiConfig } from './resolve';
 export {
   deriveSubagentConfig,
   extractAgentConfig,
+  extractAgentRegistry,
   extractCompactionConfig,
   extractSafetyConfig,
   extractToolsConfig,

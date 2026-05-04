@@ -6,6 +6,8 @@
  * ResolvedConfig for each layer.
  */
 
+import { buildAgentRegistry, getDefaultAgentDirs } from '../agent/agents/index';
+import type { BuildRegistryResult } from '../agent/agents/index';
 import type { CompactionConfig } from '../agent/compaction';
 import type { McpToolInfo } from '../agent/mcp/types';
 import type { SafetyConfig } from '../agent/safety/types';
@@ -272,4 +274,29 @@ export function deriveSubagentConfig(
       maxIterations: overrides.maxIterations ?? baseConfig.agent.maxIterations,
     },
   };
+}
+
+/**
+ * Build the agent registry from resolved config.
+ *
+ * Runs the full merging pipeline:
+ * 1. Built-in agents (build, plan, explore)
+ * 2. Global markdown files (~/.config/ollie/agents/)
+ * 3. Project markdown files (.ollie/agents/)
+ * 4. JSON config agents (ollie.json `agents` field)
+ *
+ * @param config - The resolved config (provides JSON-defined agents)
+ * @param projectRoot - Project root directory (for .ollie/agents/ discovery)
+ */
+export async function extractAgentRegistry(
+  config: ResolvedConfig,
+  projectRoot: string,
+): Promise<BuildRegistryResult> {
+  const { globalDir, projectDir } = getDefaultAgentDirs(projectRoot);
+
+  return buildAgentRegistry({
+    globalDir,
+    projectDir,
+    configAgents: config.agents,
+  });
 }
