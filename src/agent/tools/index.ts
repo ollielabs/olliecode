@@ -1,9 +1,12 @@
 import type { Tool } from 'ollama';
 import { z } from 'zod';
+import { BUILTIN_BUILD_AGENT, BUILTIN_PLAN_AGENT } from '../agents/builtins';
+import { TOOL_TO_PERMISSION_KEY } from '../agents/schema';
 import type { AgentMode } from '../modes';
-import { MODE_TOOLS } from '../modes';
 import { isMcpToolReadOnly } from '../mcp/types';
 import type { McpToolInfo } from '../mcp/types';
+import { fromConfig, evaluate } from '../permission/index';
+import type { PermissionConfig } from '../permission/types';
 import type { ToolContext, ToolDefinition, ToolResult } from '../types';
 import { editFileTool } from './edit-file';
 import { globTool } from './glob';
@@ -123,28 +126,84 @@ function isMcpTool(name: string): boolean {
 }
 
 /**
- * Get Ollama-compatible tools filtered by mode.
+ * Check if a single tool is allowed by the given permission config.
  *
- * Native tools: filtered by MODE_TOOLS[mode] (static list).
- * MCP tools: build mode includes all, plan mode includes only readOnlyHint tools.
+ * For native tools: looks up the permission key via TOOL_TO_PERMISSION_KEY
+ * and evaluates against the permission config.
+ *
+ * For MCP tools: evaluates the 'mcp' permission key with the qualified name.
+ * If no 'mcp' rules exist, falls back to the wildcard '*' rule.
  */
-export function getToolsForMode(
-  mode: AgentMode,
-  mcpTools?: McpToolInfo[],
-): Tool[] {
-  const allowedNative = MODE_TOOLS[mode];
+export function isToolAllowedByPermission(
+  toolName: string,
+  permissionConfig: PermissionConfig,
+): boolean {
+  const ruleset = fromConfig(permissionConfig);
+
+  if (isMcpTool(toolName)) {
+    // MCP tools are checked against the 'mcp' permission key
+    const action = evaluate('mcp', toolName, ruleset);
+    return action !== 'deny';
+  }
+
+  // Native tool: find its permission key
+  const permKey = TOOL_TO_PERMISSION_KEY[toolName];
+  if (permKey) {
+    const action = evaluate(permKey, '*', ruleset);
+    return action !== 'deny';
+  }
+
+  // Unknown tool: evaluate against wildcard
+  const action = evaluate(toolName, '*', ruleset);
+  return action !== 'deny';
+}
+
+/**
+ * Get Ollama-compatible tools filtered by an agent's permission config.
+ *
+ * Native tools: filtered by evaluating each tool's permission key.
+ * MCP tools: filtered by 'mcp' permission key with qualified name matching.
+ * When no permission config is provided (undefined), all tools are included.
+ *
+ * Pre-parses the permission config into a ruleset once, then filters all
+ * tools against it (avoids re-parsing per tool).
+ *
+ * @param permissionConfig - The agent's permission config (undefined = all tools allowed)
+ */
+export function getToolsForAgent(permissionConfig?: PermissionConfig): Tool[] {
+  if (!permissionConfig) {
+    // No permission config = all tools allowed
+    return tools.map(toOllamaTool);
+  }
+
+  // Parse once, filter all tools against the cached ruleset
+  const ruleset = fromConfig(permissionConfig);
 
   return tools
     .filter((t) => {
       if (isMcpTool(t.name)) {
-        if (mode === 'build') return true;
-        // Plan mode: only include MCP tools with readOnlyHint
-        const mcpInfo = mcpTools?.find((m) => m.qualifiedName === t.name);
-        return mcpInfo ? isMcpToolReadOnly(mcpInfo) : false;
+        return evaluate('mcp', t.name, ruleset) !== 'deny';
       }
-      return allowedNative.includes(t.name);
+      const permKey = TOOL_TO_PERMISSION_KEY[t.name];
+      if (permKey) {
+        return evaluate(permKey, '*', ruleset) !== 'deny';
+      }
+      return evaluate(t.name, '*', ruleset) !== 'deny';
     })
     .map(toOllamaTool);
+}
+
+/**
+ * Get Ollama-compatible tools filtered by mode.
+ *
+ * Backward-compatible wrapper that resolves mode to built-in agent permissions.
+ * Prefer `getToolsForAgent()` for new code.
+ *
+ * @deprecated Use getToolsForAgent() with the agent's permission config instead.
+ */
+export function getToolsForMode(mode: AgentMode): Tool[] {
+  const agent = mode === 'plan' ? BUILTIN_PLAN_AGENT : BUILTIN_BUILD_AGENT;
+  return getToolsForAgent(agent.permission);
 }
 
 // Execute a tool by name with validated args

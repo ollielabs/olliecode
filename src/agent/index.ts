@@ -19,9 +19,16 @@ import {
   detectDoomLoop,
   detectNotFoundPattern,
 } from './loop-detector';
+import { BUILTIN_BUILD_AGENT, BUILTIN_PLAN_AGENT } from './agents/builtins';
+import type { ResolvedAgent } from './agents/schema';
 import type { AgentMode } from './modes';
 import { DEFAULT_MODE } from './modes';
-import { getDefaultContext, getSystemPromptForMode } from './prompts';
+import {
+  getDefaultContext,
+  getSystemPromptForAgent,
+  getSystemPromptForMode,
+} from './prompts';
+import type { PermissionConfig } from './permission/types';
 import {
   type ConfirmationRequest,
   type ConfirmationResponse,
@@ -30,7 +37,7 @@ import {
 } from './safety';
 import { isAbortError, processStream } from './stream-handler';
 import { processToolCalls } from './tool-processor';
-import { getToolsForMode } from './tools';
+import { getToolsForAgent } from './tools';
 import type {
   AgentConfig,
   AgentError,
@@ -54,8 +61,13 @@ export type RunAgentArgs = {
   /** Session ID for context (used by todo tools, etc.) */
   sessionId?: string;
 
-  /** Agent mode (plan or build). Defaults to DEFAULT_MODE. */
+  /** Agent mode (plan or build). Defaults to DEFAULT_MODE.
+   * @deprecated Prefer passing `agent` directly for new code. */
   mode?: AgentMode;
+
+  /** Resolved agent definition. When provided, takes precedence over `mode`
+   * for tool filtering, prompt resolution, and permission enforcement. */
+  agent?: ResolvedAgent;
 
   /** Streaming callbacks */
   onReasoningToken: (token: string) => void;
@@ -247,8 +259,23 @@ export async function runAgent(
   const mode = args.mode ?? DEFAULT_MODE;
   const temperature = args.temperature ?? 0.2;
 
-  // Get mode-specific tools and prompt (pass mcpTools for plan mode filtering)
-  const modeTools = getToolsForMode(mode, args.mcpTools);
+  // Resolve agent: explicit agent > mode-based lookup > default build
+  const resolvedAgent: ResolvedAgent =
+    args.agent ?? (mode === 'plan' ? BUILTIN_PLAN_AGENT : BUILTIN_BUILD_AGENT);
+  const agentName = resolvedAgent.name;
+  const permissionConfig: PermissionConfig | undefined =
+    resolvedAgent.permission;
+
+  // Derive mode for safety layer command filtering (plan mode whitelist).
+  // Only the built-in plan agent gets plan-mode safety restrictions.
+  // User-defined agents named 'plan' don't — they use their own permissions.
+  const safetyMode: AgentMode =
+    resolvedAgent.source.type === 'builtin' && resolvedAgent.name === 'plan'
+      ? 'plan'
+      : 'build';
+
+  // Get agent-specific tools and prompt
+  const modeTools = getToolsForAgent(permissionConfig);
   const ctx = getDefaultContext(
     args.safetyConfig.projectRoot,
     args.configInstructions,
@@ -257,7 +284,7 @@ export async function runAgent(
     ctx.observationBlock = args.observationBlock;
   }
   const systemPrompt =
-    args.systemPromptOverride ?? getSystemPromptForMode(mode, ctx);
+    args.systemPromptOverride ?? getSystemPromptForAgent(resolvedAgent, ctx);
 
   // Compute tool schema overhead dynamically (for heuristic fallback path).
   // In the agent loop, the system prompt IS included in the messages array,
@@ -506,7 +533,9 @@ export async function runAgent(
       // Process tool calls
       const toolResults = await processToolCalls(
         toolCalls,
-        mode,
+        agentName,
+        permissionConfig,
+        safetyMode,
         safetyLayer,
         {
           onToolResult: args.onToolResult,
