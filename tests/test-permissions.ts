@@ -188,6 +188,19 @@ describe('evaluate', () => {
     expect(evaluate('task', 'reviewer', ruleset)).toBe('deny');
   });
 
+  it('handles empty string input', () => {
+    const ruleset = fromConfig({ bash: { '*': 'deny' } });
+    expect(evaluate('bash', '', ruleset)).toBe('deny');
+  });
+
+  it('handles regex metacharacters in patterns', () => {
+    const ruleset = fromConfig({
+      bash: { '*': 'deny', 'echo (hello)': 'allow' },
+    });
+    expect(evaluate('bash', 'echo (hello)', ruleset)).toBe('allow');
+    expect(evaluate('bash', 'echo hello', ruleset)).toBe('deny');
+  });
+
   it('mcp qualified name patterns', () => {
     const ruleset = fromConfig({
       mcp: { '*': 'deny', 'mcp__github__*': 'allow' },
@@ -308,6 +321,40 @@ describe('disabled', () => {
     expect(result.has('read')).toBe(false);
     expect(result.has('glob')).toBe(false);
     expect(result.has('grep')).toBe(false);
+  });
+
+  it('propagates wildcard deny to known keys without explicit override', () => {
+    const ruleset = fromConfig({
+      '*': 'deny',
+      read: 'allow',
+    });
+    const knownKeys = ['read', 'edit', 'bash', 'glob'];
+    const result = disabled(ruleset, knownKeys);
+    // read has explicit allow — not disabled
+    expect(result.has('read')).toBe(false);
+    // edit, bash, glob have no override — disabled via wildcard
+    expect(result.has('edit')).toBe(true);
+    expect(result.has('bash')).toBe(true);
+    expect(result.has('glob')).toBe(true);
+    // * itself is disabled
+    expect(result.has('*')).toBe(true);
+  });
+
+  it('does not propagate when wildcard is not denied', () => {
+    const ruleset = fromConfig({ '*': 'allow', edit: 'deny' });
+    const knownKeys = ['read', 'edit', 'bash'];
+    const result = disabled(ruleset, knownKeys);
+    expect(result.has('edit')).toBe(true);
+    expect(result.has('read')).toBe(false);
+    expect(result.has('bash')).toBe(false);
+  });
+
+  it('without knownKeys, behaves as before (no propagation)', () => {
+    const ruleset = fromConfig({ '*': 'deny' });
+    const result = disabled(ruleset);
+    expect(result.has('*')).toBe(true);
+    // Without knownKeys, edit is not in the result
+    expect(result.has('edit')).toBe(false);
   });
 });
 

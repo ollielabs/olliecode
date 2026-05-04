@@ -130,10 +130,20 @@ export function merge(...rulesets: PermissionRuleset[]): PermissionRuleset {
  * (pattern: "*") in the ruleset. Useful for reporting which tools an agent
  * cannot use at all.
  *
+ * Accounts for the wildcard permission key "*": if "*" is denied and a
+ * specific key has no explicit wildcard-pattern override, that key is
+ * considered disabled too.
+ *
  * Only considers rules with pattern "*" — specific pattern overrides
  * are not included (the tool isn't fully disabled if some patterns are allowed).
+ *
+ * @param ruleset - The permission ruleset to analyze
+ * @param knownKeys - Optional set of known permission keys to expand "*" deny across
  */
-export function disabled(ruleset: PermissionRuleset): Set<string> {
+export function disabled(
+  ruleset: PermissionRuleset,
+  knownKeys?: readonly string[],
+): Set<string> {
   const result = new Set<string>();
 
   // Track the last wildcard-pattern action per permission key
@@ -145,9 +155,21 @@ export function disabled(ruleset: PermissionRuleset): Set<string> {
     }
   }
 
+  // Check if the universal wildcard "*" is denied
+  const wildcardDenied = lastWildcard.get('*') === 'deny';
+
   for (const [permission, action] of lastWildcard) {
     if (action === 'deny') {
       result.add(permission);
+    }
+  }
+
+  // If "*" is denied, propagate to known keys that don't have an explicit override
+  if (wildcardDenied && knownKeys) {
+    for (const key of knownKeys) {
+      if (!lastWildcard.has(key)) {
+        result.add(key);
+      }
     }
   }
 

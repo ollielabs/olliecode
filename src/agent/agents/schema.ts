@@ -24,10 +24,33 @@ export const PermissionConfigSchema: z.ZodType<PermissionConfig> = z.record(
   PermissionRuleSchema,
 );
 
+// === Agent name validation ===
+
+/**
+ * Agent name format: lowercase alphanumeric with hyphens/underscores.
+ * Must start with alphanumeric. No double underscores (prevents ambiguity
+ * in qualified tool names like `mcp__server__tool`).
+ *
+ * Matches the same pattern as McpServerNameSchema in config/schema.ts.
+ */
+export const AgentNameSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9_-]*$/,
+    'Agent name must start with alphanumeric, contain only lowercase alphanumeric, hyphens, or underscores',
+  )
+  .refine((s) => !s.includes('__'), {
+    message: 'Agent name must not contain "__" (double underscore)',
+  });
+
 // === Max iterations ===
 
 const MaxIterationsPresetSchema = z.enum(['quick', 'medium', 'thorough']);
 
+/**
+ * Numeric values for iteration presets. Single source of truth — also used
+ * by IterationLimitsObjectSchema in config/schema.ts.
+ */
 export const ITERATION_PRESETS = {
   quick: 8,
   medium: 15,
@@ -43,11 +66,47 @@ const MaxIterationsSchema = z.union([
 
 export const AgentModeSchema = z.enum(['primary', 'subagent', 'all']);
 
+// === Permission key to tool name mapping ===
+
+/**
+ * Maps permission keys (as used in agent configs) to actual tool names
+ * (as registered in the tool system). Used by Story 4's mode refactor
+ * to translate permission evaluations to tool filtering.
+ *
+ * Unknown keys fall through — future tools work without schema changes.
+ */
+export const PERMISSION_KEY_TO_TOOLS: Record<string, readonly string[]> = {
+  read: ['read_file'],
+  edit: ['edit_file', 'write_file'],
+  glob: ['glob'],
+  grep: ['grep'],
+  list: ['list_dir'],
+  bash: ['run_command'],
+  task: ['task'],
+  todo: ['todo_write', 'todo_read'],
+  web_fetch: ['web_fetch'],
+  // 'mcp' and '*' are handled specially — not in this map
+};
+
+/**
+ * Reverse mapping: tool name → permission key.
+ * Built from PERMISSION_KEY_TO_TOOLS at module load.
+ */
+export const TOOL_TO_PERMISSION_KEY: Record<string, string> = {};
+for (const [key, tools] of Object.entries(PERMISSION_KEY_TO_TOOLS)) {
+  for (const tool of tools) {
+    TOOL_TO_PERMISSION_KEY[tool] = key;
+  }
+}
+
 // === Agent definition schema ===
 
 const AgentInfoObjectSchema = z.object({
-  /** Agent name. Required in JSON config; optional in markdown (filename fallback). */
-  name: z.string().optional(),
+  /**
+   * Agent name. Optional in markdown (filename is fallback).
+   * When present, must match the agent name format.
+   */
+  name: AgentNameSchema.optional(),
   /** Description shown in task tool dynamic listing. Required. */
   description: z.string(),
   /** Whether this agent can be used as primary, subagent, or both. */
@@ -74,7 +133,11 @@ export type AgentInfoInput = z.input<typeof AgentInfoSchema>;
 
 // === Resolved agent (fully loaded with source metadata) ===
 
-export type ResolvedAgent = AgentInfo & {
+/**
+ * Fully resolved agent with required name, system prompt, and source.
+ * Uses Omit to explicitly narrow `name` from optional to required.
+ */
+export type ResolvedAgent = Omit<AgentInfo, 'name'> & {
   /** Canonical agent name (from frontmatter `name` field or filename fallback). */
   name: string;
   /** System prompt (markdown body for file-based agents, empty for JSON-only). */

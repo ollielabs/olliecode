@@ -9,7 +9,11 @@
 
 import { z } from 'zod';
 
-import { AgentInfoSchema } from '../agent/agents/schema';
+import {
+  AgentInfoSchema,
+  AgentNameSchema,
+  ITERATION_PRESETS,
+} from '../agent/agents/schema';
 
 // === Shared enums ===
 
@@ -105,9 +109,9 @@ const RunCommandToolObjectSchema = z.object({
 });
 
 const IterationLimitsObjectSchema = z.object({
-  quick: z.number().int().min(1).default(8),
-  medium: z.number().int().min(1).default(15),
-  thorough: z.number().int().min(1).default(25),
+  quick: z.number().int().min(1).default(ITERATION_PRESETS.quick),
+  medium: z.number().int().min(1).default(ITERATION_PRESETS.medium),
+  thorough: z.number().int().min(1).default(ITERATION_PRESETS.thorough),
 });
 
 const TaskToolObjectSchema = z.object({
@@ -275,9 +279,9 @@ export const ConfigSchema = z.object({
 
   mcp: z.record(McpServerNameSchema, McpServerConfigSchema).default({}),
 
-  agents: z
-    .record(z.string(), AgentInfoSchema.extend({ name: z.string() }))
-    .default({}),
+  // Agent definitions from JSON config. The record key IS the agent name —
+  // any `name` field inside the value is ignored (key takes precedence).
+  agents: z.record(AgentNameSchema, AgentInfoSchema).default({}),
 
   instructions: z.array(z.string()).default([]),
 

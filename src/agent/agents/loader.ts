@@ -8,9 +8,10 @@
 
 import { Glob } from 'bun';
 import matter from 'gray-matter';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { AgentInfoSchema } from './schema';
+import { AgentInfoSchema, AgentNameSchema } from './schema';
 import type { AgentSource, ResolvedAgent } from './schema';
 
 /** Result of loading agents from a single scope. */
@@ -26,18 +27,19 @@ export type LoadWarning = {
 
 /**
  * Parse a single markdown agent file into a ResolvedAgent.
+ * Reads file content asynchronously.
  *
  * @param filePath - Absolute path to the .md file
  * @param source - Where this file was found (global/project)
  * @returns The parsed agent, or a warning if parsing/validation failed
  */
-export function parseAgentFile(
+export async function parseAgentFile(
   filePath: string,
   source: AgentSource,
-): ResolvedAgent | LoadWarning {
+): Promise<ResolvedAgent | LoadWarning> {
   let content: string;
   try {
-    content = require('fs').readFileSync(filePath, 'utf-8');
+    content = await fs.readFile(filePath, 'utf-8');
   } catch {
     return { path: filePath, message: 'Could not read file' };
   }
@@ -71,8 +73,20 @@ export function parseAgentMarkdown(
 
   const info = result.data;
 
-  // Name: frontmatter `name` field, or filename without extension as fallback
-  const name = info.name ?? path.basename(filePath, '.md');
+  // Name: frontmatter `name` field (already validated by schema),
+  // or filename without extension as fallback
+  let name = info.name;
+  if (!name) {
+    const fallback = path.basename(filePath, '.md');
+    const nameResult = AgentNameSchema.safeParse(fallback);
+    if (!nameResult.success) {
+      return {
+        path: filePath,
+        message: `Invalid agent name from filename "${fallback}": must be lowercase alphanumeric with hyphens/underscores`,
+      };
+    }
+    name = nameResult.data;
+  }
 
   return {
     ...info,
@@ -82,10 +96,17 @@ export function parseAgentMarkdown(
   };
 }
 
+/** Extract display path from an AgentSource. */
+function sourceDisplayPath(source: AgentSource): string {
+  return source.type === 'global' || source.type === 'project'
+    ? source.path
+    : 'unknown';
+}
+
 /**
  * Discover and load all agent markdown files from a directory (recursive).
  *
- * @param dir - Directory to scan for `**\/*.md` files
+ * @param dir - Directory to scan for **\/*.md files
  * @param sourceType - "global" or "project"
  * @returns Loaded agents and any warnings
  */
@@ -97,7 +118,6 @@ export async function loadAgentsFromDirectory(
   const warnings: LoadWarning[] = [];
 
   // Check if directory exists
-  const fs = await import('node:fs/promises');
   try {
     await fs.access(dir);
   } catch {
@@ -118,7 +138,7 @@ export async function loadAgentsFromDirectory(
   for (const entry of entries) {
     const filePath = path.join(dir, entry);
     const source: AgentSource = { type: sourceType, path: filePath };
-    const result = parseAgentFile(filePath, source);
+    const result = await parseAgentFile(filePath, source);
 
     if ('message' in result) {
       warnings.push(result);
@@ -134,20 +154,17 @@ export async function loadAgentsFromDirectory(
   for (const agent of agents) {
     const existing = seen.get(agent.name);
     if (existing) {
-      const sourcePath =
-        agent.source.type === 'global' || agent.source.type === 'project'
-          ? agent.source.path
-          : 'unknown';
       warnings.push({
-        path: sourcePath,
-        message: `Duplicate agent name "${agent.name}" (already defined in ${existing})`,
+        path: sourceDisplayPath(agent.source),
+        message:
+          'Duplicate agent name "' +
+          agent.name +
+          '" (already defined in ' +
+          existing +
+          ')',
       });
     } else {
-      const sourcePath =
-        agent.source.type === 'global' || agent.source.type === 'project'
-          ? agent.source.path
-          : 'unknown';
-      seen.set(agent.name, sourcePath);
+      seen.set(agent.name, sourceDisplayPath(agent.source));
       deduped.push(agent);
     }
   }
