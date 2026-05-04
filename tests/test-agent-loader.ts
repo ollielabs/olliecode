@@ -302,6 +302,72 @@ description: No body
     expect(result.systemPrompt).toBe('');
   });
 
+  it('rejects invalid frontmatter name format', () => {
+    const content = `---
+name: Invalid Name
+description: Bad name
+---
+
+Bad.`;
+
+    const result = parseAgentMarkdown(content, '/agents/bad.md', projectSource);
+    expect(isWarning(result)).toBe(true);
+    if (!isWarning(result)) return;
+
+    expect(result.message).toContain('Schema validation failed');
+  });
+
+  it('rejects __proto__ as frontmatter name', () => {
+    const content = `---
+name: __proto__
+description: Sneaky
+---
+
+Sneaky.`;
+
+    const result = parseAgentMarkdown(
+      content,
+      '/agents/sneaky.md',
+      projectSource,
+    );
+    expect(isWarning(result)).toBe(true);
+  });
+
+  it('rejects empty string frontmatter name', () => {
+    const content = `---
+name: ""
+description: Empty name
+---
+
+Empty.`;
+
+    const result = parseAgentMarkdown(
+      content,
+      '/agents/empty.md',
+      projectSource,
+    );
+    expect(isWarning(result)).toBe(true);
+  });
+
+  it('validates filename fallback against name format', () => {
+    const content = `---
+description: No name field
+---
+
+Body.`;
+
+    // Uppercase filename — should fail name validation
+    const result = parseAgentMarkdown(
+      content,
+      '/agents/BadName.md',
+      projectSource,
+    );
+    expect(isWarning(result)).toBe(true);
+    if (!isWarning(result)) return;
+
+    expect(result.message).toContain('Invalid agent name from filename');
+  });
+
   it('preserves source metadata', () => {
     const content = `---
 description: Source test
@@ -325,7 +391,7 @@ Body.`;
   });
 });
 
-// ─── loadAgentsFromDirectory (filesystem tests) ─────────────────────��
+// ─── loadAgentsFromDirectory (filesystem tests) ─────────────────────
 
 describe('loadAgentsFromDirectory', () => {
   beforeAll(() => {
