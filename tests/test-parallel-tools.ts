@@ -62,9 +62,11 @@ async function runParallelTest(): Promise<void> {
     const result = await processToolCalls(
       toolCalls,
       'build',
+      undefined,
+      'build',
       mockSafetyLayer,
       {
-        onToolResult: (r) => results.push(r),
+        onToolResult: (r: ToolResult) => results.push(r),
         onToolBlocked: () => {},
       },
       new AbortController().signal,
@@ -99,9 +101,11 @@ async function runParallelTest(): Promise<void> {
     const result = await processToolCalls(
       toolCalls,
       'build',
+      undefined,
+      'build',
       mockSafetyLayer,
       {
-        onToolResult: (r) => results.push(r),
+        onToolResult: (r: ToolResult) => results.push(r),
         onToolBlocked: () => {},
       },
       new AbortController().signal,
@@ -132,6 +136,8 @@ async function runParallelTest(): Promise<void> {
 
     const result = await processToolCalls(
       toolCalls,
+      'build',
+      undefined,
       'build',
       mockSafetyLayer,
       {
@@ -167,9 +173,11 @@ async function runParallelTest(): Promise<void> {
     await processToolCalls(
       toolCalls,
       'build',
+      undefined,
+      'build',
       mockSafetyLayer,
       {
-        onToolResult: (r) => results.push(r),
+        onToolResult: (r: ToolResult) => results.push(r),
         onToolBlocked: () => {},
       },
       new AbortController().signal,
@@ -208,6 +216,8 @@ async function runParallelTest(): Promise<void> {
     const result = await processToolCalls(
       toolCalls,
       'build',
+      undefined,
+      'build',
       mockSafetyLayer,
       {
         onToolResult: () => {},
@@ -245,6 +255,8 @@ async function runParallelTest(): Promise<void> {
 
     const result = await processToolCalls(
       toolCalls,
+      'build',
+      undefined,
       'build',
       mockSafetyLayer,
       {

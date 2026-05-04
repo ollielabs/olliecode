@@ -9,13 +9,17 @@
 import type { Message, ToolCall } from 'ollama';
 import { log } from './logger';
 import type { AgentMode } from './modes';
-import { isToolAvailable } from './modes';
+import type { PermissionConfig } from './permission/types';
 import type {
   ConfirmationRequest,
   ConfirmationResponse,
   SafetyLayer,
 } from './safety';
-import { executeTool, isToolSafeForParallel } from './tools';
+import {
+  executeTool,
+  isToolAllowedByPermission,
+  isToolSafeForParallel,
+} from './tools';
 import type { ToolContext, ToolResult } from './types';
 
 /**
@@ -78,27 +82,27 @@ export type ToolProcessingResult = {
 };
 
 /**
- * Processes a tool call that is not available in the current mode.
+ * Processes a tool call that is not available due to agent permissions.
  */
-function handleModeBlocked(
+function handlePermissionBlocked(
   toolName: string,
-  mode: AgentMode,
+  agentName: string,
   callbacks: ToolProcessorCallbacks,
   index: number,
 ): ProcessedToolCall {
-  log(`Tool not available in ${mode} mode: ${toolName}`);
-  callbacks.onToolBlocked?.(toolName, `Not available in ${mode} mode`);
+  log(`Tool not available for agent "${agentName}": ${toolName}`);
+  callbacks.onToolBlocked?.(toolName, `Not available for agent "${agentName}"`);
 
   const result: ToolResult = {
     tool: toolName,
     output: '',
-    error: `BLOCKED: Tool "${toolName}" is not available in ${mode} mode`,
+    error: `BLOCKED: Tool "${toolName}" is not available for the current agent ("${agentName}")`,
   };
   callbacks.onToolResult(result, index);
 
   const message: Message = {
     role: 'tool',
-    content: `[TOOL NOT AVAILABLE] The ${toolName} tool is not available in ${mode} mode. Only read-only tools are available in plan mode.`,
+    content: `[TOOL NOT AVAILABLE] The ${toolName} tool is not available for the current agent ("${agentName}"). The agent's permissions do not allow this tool.`,
   };
 
   return { result, message, executed: false, index };
@@ -267,11 +271,17 @@ function categorizeToolCalls(toolCalls: ToolCall[]): CategorizedToolCalls {
 
 /**
  * Process a single tool call (used for both parallel and sequential execution).
+ *
+ * @param agentName - Name of the current agent (for error messages)
+ * @param permissionConfig - The agent's permission config (undefined = all tools allowed)
+ * @param mode - Optional AgentMode for safety layer command filtering (plan mode whitelist)
  */
 async function processSingleToolCall(
   toolCall: ToolCall,
   index: number,
-  mode: AgentMode,
+  agentName: string,
+  permissionConfig: PermissionConfig | undefined,
+  mode: AgentMode | undefined,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
   signal: AbortSignal,
@@ -280,14 +290,17 @@ async function processSingleToolCall(
   const toolName = toolCall.function.name;
   const toolArgs = toolCall.function.arguments as Record<string, unknown>;
 
-  // Step 1: Mode enforcement
-  if (!isToolAvailable(mode, toolName)) {
-    return handleModeBlocked(toolName, mode, callbacks, index);
+  // Step 1: Permission enforcement
+  if (
+    permissionConfig &&
+    !isToolAllowedByPermission(toolName, permissionConfig)
+  ) {
+    return handlePermissionBlocked(toolName, agentName, callbacks, index);
   }
 
   log(`Checking safety for: ${toolName}`, toolArgs);
 
-  // Step 2: Safety check
+  // Step 2: Safety check (pass mode for plan-mode command filtering)
   const safetyCheck = await safetyLayer.checkToolCall(toolCall, mode);
 
   if (safetyCheck.status === 'denied') {
@@ -389,7 +402,9 @@ function handleParallelFailure(
  * - Result formatting with original ordering preserved
  *
  * @param toolCalls - Array of tool calls from model response
- * @param mode - Current agent mode (plan or build)
+ * @param agentName - Name of the current agent (for error messages)
+ * @param permissionConfig - The agent's permission config (undefined = all tools allowed)
+ * @param mode - Optional AgentMode for safety layer command filtering (plan mode whitelist)
  * @param safetyLayer - Safety layer instance
  * @param callbacks - Event callbacks
  * @param signal - Abort signal
@@ -398,7 +413,9 @@ function handleParallelFailure(
  */
 export async function processToolCalls(
   toolCalls: ToolCall[],
-  mode: AgentMode,
+  agentName: string,
+  permissionConfig: PermissionConfig | undefined,
+  mode: AgentMode | undefined,
   safetyLayer: SafetyLayer,
   callbacks: ToolProcessorCallbacks,
   signal: AbortSignal,
@@ -421,6 +438,8 @@ export async function processToolCalls(
       processSingleToolCall(
         call,
         index,
+        agentName,
+        permissionConfig,
         mode,
         safetyLayer,
         callbacks,
@@ -459,6 +478,8 @@ export async function processToolCalls(
       const result = await processSingleToolCall(
         call,
         index,
+        agentName,
+        permissionConfig,
         mode,
         safetyLayer,
         callbacks,

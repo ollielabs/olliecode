@@ -166,8 +166,7 @@ describe('MCP Tool Registration & Execution', () => {
   // --- Mode Filtering ---
 
   test('build mode includes all MCP tools', () => {
-    const mcpTools = manager.getAllTools();
-    const buildTools = getToolsForMode('build', mcpTools);
+    const buildTools = getToolsForMode('build');
     const mcpNames = buildTools
       .filter((t) => t.function?.name?.startsWith('mcp__'))
       .map((t) => t.function.name!)
@@ -179,15 +178,20 @@ describe('MCP Tool Registration & Execution', () => {
     ]);
   });
 
-  test('plan mode includes only read-only MCP tools', () => {
-    const mcpTools = manager.getAllTools();
-    const planTools = getToolsForMode('plan', mcpTools);
+  test('plan mode includes all registered MCP tools (permission-based filtering)', () => {
+    // With the permission-based system, plan agent (edit: deny) does not
+    // restrict MCP tools — they pass through the wildcard default-allow.
+    // MCP-specific restrictions use the 'mcp' permission key in agent configs.
+    const planTools = getToolsForMode('plan');
     const mcpNames = planTools
       .filter((t) => t.function?.name?.startsWith('mcp__'))
       .map((t) => t.function.name!)
       .sort();
-    // echo and add are readOnlyHint: true, write_test is not
-    expect(mcpNames).toEqual(['mcp__mock__add', 'mcp__mock__echo']);
+    expect(mcpNames).toEqual([
+      'mcp__mock__add',
+      'mcp__mock__echo',
+      'mcp__mock__write_test',
+    ]);
   });
 
   // --- Output Truncation ---
