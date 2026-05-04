@@ -9,6 +9,8 @@
 
 import { z } from 'zod';
 
+import { AgentInfoSchema } from '../agent/agents/schema';
+
 // === Shared enums ===
 
 export const AutonomyLevelSchema = z.enum([
@@ -272,6 +274,10 @@ export const ConfigSchema = z.object({
   tui: TuiSchema,
 
   mcp: z.record(McpServerNameSchema, McpServerConfigSchema).default({}),
+
+  agents: z
+    .record(z.string(), AgentInfoSchema.extend({ name: z.string() }))
+    .default({}),
 
   instructions: z.array(z.string()).default([]),
 
