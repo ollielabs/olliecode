@@ -98,6 +98,12 @@ export type RunAgentArgs = {
   /** Override the system prompt (used by subagents) */
   systemPromptOverride?: string;
 
+  /** Agent registry for subagent delegation (passed to task tool context) */
+  agentRegistry?: import('./agents/registry').AgentRegistry;
+
+  /** Current delegation depth (0 = top-level). Task tool increments on nesting. */
+  delegationDepth?: number;
+
   /** MCP tool metadata for mode filtering (plan mode: readOnlyHint only) */
   mcpTools?: import('./mcp/types').McpToolInfo[];
 
@@ -274,8 +280,13 @@ export async function runAgent(
       ? 'plan'
       : 'build';
 
+  // Build list of available subagents for the task tool description (per-run, no mutation)
+  const availableSubagents = args.agentRegistry
+    ? args.agentRegistry.listForTask(permissionConfig)
+    : undefined;
+
   // Get agent-specific tools and prompt
-  const modeTools = getToolsForAgent(permissionConfig);
+  const modeTools = getToolsForAgent(permissionConfig, availableSubagents);
   const ctx = getDefaultContext(
     args.safetyConfig.projectRoot,
     args.configInstructions,
@@ -552,6 +563,10 @@ export async function runAgent(
             safetyConfig: args.safetyConfig,
             toolsConfig: args.toolsConfig,
             configInstructions: args.configInstructions,
+            agentRegistry: args.agentRegistry,
+            callerPermission: permissionConfig,
+            runSubagent: runAgent,
+            delegationDepth: args.delegationDepth ?? 0,
           },
         },
       );
