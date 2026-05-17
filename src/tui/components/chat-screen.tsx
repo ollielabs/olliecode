@@ -4,9 +4,10 @@
  */
 
 import type { Accessor } from 'solid-js';
-import { For, Show } from 'solid-js';
+import { createMemo, For, Show } from 'solid-js';
 import type { McpStatusMap } from '../../agent/mcp/types';
 import { useTheme } from '../../design';
+import { createMarkdownSyntaxStyle } from '../utils';
 import type {
   AgentMode,
   CompactionSummaryDisplayMessage,
@@ -88,6 +89,7 @@ export interface ChatScreenProps {
 
 export function ChatScreen(props: ChatScreenProps) {
   const { tokens } = useTheme();
+  const markdownStyle = createMemo(() => createMarkdownSyntaxStyle(tokens));
 
   return (
     <box
@@ -173,8 +175,13 @@ export function ChatScreen(props: ChatScreenProps) {
             </For>
 
             <Show when={props.streamingContent()}>
-              <box>
-                <text>{props.streamingContent()}</text>
+              <box marginLeft={2}>
+                <markdown
+                  content={props.streamingContent()!}
+                  syntaxStyle={markdownStyle()}
+                  streaming={true}
+                  conceal={true}
+                />
               </box>
             </Show>
           </box>
