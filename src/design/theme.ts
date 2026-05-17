@@ -191,26 +191,3 @@ export function useStyles<T>(factory: (tokens: SemanticTokens) => T): T {
   const { tokens } = useTheme();
   return factory(tokens);
 }
-
-/**
- * Detect if the terminal is in dark mode.
- * Falls back to dark mode if detection fails.
- */
-export function detectColorScheme(): 'dark' | 'light' {
-  // Check COLORFGBG environment variable (format: "fg;bg")
-  // Low bg values typically indicate dark mode
-  const colorFgBg = process.env.COLORFGBG;
-  if (colorFgBg) {
-    const parts = colorFgBg.split(';');
-    const bg = parseInt(parts[1] ?? '', 10);
-    if (!Number.isNaN(bg)) {
-      // Standard terminal colors: 0-7 are "dark", 8-15 are "light"
-      // Background < 8 typically means dark background
-      return bg < 8 ? 'dark' : 'light';
-    }
-  }
-
-  // Most modern terminals default to dark mode
-  // Default to dark as it's the most common for developer terminals
-  return 'dark';
-}

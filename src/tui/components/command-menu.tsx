@@ -97,8 +97,7 @@ export function CommandMenu(rawProps: CommandMenuProps) {
             zIndex: 100,
             backgroundColor: tokens.bgSurface,
             flexDirection: 'column',
-            paddingLeft: 1,
-            paddingRight: 1,
+            paddingX: 1,
           }}
         >
           <text style={{ fg: tokens.textSubtle }}>No matching commands</text>
@@ -126,8 +125,7 @@ export function CommandMenu(rawProps: CommandMenuProps) {
                   <box
                     style={{
                       flexDirection: 'row',
-                      paddingLeft: 1,
-                      paddingRight: 1,
+                      paddingX: 1,
                       backgroundColor: isSelected()
                         ? tokens.selected
                         : 'transparent',

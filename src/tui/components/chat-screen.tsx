@@ -101,8 +101,7 @@ export function ChatScreen(props: ChatScreenProps) {
         flexGrow={1}
         flexShrink={1}
         paddingTop={1}
-        paddingLeft={2}
-        paddingRight={2}
+        paddingX={2}
       >
         <scrollbox
           flexGrow={1}

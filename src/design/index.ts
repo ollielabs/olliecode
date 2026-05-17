@@ -36,7 +36,6 @@ export {
   createSyntaxStyle,
   ThemeContext,
   useTheme,
-  detectColorScheme,
 } from './theme';
 export type { ThemeContextValue } from './theme';
 

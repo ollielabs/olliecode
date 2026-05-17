@@ -107,8 +107,7 @@ export function FilePicker(rawProps: FilePickerProps) {
             zIndex: 100,
             backgroundColor: tokens.bgSurface,
             flexDirection: 'column',
-            paddingLeft: 1,
-            paddingRight: 1,
+            paddingX: 1,
           }}
         >
           <text style={{ fg: tokens.textSubtle }}>No matching files</text>
@@ -140,8 +139,7 @@ export function FilePicker(rawProps: FilePickerProps) {
                   <box
                     style={{
                       flexDirection: 'row',
-                      paddingLeft: 1,
-                      paddingRight: 1,
+                      paddingX: 1,
                       backgroundColor: isSelected()
                         ? tokens.selected
                         : 'transparent',

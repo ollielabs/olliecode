@@ -100,6 +100,7 @@ program
 
     const renderer = await createCliRenderer({
       exitOnCtrlC: true,
+      autoFocus: true,
     });
 
     void render(
