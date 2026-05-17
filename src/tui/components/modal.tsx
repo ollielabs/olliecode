@@ -63,10 +63,8 @@ export function Modal(rawProps: ModalProps) {
           maxHeight: Math.floor(dimensions().height / 2),
           backgroundColor: tokens.bgSurface,
           flexDirection: 'column',
-          paddingTop: 1,
-          paddingBottom: 1,
-          paddingLeft: 2,
-          paddingRight: 2,
+          paddingY: 1,
+          paddingX: 2,
           zIndex: 101,
         }}
       >

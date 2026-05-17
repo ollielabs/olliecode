@@ -5,16 +5,27 @@
  * (e.g. `const { tokens } = useTheme()`) get a reactive proxy. Reading
  * `tokens.bgBase` inside JSX or createEffect automatically subscribes to
  * changes when the theme is switched.
+ *
+ * Dark/light detection uses the renderer's native Mode 2031 terminal query
+ * (via `renderer.themeMode`) which works on iTerm2, Ghostty, Kitty, WezTerm,
+ * Windows Terminal, and most modern emulators. Auto-switches when the terminal
+ * theme changes without requiring a restart.
  */
 
-import { createSignal, createMemo, createEffect, type JSX } from 'solid-js';
+import {
+  createSignal,
+  createMemo,
+  createEffect,
+  onCleanup,
+  type JSX,
+} from 'solid-js';
 import { createStore, reconcile, produce } from 'solid-js/store';
+import { useRenderer } from '@opentui/solid';
 
 import {
   ThemeContext,
   resolveThemeVariant,
   createSyntaxStyle,
-  detectColorScheme,
   type ThemeContextValue,
 } from './theme';
 import { getTheme, DEFAULT_THEME_ID } from './themes';
@@ -23,21 +34,37 @@ export type ThemeProviderProps = {
   children: JSX.Element;
   /** Initial theme ID (defaults to "ollie") */
   initialTheme?: string;
-  /** Force dark or light mode (defaults to auto-detect) */
+  /** Force dark or light mode (overrides auto-detection). Manual selection wins. */
   colorScheme?: 'dark' | 'light';
 };
 
 export function ThemeProvider(props: ThemeProviderProps) {
+  const renderer = useRenderer();
+
   const [themeId, setThemeId] = createSignal(
     props.initialTheme ?? DEFAULT_THEME_ID,
   );
 
-  // Detect color scheme or use override (reactive if prop changes)
-  const isDark = createMemo(() =>
-    props.colorScheme
-      ? props.colorScheme === 'dark'
-      : detectColorScheme() === 'dark',
+  // Detected scheme from the terminal (via renderer.themeMode / Mode 2031)
+  const [detectedScheme, setDetectedScheme] = createSignal<'dark' | 'light'>(
+    renderer.themeMode ?? 'dark',
   );
+
+  // Listen for terminal theme changes (auto-switches without restart).
+  // Registered at component scope (not onMount) so no events are missed
+  // between render and the next microtask.
+  const themeHandler = (mode: 'dark' | 'light') => setDetectedScheme(mode);
+  renderer.on('theme_mode', themeHandler);
+  onCleanup(() => renderer.off('theme_mode', themeHandler));
+
+  // Effective color scheme: prop override > detected > dark fallback.
+  // props.colorScheme is read reactively — if a parent ever changes it,
+  // the theme updates automatically.
+  const isDark = createMemo(() => {
+    const override = props.colorScheme;
+    if (override) return override === 'dark';
+    return detectedScheme() === 'dark';
+  });
 
   // Resolve the current theme (recomputes when themeId or isDark changes)
   const resolved = createMemo(() => {

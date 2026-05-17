@@ -24,7 +24,7 @@ export function ErrorMessage(props: ErrorMessageProps) {
   const label = () => ERROR_LABELS[props.errorType] ?? props.errorType;
 
   return (
-    <box flexDirection="column" marginTop={1} marginBottom={1}>
+    <box flexDirection="column" marginY={1}>
       <box
         style={{
           border: ['left'],

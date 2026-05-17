@@ -247,10 +247,8 @@ export function SidePanel(rawProps: SidePanelProps) {
       style={{
         backgroundColor: tokens.bgSurface,
         flexDirection: 'column',
-        paddingTop: 1,
-        paddingBottom: 1,
-        paddingLeft: 2,
-        paddingRight: 2,
+        paddingY: 1,
+        paddingX: 2,
       }}
       width={props.width}
     >

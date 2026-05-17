@@ -101,8 +101,7 @@ export function ChatScreen(props: ChatScreenProps) {
         flexGrow={1}
         flexShrink={1}
         paddingTop={1}
-        paddingLeft={2}
-        paddingRight={2}
+        paddingX={2}
       >
         <scrollbox
           flexGrow={1}
@@ -111,6 +110,7 @@ export function ChatScreen(props: ChatScreenProps) {
           stickyStart="bottom"
           scrollAcceleration={fastScrollAccel}
         >
+          {/* paddingRight only — leaves left flush for message indent, right gutter for scrollbar */}
           <box flexDirection="column" flexGrow={1} paddingRight={2}>
             <For each={props.displayMessages()}>
               {(msg) => (

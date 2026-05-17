@@ -107,8 +107,7 @@ export function InputBox(props: InputBoxProps) {
         borderColor: tokens.borderAccent,
         backgroundColor: tokens.bgInput,
         padding: 1,
-        paddingLeft: 2,
-        paddingRight: 2,
+        paddingX: 2,
         ...(props.centered && { marginTop: 2, width: 60 }),
       }}
     >

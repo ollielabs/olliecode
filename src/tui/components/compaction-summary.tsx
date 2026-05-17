@@ -26,7 +26,7 @@ export function CompactionSummary(props: CompactionSummaryProps) {
           borderColor: tokens.borderMuted,
         }}
       />
-      <box marginLeft={2} marginRight={2} marginTop={1} marginBottom={1}>
+      <box marginX={2} marginY={1}>
         <text style={{ fg: tokens.textSubtle }}>
           <strong>Compaction</strong> ({props.compactedCount} messages
           summarized)

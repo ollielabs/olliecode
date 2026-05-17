@@ -38,8 +38,7 @@ export function ToastNotification(props: ToastNotificationProps) {
         borderStyle: 'single',
         borderColor: tokens.success,
         padding: 1,
-        paddingLeft: 2,
-        paddingRight: 2,
+        paddingX: 2,
         zIndex: 100,
       }}
     >
