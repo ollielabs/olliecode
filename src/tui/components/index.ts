@@ -37,6 +37,8 @@ export {
 export { Modal } from './modal';
 export { SessionPicker } from './session-picker';
 // Layout components
+export { ChatScreen, type ChatScreenProps } from './chat-screen';
+export { ModalLayer, type ModalLayerProps } from './modal-layer';
 export { SidePanel } from './side-panel';
 export { StatusBar } from './status-bar';
 export { ThemePicker } from './theme-picker';
@@ -46,3 +48,4 @@ export {
 } from './toast-notification';
 export { ToolMessage, type ToolMessageProps } from './tool-message';
 export { UserMessage, type UserMessageProps } from './user-message';
+export { WelcomeScreen, type WelcomeScreenProps } from './welcome-screen';
