@@ -1,21 +1,34 @@
 /**
- * Task Tool - Delegates complex exploration tasks to a specialized subagent.
+ * Task Tool - Delegates tasks to named subagents via the agent registry.
  *
- * This enables the primary agent to offload complex, multi-step exploration
- * to a focused subagent with its own context window and iteration budget.
+ * The task tool resolves the target agent from the registry, verifies the
+ * calling agent has permission to invoke it, then runs the subagent with
+ * its configured tools, prompt, and iteration budget in an isolated context.
  */
 
 import { z } from 'zod';
-import { runAgent } from '../index';
-import { buildExplorePrompt, type ThoroughnessLevel } from '../prompts/explore';
-import { getDefaultContext } from '../prompts/shared';
+import { ITERATION_PRESETS } from '../agents/schema';
+import type { ResolvedAgent } from '../agents/schema';
+import { fromConfig, evaluate } from '../permission/index';
+import type { PermissionConfig } from '../permission/types';
+import { buildExplorePrompt } from '../prompts/explore';
+import { getDefaultContext, getSystemPromptForAgent } from '../prompts';
 import type { ToolDefinition } from '../types';
 
 // ============================================================================
 // Schema Definitions
 // ============================================================================
 
+const MaxIterationsInputSchema = z.union([
+  z.number().int().positive(),
+  z.enum(['quick', 'medium', 'thorough']),
+]);
+
 const taskInput = z.object({
+  agent: z
+    .string()
+    .min(1)
+    .describe('Name of the agent to delegate to (e.g. "explore", "reviewer")'),
   description: z
     .string()
     .min(1)
@@ -24,29 +37,139 @@ const taskInput = z.object({
     .string()
     .min(1)
     .describe('Detailed task description for the subagent'),
-  thoroughness: z
-    .enum(['quick', 'medium', 'thorough'])
-    .optional()
-    .default('medium')
-    .describe('How thorough the exploration should be'),
+  maxIterations: MaxIterationsInputSchema.optional().describe(
+    'Override iteration budget: number or preset (quick/medium/thorough)',
+  ),
 });
 
 const taskOutput = z.object({
   success: z.boolean(),
   output: z.string(),
+  agent: z.string(),
   filesExplored: z.array(z.string()),
   iterations: z.number(),
 });
 
 // ============================================================================
-// Iteration Limits by Thoroughness
+// Constants
 // ============================================================================
 
-const ITERATION_LIMITS: Record<ThoroughnessLevel, number> = {
-  quick: 8,
-  medium: 15,
-  thorough: 25,
-};
+/** Global cap for subagent iterations (safety net). */
+const MAX_SUBAGENT_ITERATIONS = 50;
+
+/** Maximum delegation depth to prevent unbounded recursion. */
+export const MAX_DELEGATION_DEPTH = 3;
+
+/** Default iteration budget when no override or agent config exists. */
+const DEFAULT_ITERATIONS = ITERATION_PRESETS.medium;
+
+// ============================================================================
+// Helpers (exported for testing)
+// ============================================================================
+
+/**
+ * Resolve the effective maxIterations for a subagent invocation.
+ *
+ * Priority: task call override -> agent config -> global default.
+ * Always capped by MAX_SUBAGENT_ITERATIONS.
+ */
+export function resolveMaxIterations(
+  callOverride: number | 'quick' | 'medium' | 'thorough' | undefined,
+  agentConfig: number | 'quick' | 'medium' | 'thorough' | undefined,
+): number {
+  const raw = callOverride ?? agentConfig;
+  let value: number;
+
+  if (raw === undefined) {
+    value = DEFAULT_ITERATIONS;
+  } else if (typeof raw === 'string') {
+    value = ITERATION_PRESETS[raw];
+  } else {
+    value = raw;
+  }
+
+  return Math.min(value, MAX_SUBAGENT_ITERATIONS);
+}
+
+/**
+ * Check if the calling agent is permitted to invoke a subagent.
+ *
+ * Evaluates the caller's `task` permission key with the target agent name.
+ * No caller permission config = default allow (can invoke any subagent).
+ */
+function isSubagentAllowed(
+  callerPermission: PermissionConfig | undefined,
+  targetAgentName: string,
+): boolean {
+  if (!callerPermission) return true;
+  const ruleset = fromConfig(callerPermission);
+  const action = evaluate('task', targetAgentName, ruleset);
+  return action !== 'deny';
+}
+
+/**
+ * Build the system prompt for the subagent invocation.
+ *
+ * Built-in explore agent gets its dedicated prompt builder with thoroughness.
+ * Other agents get their systemPrompt via getSystemPromptForAgent().
+ */
+function buildSubagentPrompt(
+  agent: ResolvedAgent,
+  maxIterations: number,
+  projectRoot?: string,
+  configInstructions?: string[],
+): string {
+  // Built-in explore agent uses its dedicated prompt builder
+  if (agent.source.type === 'builtin' && agent.name === 'explore') {
+    const ctx = getDefaultContext(projectRoot, configInstructions);
+    // Map iteration count to thoroughness level for explore prompt
+    const thoroughness =
+      maxIterations <= ITERATION_PRESETS.quick
+        ? 'quick'
+        : maxIterations >= ITERATION_PRESETS.thorough
+          ? 'thorough'
+          : 'medium';
+    return buildExplorePrompt(ctx, thoroughness);
+  }
+
+  // All other agents: use getSystemPromptForAgent()
+  const ctx = getDefaultContext(projectRoot, configInstructions);
+  return getSystemPromptForAgent(agent, ctx);
+}
+
+/**
+ * Build the dynamic task tool description listing available agents.
+ *
+ * Called when the registry is available to produce a description that shows
+ * the LLM which agents it can delegate to.
+ */
+export function buildTaskToolDescription(
+  availableAgents: ReadonlyArray<{ name: string; description: string }>,
+): string {
+  const agentList = availableAgents
+    .map((a) => `- ${a.name}: ${a.description}`)
+    .join('\n');
+
+  return `Delegate tasks to a specialized subagent. You MUST specify which agent to use.
+
+Available agents:
+${agentList}
+
+When to use:
+- Complex multi-step tasks that benefit from a focused specialist
+- Research or exploration requiring many iterations
+- Tasks that need a restricted tool set for safety
+
+PARALLEL EXECUTION: You can call multiple task tools in a single response!
+Launch parallel tasks for independent work:
+- task(agent="explore", prompt="find auth logic") AND task(agent="explore", prompt="find DB schema")
+
+Parameters:
+- agent (required): Name of the agent from the list above
+- prompt (required): Detailed task description for the subagent
+- description (required): Short 3-5 word label
+- maxIterations (optional): Override iteration budget (number or "quick"/"medium"/"thorough")`;
+}
 
 // ============================================================================
 // Task Tool Definition
@@ -54,84 +177,141 @@ const ITERATION_LIMITS: Record<ThoroughnessLevel, number> = {
 
 export const taskTool: ToolDefinition<typeof taskInput, typeof taskOutput> = {
   name: 'task',
-  description: `Delegate complex exploration or research tasks to a specialized subagent.
-
-The explore subagent is a fast file/code search specialist. Use it for:
-- Complex searches across multiple directories
-- Open-ended exploration ("what does this codebase do?")
-- Finding patterns across many files
-- Research that requires multiple search iterations
-
-When to use:
-- Questions requiring exploration of 5+ files
-- "How does X work?" questions about unfamiliar code
-- Finding all usages of a pattern across the codebase
-- Understanding project architecture
-
-When NOT to use:
-- Reading a specific known file (use read_file)
-- Simple grep for a single pattern (use grep)
-- Quick directory listing (use list_dir)
-- Questions you can answer from files already read
-
-Thoroughness levels:
-- quick: 2-3 files, surface overview (8 iterations max)
-- medium: 5-10 files, balanced exploration (15 iterations max)
-- thorough: comprehensive analysis (25 iterations max)
-
-PARALLEL EXECUTION: You can call multiple task tools in a single response!
-When exploring different areas of the codebase, launch tasks in parallel:
-- task(prompt="explore agent/") AND task(prompt="explore tui/") together
-- task(prompt="find error handling") AND task(prompt="find logging patterns")
-The tasks will run concurrently and you'll receive all results together.`,
+  description: buildTaskToolDescription([
+    {
+      name: 'explore',
+      description: 'Fast codebase search specialist for targeted exploration',
+    },
+  ]),
 
   parameters: taskInput,
   outputSchema: taskOutput,
   risk: 'safe',
 
   execute: async (params, signal, context) => {
-    const { prompt, thoroughness = 'medium' } = params;
+    const {
+      agent: agentName,
+      prompt,
+      maxIterations: callMaxIterations,
+    } = params;
 
-    // Get model, host, and safety config from context (passed from parent agent)
+    // --- Validate context ---
     const model = context?.model;
     const host = context?.host;
     const parentSafetyConfig = context?.safetyConfig;
+    const registry = context?.agentRegistry;
+    const runSubagent = context?.runSubagent;
 
     if (!model || !host || !parentSafetyConfig) {
       return {
         success: false,
         output: 'Task tool requires model, host, and safetyConfig in context',
+        agent: agentName,
         filesExplored: [],
         iterations: 0,
       };
     }
 
-    // Use config iteration limits if available, otherwise hardcoded defaults
-    const iterationLimits =
-      context?.toolsConfig?.task.iterationLimits ?? ITERATION_LIMITS;
+    if (!registry) {
+      return {
+        success: false,
+        output: 'Task tool requires agentRegistry in context',
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
 
-    // Build the explore subagent prompt (with instructions from config)
-    const ctx = getDefaultContext(
+    if (!runSubagent) {
+      return {
+        success: false,
+        output: 'Task tool requires runSubagent in context',
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
+
+    // --- Delegation depth guard ---
+    const currentDepth = context?.delegationDepth ?? 0;
+    if (currentDepth >= MAX_DELEGATION_DEPTH) {
+      return {
+        success: false,
+        output: `Maximum delegation depth (${MAX_DELEGATION_DEPTH}) exceeded. Cannot nest subagent calls deeper.`,
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
+
+    // --- Resolve agent from registry ---
+    const targetAgent = registry.get(agentName);
+
+    if (!targetAgent) {
+      return {
+        success: false,
+        output: `Unknown agent: "${agentName}". Use one of the available agents listed in the tool description.`,
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
+
+    // Verify agent is available as subagent
+    if (targetAgent.mode === 'primary') {
+      return {
+        success: false,
+        output: `Agent "${agentName}" is a primary agent and cannot be invoked as a subagent. Only agents with mode "subagent" or "all" can be delegated to.`,
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
+
+    // --- Permission check ---
+    if (!isSubagentAllowed(context?.callerPermission, agentName)) {
+      return {
+        success: false,
+        output: `Permission denied: calling agent is not allowed to invoke "${agentName}" via task delegation.`,
+        agent: agentName,
+        filesExplored: [],
+        iterations: 0,
+      };
+    }
+
+    // --- Resolve iteration budget ---
+    const maxIterations = resolveMaxIterations(
+      callMaxIterations,
+      targetAgent.maxIterations,
+    );
+
+    // --- Build system prompt ---
+    const systemPromptOverride = buildSubagentPrompt(
+      targetAgent,
+      maxIterations,
       context?.projectRoot,
       context?.configInstructions,
     );
-    const systemPromptOverride = buildExplorePrompt(ctx, thoroughness);
 
-    // Track files explored by the subagent
+    // --- Run subagent ---
     const filesExplored: string[] = [];
 
     try {
-      const result = await runAgent({
-        model,
+      const result = await runSubagent({
+        model: targetAgent.model ?? model,
         host,
         userMessage: prompt,
         history: [],
-        mode: 'plan', // Always read-only for explore subagent
+        agent: targetAgent,
+        agentRegistry: registry,
+        delegationDepth: currentDepth + 1,
 
-        // Callbacks to track progress
-        onReasoningToken: () => {}, // Silent - don't stream to parent
-        onToolCall: (call) => {
-          // Track file reads
+        // Silent callbacks — don't stream to parent
+        onReasoningToken: () => {},
+        onToolCall: (call: {
+          function: { name: string; arguments: unknown };
+        }) => {
+          // Track file reads for reporting
           if (call.function.name === 'read_file') {
             const args = call.function.arguments as { path?: string };
             if (args.path) {
@@ -145,24 +325,26 @@ The tasks will run concurrently and you'll receive all results together.`,
         signal: signal ?? new AbortController().signal,
 
         config: {
-          maxIterations: iterationLimits[thoroughness],
+          maxIterations,
           loopDetection: true,
           loopThreshold: 2,
         },
 
+        temperature: targetAgent.temperature,
         safetyConfig: parentSafetyConfig,
         toolsConfig: context?.toolsConfig,
         configInstructions: context?.configInstructions,
         systemPromptOverride,
       });
 
-      // Check for error result
-      if ('type' in result) {
+      // Check for error result (AgentError has 'type', AgentResult has 'finalAnswer')
+      if (!('finalAnswer' in result)) {
+        const errorType = 'type' in result ? result.type : 'unknown';
+        const errorMessage = 'message' in result ? ` - ${result.message}` : '';
         return {
           success: false,
-          output: `Subagent error: ${result.type}${
-            'message' in result ? ` - ${result.message}` : ''
-          }`,
+          output: `Subagent error: ${errorType}${errorMessage}`,
+          agent: agentName,
           filesExplored,
           iterations: 0,
         };
@@ -171,13 +353,15 @@ The tasks will run concurrently and you'll receive all results together.`,
       return {
         success: true,
         output: result.finalAnswer,
-        filesExplored: [...new Set(filesExplored)], // Dedupe
+        agent: agentName,
+        filesExplored: [...new Set(filesExplored)],
         iterations: result.stats.totalIterations,
       };
     } catch (error) {
       return {
         success: false,
         output: `Task execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        agent: agentName,
         filesExplored,
         iterations: 0,
       };

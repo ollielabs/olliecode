@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { BUILTIN_BUILD_AGENT, BUILTIN_PLAN_AGENT } from '../agents/builtins';
 import { TOOL_TO_PERMISSION_KEY } from '../agents/schema';
 import type { AgentMode } from '../modes';
-import { isMcpToolReadOnly } from '../mcp/types';
-import type { McpToolInfo } from '../mcp/types';
 import { fromConfig, evaluate } from '../permission/index';
 import type { PermissionConfig } from '../permission/types';
 import type { ToolContext, ToolDefinition, ToolResult } from '../types';
@@ -14,7 +12,7 @@ import { grepTool } from './grep';
 import { listDirTool } from './list-dir';
 import { readFileTool } from './read-file';
 import { runCommandTool } from './run-command';
-import { taskTool } from './task';
+import { taskTool, buildTaskToolDescription } from './task';
 import { todoReadTool, todoWriteTool } from './todo';
 import { webFetchTool } from './web-fetch';
 import { writeFileTool } from './write-file';
@@ -168,29 +166,43 @@ export function isToolAllowedByPermission(
  * Pre-parses the permission config into a ruleset once, then filters all
  * tools against it (avoids re-parsing per tool).
  *
+ * When `taskToolAgents` is provided, the task tool's description is overridden
+ * in the returned Tool[] (per-call clone, no shared state mutation).
+ *
  * @param permissionConfig - The agent's permission config (undefined = all tools allowed)
+ * @param taskToolAgents - Available subagents for the task tool description (optional)
  */
-export function getToolsForAgent(permissionConfig?: PermissionConfig): Tool[] {
-  if (!permissionConfig) {
-    // No permission config = all tools allowed
-    return tools.map(toOllamaTool);
-  }
-
+export function getToolsForAgent(
+  permissionConfig?: PermissionConfig,
+  taskToolAgents?: ReadonlyArray<{ name: string; description: string }>,
+): Tool[] {
   // Parse once, filter all tools against the cached ruleset
-  const ruleset = fromConfig(permissionConfig);
+  const filteredTools = permissionConfig
+    ? (() => {
+        const ruleset = fromConfig(permissionConfig);
+        return tools.filter((t) => {
+          if (isMcpTool(t.name)) {
+            return evaluate('mcp', t.name, ruleset) !== 'deny';
+          }
+          const permKey = TOOL_TO_PERMISSION_KEY[t.name];
+          if (permKey) {
+            return evaluate(permKey, '*', ruleset) !== 'deny';
+          }
+          return evaluate(t.name, '*', ruleset) !== 'deny';
+        });
+      })()
+    : tools;
 
-  return tools
-    .filter((t) => {
-      if (isMcpTool(t.name)) {
-        return evaluate('mcp', t.name, ruleset) !== 'deny';
-      }
-      const permKey = TOOL_TO_PERMISSION_KEY[t.name];
-      if (permKey) {
-        return evaluate(permKey, '*', ruleset) !== 'deny';
-      }
-      return evaluate(t.name, '*', ruleset) !== 'deny';
-    })
-    .map(toOllamaTool);
+  return filteredTools.map((t) => {
+    // Override task tool description with available agents (per-call, no mutation)
+    if (t.name === 'task' && taskToolAgents) {
+      return toOllamaTool({
+        ...t,
+        description: buildTaskToolDescription(taskToolAgents),
+      });
+    }
+    return toOllamaTool(t);
+  });
 }
 
 /**

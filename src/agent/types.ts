@@ -57,6 +57,23 @@ export type ToolContext = {
   toolsConfig?: ToolsConfig;
   /** Instruction file paths from config (for subagent delegation) */
   configInstructions?: string[];
+  /** Agent registry for subagent resolution (task tool) */
+  agentRegistry?: import('./agents/registry').AgentRegistry;
+  /** Calling agent's permission config (for task permission checks) */
+  callerPermission?: import('./permission/types').PermissionConfig;
+  /**
+   * Subagent runner injected by the parent agent loop.
+   * Breaks the circular dependency: task.ts no longer imports runAgent directly.
+   * Typed loosely to avoid circular import (index.ts -> types.ts -> index.ts).
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: avoids circular type dependency
+  runSubagent?: (args: any) => Promise<AgentResult | AgentError>;
+  /**
+   * Current delegation depth (0 = top-level agent).
+   * Incremented by the task tool on each nested invocation.
+   * Capped at MAX_DELEGATION_DEPTH to prevent unbounded recursion.
+   */
+  delegationDepth?: number;
 };
 
 /**
