@@ -1,34 +1,14 @@
 /**
  * TUI Entry Point.
- * Main application component with all hooks and UI rendering.
+ * Main application component — composes ModalLayer, WelcomeScreen, and ChatScreen.
  */
 
 import type { TextareaRenderable } from '@opentui/core';
-import { RGBA } from '@opentui/core';
-import { createMemo, createSignal, For, Show } from 'solid-js';
+import { createMemo, createSignal, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
-import { ThemeProvider, useTheme } from '../design';
-import { listSessions } from '../session';
+import { ThemeProvider } from '../design';
 import { FocusLayer, KeyboardFocusProvider, useFocusLayer } from './keyboard';
-import {
-  AssistantMessage,
-  CommandMenu,
-  CompactionSummary,
-  ConfigModal,
-  ContextInfoNotification,
-  ContextStatsModal,
-  ErrorMessage,
-  FilePicker,
-  InputBox,
-  KeyboardShortcutsModal,
-  McpStatusModal,
-  SessionPicker,
-  SidePanel,
-  ThemePicker,
-  ToastNotification,
-  ToolMessage,
-  UserMessage,
-} from './components';
+import { ChatScreen, ModalLayer, WelcomeScreen } from './components';
 import {
   useAgentContext,
   useAgentSubmit,
@@ -39,8 +19,7 @@ import {
   useSession,
 } from './hooks';
 import { useMessageStore } from './hooks/use-message-store';
-import type { AppProps, DisplayMessage, Status } from './types';
-import { fastScrollAccel } from './utils';
+import type { AppProps, Status } from './types';
 
 /** Prompt template for /init command - creates/updates AGENTS.md */
 const INIT_PROMPT_TEMPLATE = `Please analyze this codebase and create an AGENTS.md file containing:
@@ -69,10 +48,10 @@ export function App(props: AppProps) {
 }
 
 function AppContent(props: AppProps) {
+  // Static: set once at mount, never changes (config is resolved before render)
   const configLayers = props.configLayers ?? [];
   const configWarnings = props.configWarnings ?? [];
   const model = props.config.model;
-  const { tokens } = useTheme();
 
   // Register the "app" focus layer — active when no modal/overlay is open
   useFocusLayer(FocusLayer.APP);
@@ -170,363 +149,120 @@ function AppContent(props: AppProps) {
     tuiConfig: tuiConfig(),
   });
 
-  // Render welcome screen if no messages
+  // Derived: is input disabled on welcome screen
+  const welcomeInputDisabled = () =>
+    session.showSessionPicker() || session.showThemePicker();
+
+  // Derived: is input disabled on chat screen
+  const chatInputDisabled = () =>
+    !!agent.confirmingToolId() ||
+    session.showSessionPicker() ||
+    session.showThemePicker();
+
   return (
-    <Show
-      when={session.displayMessages().length > 0}
-      fallback={
-        <box
-          style={{ backgroundColor: tokens.bgBase }}
-          flexDirection="column"
-          flexGrow={1}
-          alignItems="center"
-          justifyContent="center"
-        >
-          <Show when={context.showContextStats() && context.contextStats()}>
-            {(stats: () => import('./types').ContextStats) => (
-              <ContextStatsModal
-                stats={stats()}
-                modelName={model}
-                onClose={context.handleContextStatsClose}
-              />
-            )}
-          </Show>
+    <>
+      <ModalLayer
+        showContextStats={context.showContextStats}
+        contextStats={context.contextStats}
+        modelName={model}
+        onContextStatsClose={context.handleContextStatsClose}
+        showConfigModal={showConfigModal}
+        config={props.config}
+        configLayers={configLayers}
+        configWarnings={configWarnings}
+        onConfigModalClose={() => setShowConfigModal(false)}
+        showMcpModal={showMcpModal}
+        mcpStatus={mcp.mcpStatus}
+        mcpManager={mcp.manager}
+        onMcpModalClose={() => setShowMcpModal(false)}
+        showHelp={showHelp}
+        onHelpClose={() => setShowHelp(false)}
+        showSessionPicker={session.showSessionPicker}
+        projectPath={props.projectPath}
+        sessionListLimit={tuiConfig().sessionListLimit}
+        onSessionSelect={session.handleSessionSelect}
+        onSessionPickerCancel={session.handleSessionPickerCancel}
+        onSessionsChanged={session.handleSessionsChanged}
+        showThemePicker={session.showThemePicker}
+        onThemeSelect={session.handleThemeSelect}
+        onThemePickerCancel={session.handleThemePickerCancel}
+      />
 
-          <Show when={showConfigModal()}>
-            <ConfigModal
-              config={props.config}
-              layers={configLayers}
-              warnings={configWarnings}
-              onClose={() => setShowConfigModal(false)}
-            />
-          </Show>
-
-          <Show when={showMcpModal()}>
-            <McpStatusModal
-              mcpStatus={mcp.mcpStatus()}
-              manager={mcp.manager}
-              onClose={() => setShowMcpModal(false)}
-            />
-          </Show>
-
-          <Show when={showHelp()}>
-            <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
-          </Show>
-
-          <box flexDirection="row">
-            <ascii_font
-              text="Ollie"
-              font="tiny"
-              color={RGBA.fromHex(tokens.primaryBase)}
-            />
-            <text> </text>
-            <ascii_font
-              text="Code"
-              font="tiny"
-              color={RGBA.fromHex(tokens.textBase)}
-            />
-          </box>
-
-          <Show when={session.showSessionPicker()}>
-            <SessionPicker
-              sessions={listSessions({ limit: tuiConfig().sessionListLimit })}
-              projectPath={props.projectPath}
-              onSelect={session.handleSessionSelect}
-              onCancel={session.handleSessionPickerCancel}
-              onSessionsChanged={session.handleSessionsChanged}
-            />
-          </Show>
-
-          <Show when={session.showThemePicker()}>
-            <ThemePicker
-              onSelect={session.handleThemeSelect}
-              onCancel={session.handleThemePickerCancel}
-            />
-          </Show>
-
-          <Show when={context.contextInfo()}>
-            {(info: () => string) => (
-              <box marginTop={1}>
-                <ContextInfoNotification message={info()} />
-              </box>
-            )}
-          </Show>
-
-          <box
-            flexDirection="column"
-            marginTop={2}
-            width={80}
-            position="relative"
-          >
-            <Show when={commands.showCommandMenu()}>
-              <CommandMenu
-                commands={commands.slashCommands}
-                filter={commands.commandFilter()}
-                selectedIndex={commands.commandSelectedIndex()}
-                onSelect={commands.handleCommandSelect}
-                onCancel={commands.handleCommandMenuCancel}
-                onIndexChange={commands.handleCommandIndexChange}
-                bottom={5}
-                width={80}
-              />
-            </Show>
-
-            <Show when={filePicker.showFilePicker()}>
-              <FilePicker
-                files={filePicker.files()}
-                filter={filePicker.fileFilter()}
-                selectedIndex={filePicker.fileSelectedIndex()}
-                onSelect={filePicker.handleFileSelect}
-                onCancel={filePicker.handleFilePickerCancel}
-                onIndexChange={filePicker.handleFileIndexChange}
-                bottom={5}
-                width={80}
-              />
-            </Show>
-
-            <InputBox
-              id="greeting-textarea"
-              model={model}
-              status={agent.status()}
-              mode={session.mode()}
-              getTextareaRef={getTextareaRef}
-              getStatus={getStatus}
-              onSubmit={agent.handleSubmit}
-              onRef={(el) => {
-                textareaRef = el;
-              }}
-              disabled={
-                session.showSessionPicker() || session.showThemePicker()
-              }
-              suppressSubmit={filePicker.showFilePicker()}
-            />
-          </box>
-
-          <Show when={toast()}>
-            {(msg: () => string) => (
-              <ToastNotification
-                message={msg()}
-                duration={tuiConfig().toastDuration}
-                onDismiss={() => setToast(null)}
-              />
-            )}
-          </Show>
-        </box>
-      }
-    >
-      {/* Chat screen with messages */}
-      <box
-        style={{ backgroundColor: tokens.bgBase }}
-        flexDirection="row"
-        flexGrow={1}
-        flexShrink={1}
+      <Show
+        when={session.displayMessages().length > 0}
+        fallback={
+          <WelcomeScreen
+            model={model}
+            status={agent.status}
+            mode={session.mode}
+            getTextareaRef={getTextareaRef}
+            getStatus={getStatus}
+            onSubmit={agent.handleSubmit}
+            onRef={(el) => {
+              textareaRef = el;
+            }}
+            inputDisabled={welcomeInputDisabled}
+            showCommandMenu={commands.showCommandMenu}
+            slashCommands={commands.slashCommands}
+            commandFilter={commands.commandFilter}
+            commandSelectedIndex={commands.commandSelectedIndex}
+            onCommandSelect={commands.handleCommandSelect}
+            onCommandMenuCancel={commands.handleCommandMenuCancel}
+            onCommandIndexChange={commands.handleCommandIndexChange}
+            showFilePicker={filePicker.showFilePicker}
+            files={filePicker.files}
+            fileFilter={filePicker.fileFilter}
+            fileSelectedIndex={filePicker.fileSelectedIndex}
+            onFileSelect={filePicker.handleFileSelect}
+            onFilePickerCancel={filePicker.handleFilePickerCancel}
+            onFileIndexChange={filePicker.handleFileIndexChange}
+            contextInfo={context.contextInfo}
+            toast={toast}
+            toastDuration={tuiConfig().toastDuration}
+            onToastDismiss={() => setToast(null)}
+          />
+        }
       >
-        <Show when={context.showContextStats() && context.contextStats()}>
-          {(stats: () => import('./types').ContextStats) => (
-            <ContextStatsModal
-              stats={stats()}
-              modelName={model}
-              onClose={context.handleContextStatsClose}
-            />
-          )}
-        </Show>
-
-        <Show when={showConfigModal()}>
-          <ConfigModal
-            config={props.config}
-            layers={configLayers}
-            warnings={configWarnings}
-            onClose={() => setShowConfigModal(false)}
-          />
-        </Show>
-
-        <Show when={showMcpModal()}>
-          <McpStatusModal
-            mcpStatus={mcp.mcpStatus()}
-            manager={mcp.manager}
-            onClose={() => setShowMcpModal(false)}
-          />
-        </Show>
-
-        <Show when={showHelp()}>
-          <KeyboardShortcutsModal onClose={() => setShowHelp(false)} />
-        </Show>
-
-        <Show when={session.showSessionPicker()}>
-          <SessionPicker
-            sessions={listSessions({ limit: tuiConfig().sessionListLimit })}
-            projectPath={props.projectPath}
-            onSelect={session.handleSessionSelect}
-            onCancel={session.handleSessionPickerCancel}
-            onSessionsChanged={session.handleSessionsChanged}
-          />
-        </Show>
-
-        <Show when={session.showThemePicker()}>
-          <ThemePicker
-            onSelect={session.handleThemeSelect}
-            onCancel={session.handleThemePickerCancel}
-          />
-        </Show>
-
-        <box
-          flexDirection="column"
-          flexGrow={1}
-          flexShrink={1}
-          paddingTop={1}
-          paddingLeft={2}
-          paddingRight={2}
-        >
-          <scrollbox
-            flexGrow={1}
-            flexShrink={1}
-            stickyScroll={true}
-            stickyStart="bottom"
-            scrollAcceleration={fastScrollAccel}
-          >
-            <box flexDirection="column" flexGrow={1} paddingRight={2}>
-              <For each={session.displayMessages()}>
-                {(msg) => (
-                  <box marginBottom={1}>
-                    <Show when={msg.type === 'user' && msg}>
-                      {(userMsg: () => DisplayMessage) => {
-                        const m = userMsg() as {
-                          type: 'user';
-                          content: string;
-                          attachedFiles?: string[];
-                        };
-                        return (
-                          <UserMessage
-                            content={m.content}
-                            attachedFiles={m.attachedFiles}
-                          />
-                        );
-                      }}
-                    </Show>
-                    <Show when={msg.type === 'assistant' && msg}>
-                      {(assistantMsg: () => DisplayMessage) => {
-                        const m = assistantMsg() as {
-                          type: 'assistant';
-                          content: string;
-                        };
-                        return <AssistantMessage content={m.content} />;
-                      }}
-                    </Show>
-                    <Show when={msg.type === 'tool'}>
-                      <ToolMessage
-                        message={msg as import('./types').ToolDisplayMessage}
-                        isActiveConfirmation={
-                          agent.confirmingToolId() ===
-                          (msg as import('./types').ToolDisplayMessage).id
-                        }
-                        onConfirmationResponse={(response) => {
-                          agent.handleToolConfirmation(response);
-                        }}
-                        expanded={toolsExpanded()}
-                      />
-                    </Show>
-                    <Show when={msg.type === 'compaction_summary' && msg}>
-                      {(
-                        summaryMsg: () => import('./types').CompactionSummaryDisplayMessage,
-                      ) => (
-                        <CompactionSummary
-                          content={summaryMsg().content}
-                          compactedCount={summaryMsg().compactedCount}
-                        />
-                      )}
-                    </Show>
-                    <Show when={msg.type === 'error' && msg}>
-                      {(
-                        errorMsg: () => import('./types').ErrorDisplayMessage,
-                      ) => (
-                        <ErrorMessage
-                          errorType={errorMsg().errorType}
-                          content={errorMsg().content}
-                        />
-                      )}
-                    </Show>
-                  </box>
-                )}
-              </For>
-
-              <Show when={agent.streamingContent()}>
-                <box>
-                  <text>{agent.streamingContent()}</text>
-                </box>
-              </Show>
-            </box>
-          </scrollbox>
-
-          <box flexDirection="column" flexShrink={0} position="relative">
-            <Show when={context.contextInfo()}>
-              {(info: () => string) => (
-                <ContextInfoNotification message={info()} />
-              )}
-            </Show>
-
-            <Show when={commands.showCommandMenu()}>
-              <CommandMenu
-                commands={commands.slashCommands}
-                filter={commands.commandFilter()}
-                selectedIndex={commands.commandSelectedIndex()}
-                onSelect={commands.handleCommandSelect}
-                onCancel={commands.handleCommandMenuCancel}
-                onIndexChange={commands.handleCommandIndexChange}
-                bottom={5}
-              />
-            </Show>
-
-            <Show when={filePicker.showFilePicker()}>
-              <FilePicker
-                files={filePicker.files()}
-                filter={filePicker.fileFilter()}
-                selectedIndex={filePicker.fileSelectedIndex()}
-                onSelect={filePicker.handleFileSelect}
-                onCancel={filePicker.handleFilePickerCancel}
-                onIndexChange={filePicker.handleFileIndexChange}
-                bottom={5}
-              />
-            </Show>
-
-            <InputBox
-              id="chat-textarea"
-              model={model}
-              status={agent.status()}
-              mode={session.mode()}
-              getTextareaRef={getTextareaRef}
-              getStatus={getStatus}
-              onSubmit={agent.handleSubmit}
-              onRef={(el) => {
-                textareaRef = el;
-              }}
-              disabled={
-                !!agent.confirmingToolId() ||
-                session.showSessionPicker() ||
-                session.showThemePicker()
-              }
-              suppressSubmit={filePicker.showFilePicker()}
-            />
-          </box>
-        </box>
-
-        <SidePanel
-          contextStats={context.sidebarStats()}
-          todos={session.sidebarTodos()}
-          mcpStatus={mcp.mcpStatus()}
-          mcpConnecting={mcp.connecting()}
-          width={40}
+        <ChatScreen
+          displayMessages={session.displayMessages}
+          streamingContent={agent.streamingContent}
+          confirmingToolId={agent.confirmingToolId}
+          onToolConfirmation={agent.handleToolConfirmation}
+          toolsExpanded={toolsExpanded}
+          model={model}
+          status={agent.status}
+          mode={session.mode}
+          getTextareaRef={getTextareaRef}
+          getStatus={getStatus}
+          onSubmit={agent.handleSubmit}
+          onRef={(el) => {
+            textareaRef = el;
+          }}
+          inputDisabled={chatInputDisabled}
+          showCommandMenu={commands.showCommandMenu}
+          slashCommands={commands.slashCommands}
+          commandFilter={commands.commandFilter}
+          commandSelectedIndex={commands.commandSelectedIndex}
+          onCommandSelect={commands.handleCommandSelect}
+          onCommandMenuCancel={commands.handleCommandMenuCancel}
+          onCommandIndexChange={commands.handleCommandIndexChange}
+          showFilePicker={filePicker.showFilePicker}
+          files={filePicker.files}
+          fileFilter={filePicker.fileFilter}
+          fileSelectedIndex={filePicker.fileSelectedIndex}
+          onFileSelect={filePicker.handleFileSelect}
+          onFilePickerCancel={filePicker.handleFilePickerCancel}
+          onFileIndexChange={filePicker.handleFileIndexChange}
+          contextInfo={context.contextInfo}
+          sidebarStats={context.sidebarStats}
+          sidebarTodos={session.sidebarTodos}
+          mcpStatus={mcp.mcpStatus}
+          mcpConnecting={mcp.connecting}
+          toast={toast}
+          toastDuration={tuiConfig().toastDuration}
+          onToastDismiss={() => setToast(null)}
         />
-
-        <Show when={toast()}>
-          {(msg: () => string) => (
-            <ToastNotification
-              message={msg()}
-              duration={tuiConfig().toastDuration}
-              onDismiss={() => setToast(null)}
-            />
-          )}
-        </Show>
-      </box>
-    </Show>
+      </Show>
+    </>
   );
 }
