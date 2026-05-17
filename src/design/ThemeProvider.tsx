@@ -16,7 +16,6 @@ import {
   createSignal,
   createMemo,
   createEffect,
-  onMount,
   onCleanup,
   type JSX,
 } from 'solid-js';
@@ -46,31 +45,24 @@ export function ThemeProvider(props: ThemeProviderProps) {
     props.initialTheme ?? DEFAULT_THEME_ID,
   );
 
-  // Manual override signal — when the user explicitly picks a color scheme
-  const [manualScheme, setManualScheme] = createSignal<'dark' | 'light' | null>(
-    props.colorScheme ?? null,
-  );
-
   // Detected scheme from the terminal (via renderer.themeMode / Mode 2031)
   const [detectedScheme, setDetectedScheme] = createSignal<'dark' | 'light'>(
     renderer.themeMode ?? 'dark',
   );
 
-  // Listen for terminal theme changes (auto-switches without restart)
-  onMount(() => {
-    const handler = (mode: 'dark' | 'light') => {
-      setDetectedScheme(mode);
-    };
-    renderer.on('theme_mode', handler);
-    onCleanup(() => {
-      renderer.off('theme_mode', handler);
-    });
-  });
+  // Listen for terminal theme changes (auto-switches without restart).
+  // Registered at component scope (not onMount) so no events are missed
+  // between render and the next microtask.
+  const themeHandler = (mode: 'dark' | 'light') => setDetectedScheme(mode);
+  renderer.on('theme_mode', themeHandler);
+  onCleanup(() => renderer.off('theme_mode', themeHandler));
 
-  // Effective color scheme: manual override > detected > dark fallback
+  // Effective color scheme: prop override > detected > dark fallback.
+  // props.colorScheme is read reactively — if a parent ever changes it,
+  // the theme updates automatically.
   const isDark = createMemo(() => {
-    const manual = manualScheme();
-    if (manual) return manual === 'dark';
+    const override = props.colorScheme;
+    if (override) return override === 'dark';
     return detectedScheme() === 'dark';
   });
 
