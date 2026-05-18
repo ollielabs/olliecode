@@ -33,12 +33,10 @@ export function CompactionSummary(props: CompactionSummaryProps) {
         </text>
       </box>
       <box marginLeft={2}>
-        <code
-          selectable={true}
+        <markdown
           content={props.content}
-          filetype="markdown"
           syntaxStyle={markdownStyle()}
-          drawUnstyledText={true}
+          conceal={true}
         />
       </box>
       <box

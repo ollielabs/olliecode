@@ -17,12 +17,10 @@ export function AssistantMessage(props: AssistantMessageProps) {
 
   return (
     <box flexDirection="column" marginLeft={2}>
-      <code
-        selectable={true}
+      <markdown
         content={props.content}
-        filetype="markdown"
         syntaxStyle={markdownStyle()}
-        drawUnstyledText={true}
+        conceal={true}
       />
     </box>
   );
