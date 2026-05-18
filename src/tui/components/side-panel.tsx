@@ -3,7 +3,14 @@
  * Always visible on the right side of the chat interface.
  */
 
-import { createMemo, createSignal, For, mergeProps, Show } from 'solid-js';
+import {
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  mergeProps,
+  Show,
+} from 'solid-js';
 import type { McpStatusMap } from '../../agent/mcp/types';
 import type { SemanticTokens } from '../../design';
 import { useTheme } from '../../design';
@@ -218,22 +225,28 @@ function McpSection(props: {
         <text style={{ fg: props.tokens.textMuted }}>connecting...</text>
       </Show>
 
-      <For each={entries()}>
-        {([name, info]) => {
+      {/* Index instead of For: entries() creates new tuple arrays on each
+          evaluation, so referential identity is unstable. Index tracks by
+          position which is correct for a Map-derived list. */}
+      <Index each={entries()}>
+        {(entry) => {
+          const name = () => entry()[0];
+          const info = () => entry()[1];
           const icon = () =>
-            MCP_STATUS_ICONS[info.status] ?? MCP_STATUS_ICONS.disconnected;
-          const color = () => mcpStatusColor(info.status, props.tokens);
-          const detail = () => getMcpStatusDetail(info.status, info.toolCount);
+            MCP_STATUS_ICONS[info().status] ?? MCP_STATUS_ICONS.disconnected;
+          const color = () => mcpStatusColor(info().status, props.tokens);
+          const detail = () =>
+            getMcpStatusDetail(info().status, info().toolCount);
 
           return (
             <box flexDirection="row">
               <text style={{ fg: color() }}>{icon()} </text>
-              <text style={{ fg: props.tokens.textMuted }}>{name} </text>
+              <text style={{ fg: props.tokens.textMuted }}>{name()} </text>
               <text style={{ fg: color() }}>{detail()}</text>
             </box>
           );
         }}
-      </For>
+      </Index>
     </box>
   );
 }

@@ -4,7 +4,7 @@
  */
 
 import type { Accessor } from 'solid-js';
-import { Show } from 'solid-js';
+import { createMemo, Show } from 'solid-js';
 import type { McpStatusMap } from '../../agent/mcp/types';
 import type { McpManager } from '../../agent/mcp/manager';
 import type { ConfigLayer } from '../../config/merge';
@@ -59,6 +59,13 @@ export interface ModalLayerProps {
 }
 
 export function ModalLayer(props: ModalLayerProps) {
+  // Memoize session list to avoid re-querying SQLite on unrelated signal changes
+  const sessions = createMemo(() =>
+    props.showSessionPicker()
+      ? listSessions({ limit: props.sessionListLimit })
+      : [],
+  );
+
   return (
     <>
       <Show when={props.showContextStats() && props.contextStats()}>
@@ -94,7 +101,7 @@ export function ModalLayer(props: ModalLayerProps) {
 
       <Show when={props.showSessionPicker()}>
         <SessionPicker
-          sessions={listSessions({ limit: props.sessionListLimit })}
+          sessions={sessions()}
           projectPath={props.projectPath}
           onSelect={props.onSessionSelect}
           onCancel={props.onSessionPickerCancel}
