@@ -4,6 +4,7 @@
  */
 
 import type { TextareaRenderable } from '@opentui/core';
+import { onBlur, onFocus, useRenderer } from '@opentui/solid';
 import { createMemo, createSignal, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider } from '../design';
@@ -20,6 +21,10 @@ import {
 } from './hooks';
 import { useMessageStore } from './hooks/use-message-store';
 import type { AppProps, Status } from './types';
+
+/** Frame rate targets for terminal focus power-saving */
+const ACTIVE_FPS = 60;
+const BACKGROUND_FPS = 15;
 
 /** Prompt template for /init command - creates/updates AGENTS.md */
 const INIT_PROMPT_TEMPLATE = `Please analyze this codebase and create an AGENTS.md file containing:
@@ -55,6 +60,16 @@ function AppContent(props: AppProps) {
 
   // Register the "app" focus layer — active when no modal/overlay is open
   useFocusLayer(FocusLayer.APP);
+
+  // Power-saving: reduce frame rate when terminal loses focus
+  const renderer = useRenderer();
+  onFocus(() => {
+    renderer.targetFps = ACTIVE_FPS;
+  });
+  onBlur(() => {
+    renderer.targetFps = BACKGROUND_FPS;
+  });
+
   let textareaRef: TextareaRenderable | undefined;
   const [toast, setToast] = createSignal<string | null>(null);
   const [showConfigModal, setShowConfigModal] = createSignal(false);
