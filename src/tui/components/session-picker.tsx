@@ -8,9 +8,9 @@ import type { InputRenderable, ScrollBoxRenderable } from '@opentui/core';
 import { useTerminalDimensions } from '@opentui/solid';
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer, useScopedKeyboard } from '../keyboard';
+import { FocusLayer } from '../keyboard';
+import { useListNavigation } from '../hooks/use-list-navigation';
 import { deleteSession, type Session, updateSession } from '../../session';
-import { scrollIntoView } from '../utils';
 import { Modal } from './modal';
 
 export type SessionPickerProps = {
@@ -75,7 +75,6 @@ function flattenSessions(groups: SessionGroup[]): Session[] {
 
 /**
  * Precompute a map from session.id to its flat index across all groups.
- * This replaces the mutable `globalIndex` counter in the render phase.
  */
 function buildSessionIndexMap(groups: SessionGroup[]): Map<string, number> {
   const map = new Map<string, number>();
@@ -92,21 +91,13 @@ function buildSessionIndexMap(groups: SessionGroup[]): Map<string, number> {
  * Get the actual layout position of a session item from the scroll content tree.
  *
  * Structure: scrollbox > content > innerBox > groupBox[] > [header, ...sessionItems]
- * Each groupBox child[0] is the header <text>, children[1..] are session <box> rows.
- *
- * Uses yoga layout nodes to read positions relative to the content container,
- * which are stable regardless of scroll position.
- *
- * Returns { top, bottom } in content-relative coordinates where:
- *   top = y to show when scrolling UP (includes group header for first-in-group)
- *   bottom = y + height of the item (for scrolling DOWN)
+ * Uses yoga layout nodes for stable positions regardless of scroll.
  */
 function getItemLayoutBounds(
   scrollRef: ScrollBoxRenderable,
   groups: SessionGroup[],
   flatIndex: number,
 ): { top: number; bottom: number } | null {
-  // content > innerBox > groupBoxes
   const innerBox = scrollRef.content.getChildren()[0];
   if (!innerBox) return null;
   const groupBoxes = innerBox.getChildren();
@@ -118,11 +109,9 @@ function getItemLayoutBounds(
     if (!groupBox) continue;
 
     if (remaining < group.sessions.length) {
-      // child[0] = header text, child[1..] = session items
       const itemChild = groupBox.getChildren()[remaining + 1];
       if (!itemChild) return null;
 
-      // Use yoga layout nodes for scroll-stable positions
       const groupLayout = groupBox.getLayoutNode();
       const itemLayout = itemChild.getLayoutNode();
       const groupY = groupLayout.getComputedTop();
@@ -168,27 +157,9 @@ export function SessionPicker(props: SessionPickerProps) {
   );
 
   createEffect(() => {
-    if (selectedIndex() >= flatSessions().length && flatSessions().length > 0) {
-      setSelectedIndex(flatSessions().length - 1);
-    }
-  });
-
-  createEffect(() => {
     if (mode() === 'rename' && inputRef) {
       inputRef.focus();
     }
-  });
-
-  // Scroll-into-view: only scroll when selected item is outside the viewport.
-  // Reads actual layout positions from the renderable tree.
-  createEffect(() => {
-    const idx = selectedIndex();
-    const sessions = flatSessions();
-    const g = groups();
-    if (!scrollRef || sessions.length === 0) return;
-
-    const bounds = getItemLayoutBounds(scrollRef, g, idx);
-    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
   });
 
   const handleDelete = () => {
@@ -221,44 +192,47 @@ export function SessionPicker(props: SessionPickerProps) {
     props.onSessionsChanged();
   };
 
-  useScopedKeyboard(FocusLayer.MODAL, (key) => {
-    if (mode() === 'rename') {
-      if (key.name === 'escape') setMode('browse');
-      else if (key.name === 'return') handleRenameSubmit();
-      return;
-    }
+  // Capture groups() in a local for the bounds getter closure
+  const currentGroups = groups;
 
-    if (key.ctrl && key.name === 'd') {
-      handleDelete();
-      return;
-    }
-    if (key.ctrl && key.name === 'r') {
-      handleRename();
-      return;
-    }
-
-    if (mode() === 'confirm-delete') {
-      setMode('browse');
-      return;
-    }
-
-    switch (key.name) {
-      case 'up':
-      case 'k':
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-        break;
-      case 'down':
-      case 'j':
-        setSelectedIndex((prev) =>
-          Math.min(flatSessions().length - 1, prev + 1),
-        );
-        break;
-      case 'return': {
-        const session = flatSessions()[selectedIndex()];
-        if (session) props.onSelect(session);
-        break;
+  useListNavigation({
+    layer: FocusLayer.MODAL,
+    registerLayer: false, // Modal component handles the layer
+    itemCount: () => flatSessions().length,
+    selectedIndex,
+    setSelectedIndex,
+    onSelect: (i) => {
+      const session = flatSessions()[i];
+      if (session) props.onSelect(session);
+    },
+    getScrollRef: () => scrollRef,
+    getBounds: (ref, idx) => getItemLayoutBounds(ref, currentGroups(), idx),
+    extraKeyHandler: (key) => {
+      // Rename mode: intercept all keys
+      if (mode() === 'rename') {
+        if (key.name === 'escape') setMode('browse');
+        else if (key.name === 'return') handleRenameSubmit();
+        return true;
       }
-    }
+
+      // Delete/rename shortcuts
+      if (key.ctrl && key.name === 'd') {
+        handleDelete();
+        return true;
+      }
+      if (key.ctrl && key.name === 'r') {
+        handleRename();
+        return true;
+      }
+
+      // Confirm-delete mode: any non-ctrl key cancels
+      if (mode() === 'confirm-delete') {
+        setMode('browse');
+        return true;
+      }
+
+      return false;
+    },
   });
 
   return (

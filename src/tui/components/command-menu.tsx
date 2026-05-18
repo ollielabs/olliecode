@@ -4,10 +4,10 @@
  */
 
 import type { ScrollBoxRenderable } from '@opentui/core';
-import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
+import { createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
-import { getScrollChildBounds, scrollIntoView } from '../utils';
+import { FocusLayer } from '../keyboard';
+import { useListNavigation } from '../hooks/use-list-navigation';
 
 export type SlashCommand = {
   name: string;
@@ -40,48 +40,21 @@ export function CommandMenu(rawProps: CommandMenuProps) {
   const { tokens } = useTheme();
   let scrollRef: ScrollBoxRenderable | undefined;
 
-  // Must be a memo so it recomputes when props.filter changes
   const filteredCommands = createMemo(() =>
     getFilteredCommands(props.commands, props.filter),
   );
 
-  createEffect(() => {
-    const cmds = filteredCommands();
-    if (props.selectedIndex >= cmds.length && cmds.length > 0) {
-      props.onIndexChange(cmds.length - 1);
-    }
-  });
-
-  // Scroll-into-view: only adjust when selected item is outside the viewport
-  createEffect(() => {
-    const idx = props.selectedIndex;
-    if (!scrollRef) return;
-    const bounds = getScrollChildBounds(scrollRef, idx);
-    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
-  });
-
-  useFocusLayer(FocusLayer.COMMAND_MENU);
-
-  useScopedKeyboard(FocusLayer.COMMAND_MENU, (key) => {
-    const cmds = filteredCommands();
-    switch (key.name) {
-      case 'up':
-      case 'k':
-        props.onIndexChange(Math.max(0, props.selectedIndex - 1));
-        break;
-      case 'down':
-      case 'j':
-        props.onIndexChange(Math.min(cmds.length - 1, props.selectedIndex + 1));
-        break;
-      case 'return': {
-        const selected = cmds[props.selectedIndex];
-        if (selected) props.onSelect(selected);
-        break;
-      }
-      case 'escape':
-        props.onCancel();
-        break;
-    }
+  useListNavigation({
+    layer: FocusLayer.COMMAND_MENU,
+    itemCount: () => filteredCommands().length,
+    selectedIndex: () => props.selectedIndex,
+    setSelectedIndex: (i) => props.onIndexChange(i),
+    onSelect: (i) => {
+      const cmd = filteredCommands()[i];
+      if (cmd) props.onSelect(cmd);
+    },
+    onCancel: () => props.onCancel(),
+    getScrollRef: () => scrollRef,
   });
 
   return (
