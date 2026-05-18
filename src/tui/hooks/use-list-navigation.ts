@@ -8,7 +8,7 @@
  */
 
 import type { ScrollBoxRenderable } from '@opentui/core';
-import { createEffect } from 'solid-js';
+import { createEffect, untrack } from 'solid-js';
 import type { FocusLayerId } from '../keyboard';
 import { useFocusLayer, useScopedKeyboard } from '../keyboard';
 import { getScrollChildBounds, scrollIntoView } from '../utils';
@@ -65,10 +65,11 @@ export function useListNavigation(opts: ListNavigationOptions): void {
     useFocusLayer(opts.layer);
   }
 
-  // Clamp index when list shrinks
+  // Clamp index when list shrinks — only track itemCount, not selectedIndex
   createEffect(() => {
     const count = opts.itemCount();
-    if (opts.selectedIndex() >= count && count > 0) {
+    const idx = untrack(() => opts.selectedIndex());
+    if (idx >= count && count > 0) {
       opts.setSelectedIndex(count - 1);
     }
   });
