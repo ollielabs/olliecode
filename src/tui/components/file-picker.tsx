@@ -6,11 +6,11 @@
 
 import type { ScrollBoxRenderable } from '@opentui/core';
 import type { JSX } from 'solid-js';
-import { createEffect, createMemo, Index, mergeProps, Show } from 'solid-js';
+import { createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
+import { FocusLayer } from '../keyboard';
+import { useListNavigation } from '../hooks/use-list-navigation';
 import { type FuzzyMatch, fuzzySearch } from '../../lib/fuzzy';
-import { getScrollChildBounds, scrollIntoView } from '../utils';
 
 export type FilePickerProps = {
   /** List of available files (from getFilesAndDirectories) */
@@ -51,47 +51,22 @@ export function FilePicker(rawProps: FilePickerProps) {
   const { tokens } = useTheme();
   let scrollRef: ScrollBoxRenderable | undefined;
 
-  // Must be a memo so it recomputes when props.filter/props.files change
   const results = createMemo(() =>
     fuzzySearch(props.filter, props.files, MAX_RESULTS),
   );
 
-  // Clamp selection when results change
-  createEffect(() => {
-    const r = results();
-    if (props.selectedIndex >= r.length && r.length > 0) {
-      props.onIndexChange(r.length - 1);
-    }
-  });
-
-  // Scroll-into-view: only adjust when selected item is outside the viewport
-  createEffect(() => {
-    const idx = props.selectedIndex;
-    if (!scrollRef) return;
-    const bounds = getScrollChildBounds(scrollRef, idx);
-    if (bounds) scrollIntoView(scrollRef, bounds.top, bounds.bottom);
-  });
-
-  useFocusLayer(FocusLayer.FILE_PICKER);
-
-  useScopedKeyboard(FocusLayer.FILE_PICKER, (key) => {
-    const r = results();
-    switch (key.name) {
-      case 'up':
-        props.onIndexChange(Math.max(0, props.selectedIndex - 1));
-        break;
-      case 'down':
-        props.onIndexChange(Math.min(r.length - 1, props.selectedIndex + 1));
-        break;
-      case 'return': {
-        const selected = r[props.selectedIndex];
-        if (selected) props.onSelect(selected.item);
-        break;
-      }
-      case 'escape':
-        props.onCancel();
-        break;
-    }
+  useListNavigation({
+    layer: FocusLayer.FILE_PICKER,
+    vimKeys: false,
+    itemCount: () => results().length,
+    selectedIndex: () => props.selectedIndex,
+    setSelectedIndex: (i) => props.onIndexChange(i),
+    onSelect: (i) => {
+      const match = results()[i];
+      if (match) props.onSelect(match.item);
+    },
+    onCancel: () => props.onCancel(),
+    getScrollRef: () => scrollRef,
   });
 
   return (

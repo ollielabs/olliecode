@@ -28,6 +28,10 @@ export {
   useKeyboardShortcuts,
 } from './use-keyboard-shortcuts';
 export {
+  type ListNavigationOptions,
+  useListNavigation,
+} from './use-list-navigation';
+export {
   type UseMessageStoreReturn,
   useMessageStore,
 } from './use-message-store';
