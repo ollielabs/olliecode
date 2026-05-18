@@ -10,7 +10,6 @@ import { useRenderer } from '@opentui/solid';
 import { createSignal } from 'solid-js';
 import { toggleMode } from '../../agent/modes';
 import type { TuiConfig } from '../../config/resolve';
-import { Clipboard } from '../../lib/clipboard';
 import { updateSession } from '../../session';
 import { DOUBLE_ESCAPE_THRESHOLD_MS } from '../constants';
 import { FocusLayer, useScopedKeyboard } from '../keyboard';
@@ -27,8 +26,8 @@ export type UseKeyboardShortcutsProps = {
   abort: () => void;
   /** Current session for persisting mode changes (signal accessor) */
   currentSession: () => Session | null;
-  /** Callback when copy succeeds (shows toast) */
-  onCopySuccess: (message: string) => void;
+  /** Callback for clipboard notifications (success or unsupported) */
+  onClipboardNotify: (message: string) => void;
   /** TUI config for double-escape threshold */
   tuiConfig?: TuiConfig;
 };
@@ -62,13 +61,16 @@ export function useKeyboardShortcuts(
         return;
       }
 
-      // Ctrl+Y: Copy selected text to clipboard
+      // Ctrl+Y: Copy selected text to clipboard via OSC 52
       if (key.ctrl && key.name === 'y') {
         const selectedText = renderer.getSelection()?.getSelectedText();
         if (selectedText) {
-          void Clipboard.copy(selectedText).then(() => {
-            props.onCopySuccess('Copied to clipboard');
-          });
+          const ok = renderer.copyToClipboardOSC52(selectedText);
+          if (ok) {
+            props.onClipboardNotify('Copied to clipboard');
+          } else {
+            props.onClipboardNotify('Clipboard not supported by terminal');
+          }
         }
         return;
       }
