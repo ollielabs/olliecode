@@ -145,7 +145,7 @@ function AppContent(props: AppProps) {
     setMode: session.setMode,
     abort: agent.abort,
     currentSession: session.currentSession,
-    onCopySuccess: (message: string) => setToast(message),
+    onClipboardNotify: (message: string) => setToast(message),
     tuiConfig: tuiConfig(),
   });
 
