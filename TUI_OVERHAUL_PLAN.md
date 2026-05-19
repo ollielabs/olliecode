@@ -494,3 +494,274 @@ The following are explicitly **not** included in this plan:
 - Custom inline highlighting callback — deferred to future search feature
 - `captureSpans`/`getSpanLines` — deferred to future testing enhancements
 - MCP tool output custom renderables — future work after Phase 10 slots are in place
+
+---
+
+## Phase 4 Implementation Plan: Replace Keyboard Focus Stack with Native stopPropagation
+
+> Added after Phase 8 confirmed `KeyEvent.stopPropagation()` exists in @opentui 0.2.x.
+> The `useKeyboard` callback receives a full `KeyEvent` object from `@opentui/core`
+> which has `stopPropagation()`, `preventDefault()`, `propagationStopped`, and
+> `defaultPrevented` properties.
+
+### Discovery
+
+The original Phase 4 plan assumed three native primitives: `stopPropagation`,
+focusable Box keyboard scoping, and a keymap system. Investigation of @opentui 0.2.14
+revealed:
+
+- **`KeyEvent.stopPropagation()`** — EXISTS. Method on the `KeyEvent` object passed
+  to `useKeyboard` callbacks. Prevents the event from reaching other handlers.
+- **`KeyEvent.preventDefault()`** — EXISTS. Prevents default behavior.
+- **Focusable Box keyboard scoping** — NOT AVAILABLE. `focusable` prop exists on
+  `<box>` but does not scope keyboard events.
+- **Keymap system (`useKeymap`)** — NOT AVAILABLE. Not exported.
+- **`onKeyDown`/`onKeyPress` props** — EXIST on JSX elements. Per-element keyboard
+  event handlers as an alternative to global `useKeyboard`.
+
+### Architecture Change
+
+**Current**: Custom `KeyboardFocusProvider` context with a stack of layer IDs.
+`useScopedKeyboard` wraps `useKeyboard` and gates execution with `isActive(layerId)`.
+All 7+ handlers fire on every keypress; only the active one executes its body.
+
+**Target**: Components that own keyboard focus call `key.stopPropagation()` in their
+`useKeyboard` handler to prevent events from reaching lower-priority handlers.
+No context provider, no stack, no layer IDs.
+
+### Key Design Decision: Handler Registration Order
+
+OpenTUI's `InternalKeyHandler` (see `KeyHandler.d.ts`) dispatches events to renderable
+handlers with priority. The `useKeyboard` hook registers on the renderer's key handler.
+When a handler calls `stopPropagation()`, subsequent handlers don't receive the event.
+
+**Registration order matters**: Components that mount later (modals, overlays) register
+their handlers after base components. OpenTUI processes renderable handlers in reverse
+registration order (last registered = highest priority), so modals naturally get first
+crack at events.
+
+This means:
+- Modal opens → its `useKeyboard` registers → it gets events first → calls
+  `stopPropagation()` → app-level handlers don't fire
+- Modal closes → its `useKeyboard` unregisters (via Solid cleanup) → app-level
+  handlers resume receiving events
+
+**Verify this assumption**: Before implementing, write a minimal test that confirms
+reverse-registration-order dispatch. If OpenTUI dispatches in forward order instead,
+the approach needs adjustment.
+
+### Migration Map
+
+Every file that imports from `src/tui/keyboard/` needs updating. Here's the complete
+list with the specific change for each:
+
+#### Files to Delete
+- `src/tui/keyboard/keyboard-focus.tsx` — the entire 163-line focus stack
+- `src/tui/keyboard/index.ts` — barrel exports (replace with direct imports)
+
+#### Provider Removal: `src/tui/index.tsx`
+- Remove `KeyboardFocusProvider` wrapper from the component tree
+- Remove `useFocusLayer(FocusLayer.APP)` call
+- Remove imports of `FocusLayer`, `KeyboardFocusProvider`, `useFocusLayer`
+
+#### Global Shortcuts: `src/tui/hooks/use-keyboard-shortcuts.ts`
+**Current**: Two `useScopedKeyboard` calls — one on `BASE` with `{ global: true }`,
+one on `APP`.
+
+**Target**: Two `useKeyboard` calls. The "global" handler does NOT call
+`stopPropagation()` (it should always fire). The "app" handler does NOT call
+`stopPropagation()` either (it's the lowest priority, nothing below it).
+
+```tsx
+// Global shortcuts — never stop propagation
+useKeyboard((key) => {
+  if (key.ctrl && key.name === 'p') { setShowHelp(prev => !prev); return; }
+  if (key.ctrl && key.name === 'y') { /* clipboard */ return; }
+  if (key.ctrl && key.name === 'k') { /* debug */ }
+});
+
+// App shortcuts — only fire when no overlay has stopped propagation
+useKeyboard((key) => {
+  if (key.propagationStopped) return; // Skip if an overlay handled it
+  if (key.name === 'tab' && props.status() !== 'thinking') { /* mode toggle */ }
+  // ...
+});
+```
+
+**Important**: The `{ global: true }` pattern becomes checking `key.propagationStopped`
+on the receiving end, or relying on handler ordering. The global handler must register
+first (or use the renderer's keyInput EventEmitter directly for true global handling).
+
+**Alternative for globals**: Use `renderer.keyInput.on('keypress', handler)` directly
+for shortcuts that must ALWAYS fire regardless of propagation. This bypasses the
+renderable handler chain entirely.
+
+#### Command Menu Trigger: `src/tui/hooks/use-command-menu.ts`
+**Current**: `useScopedKeyboard(FocusLayer.APP, ...)` — monitors textarea for `/`.
+
+**Target**: `useKeyboard((key) => { if (key.propagationStopped) return; ... })`.
+This handler monitors every keystroke to detect `/` in the textarea. It runs at
+APP priority and should not fire when a modal is open (overlay's stopPropagation
+will prevent it).
+
+#### File Picker Trigger: `src/tui/hooks/use-file-picker.ts`
+**Current**: `useScopedKeyboard(FocusLayer.APP, ...)` — monitors textarea for `@`.
+
+**Target**: Same pattern as command menu trigger above.
+
+#### Modal: `src/tui/components/modal.tsx`
+**Current**: `useFocusLayer(FocusLayer.MODAL)` + `useScopedKeyboard(FocusLayer.MODAL, ...)`
+to handle Escape.
+
+**Target**: `useKeyboard((key) => { key.stopPropagation(); if (key.name === 'escape') props.onClose(); })`.
+The modal stops ALL events from reaching lower layers. This is the key isolation point.
+
+#### Command Menu: `src/tui/components/command-menu.tsx` (via `useListNavigation`)
+**Current**: `useListNavigation({ layer: FocusLayer.COMMAND_MENU, ... })`.
+
+**Target**: `useListNavigation` hook updated to use `useKeyboard` + `stopPropagation()`
+instead of `useScopedKeyboard`. The overlay handler calls `key.stopPropagation()` on
+every key it handles (arrows, enter, escape) to prevent app-level handlers from
+also processing the event.
+
+#### File Picker: `src/tui/components/file-picker.tsx` (via `useListNavigation`)
+**Target**: Same as command menu — `useListNavigation` handles it.
+
+#### Session Picker: `src/tui/components/session-picker.tsx` (via `useListNavigation`)
+**Current**: `useListNavigation({ layer: FocusLayer.MODAL, registerLayer: false, ... })`.
+The Modal wrapper handles the layer.
+
+**Target**: The Modal wrapper's `useKeyboard` + `stopPropagation()` handles isolation.
+Session picker's `useListNavigation` just uses `useKeyboard` for navigation (no layer
+or propagation concern — the Modal already blocked everything).
+
+#### Theme Picker: `src/tui/components/theme-picker.tsx`
+**Current**: `useScopedKeyboard(FocusLayer.MODAL, ...)` for arrow/enter/escape nav.
+
+**Target**: `useKeyboard((key) => { key.stopPropagation(); ... })`. Rendered inside
+a Modal, but has its own keyboard handler for navigation. Should stop propagation
+so the Modal's escape handler doesn't also fire on arrow keys.
+
+**Wait** — actually, since Modal wraps ThemePicker as children, and Modal's handler
+registers first, we need the ThemePicker's handler to fire BEFORE Modal's handler.
+This depends on registration order. If children register after parents (likely in
+Solid, since children mount inside the parent's render), ThemePicker's handler fires
+first. It should `stopPropagation()` on navigation keys but NOT on escape (let
+escape fall through to Modal's handler for closing).
+
+```tsx
+useKeyboard((key) => {
+  switch (key.name) {
+    case 'up': case 'k': case 'down': case 'j': case 'return':
+      key.stopPropagation(); // Don't let Modal see navigation keys
+      // ... handle navigation
+      break;
+    case 'escape': case 'q':
+      key.stopPropagation();
+      handleCancel();
+      break;
+  }
+});
+```
+
+#### Tool Message: `src/tui/components/tool-message.tsx`
+**Current**: `useScopedKeyboard(FocusLayer.APP, ...)` for Y/N/A/Escape confirmation.
+
+**Target**: `useKeyboard((key) => { if (key.propagationStopped) return; ... })`.
+Same as app-level — only fires when no overlay is blocking.
+
+#### Shared Hook: `src/tui/hooks/use-list-navigation.ts`
+**Current**: Uses `useFocusLayer` + `useScopedKeyboard` with layer/registerLayer opts.
+
+**Target**: Replace with `useKeyboard`. The hook should:
+1. Remove `layer`, `registerLayer` options
+2. Add `stopPropagation?: boolean` option (default true) — whether to call
+   `key.stopPropagation()` on handled keys
+3. Use plain `useKeyboard` instead of `useScopedKeyboard`
+4. Call `key.stopPropagation()` when handling a key (if `stopPropagation` opt is true)
+
+```tsx
+useKeyboard((key) => {
+  if (key.propagationStopped) return;
+  if (opts.extraKeyHandler?.(key)) {
+    if (shouldStop) key.stopPropagation();
+    return;
+  }
+  switch (key.name) {
+    case 'up': case 'down': case 'return': case 'escape':
+      key.stopPropagation();
+      // ... handle
+      break;
+  }
+});
+```
+
+### Implementation Order
+
+1. **Verify handler ordering**: Write a quick test confirming that `useKeyboard` in a
+   child component fires before `useKeyboard` in a parent component when both are
+   registered. If not, the entire approach needs revisiting.
+
+2. **Update `useListNavigation`**: Replace `useScopedKeyboard`/`useFocusLayer` with
+   `useKeyboard` + `stopPropagation()`. Update the `ListNavigationOptions` type.
+   This touches command-menu, file-picker, session-picker indirectly.
+
+3. **Update `modal.tsx`**: Replace `useFocusLayer` + `useScopedKeyboard` with
+   `useKeyboard` + `stopPropagation()`.
+
+4. **Update `theme-picker.tsx`**: Replace `useScopedKeyboard` with `useKeyboard` +
+   selective `stopPropagation()`.
+
+5. **Update `tool-message.tsx`**: Replace `useScopedKeyboard(APP)` with `useKeyboard` +
+   `propagationStopped` check.
+
+6. **Update `use-keyboard-shortcuts.ts`**: Replace both `useScopedKeyboard` calls with
+   `useKeyboard`. Global handler uses `renderer.keyInput.on()` or fires without
+   propagation check. App handler checks `propagationStopped`.
+
+7. **Update `use-command-menu.ts`**: Replace `useScopedKeyboard(APP)` with `useKeyboard`
+   + `propagationStopped` check.
+
+8. **Update `use-file-picker.ts`**: Same pattern as command menu.
+
+9. **Update `src/tui/index.tsx`**: Remove `KeyboardFocusProvider`, remove
+   `useFocusLayer(FocusLayer.APP)`.
+
+10. **Delete `src/tui/keyboard/keyboard-focus.tsx`** and `src/tui/keyboard/index.ts`.
+
+11. **Update `src/tui/hooks/index.ts`**: Remove `ListNavigationOptions`'s `layer` field
+    from exports if it was part of the public API.
+
+### Risk Mitigation
+
+- **Registration order assumption wrong**: If handlers fire in forward (parent-first)
+  order, modals can't stop propagation to prevent app handlers. Fallback: keep a
+  minimal "is-modal-open" signal (single boolean, no stack) that app-level handlers
+  check. Much simpler than the current full focus stack.
+
+- **Global shortcuts break**: If `renderer.keyInput.on()` doesn't work for true globals,
+  keep a single `useKeyboard` that fires first and never calls `stopPropagation()`.
+
+- **Textarea input conflicts**: The textarea's built-in keyboard handling might be
+  affected by `stopPropagation()`. Test that typing in the textarea still works when
+  a command-menu overlay is open (the overlay stops propagation, but the textarea's
+  input handling is at the renderable level, not the hook level).
+
+### Acceptance Criteria (Updated)
+
+- [ ] `src/tui/keyboard/keyboard-focus.tsx` deleted entirely
+- [ ] `src/tui/keyboard/index.ts` deleted
+- [ ] `KeyboardFocusProvider` removed from the component tree
+- [ ] All imports of `useFocusLayer`, `useScopedKeyboard`, `FocusLayer` removed
+- [ ] All keyboard handlers use native `useKeyboard` from `@opentui/solid`
+- [ ] Modal components call `key.stopPropagation()` — typing in a modal never triggers
+  app-level shortcuts
+- [ ] Command menu calls `stopPropagation()` — arrow keys don't scroll the chat
+- [ ] File picker calls `stopPropagation()` — same isolation guarantee
+- [ ] Global shortcuts (Ctrl+K, Ctrl+Y, Ctrl+P) work from any context
+- [ ] Escape in a modal closes the modal without triggering app-level escape handling
+- [ ] Nested keyboard handlers work (e.g., ThemePicker inside Modal)
+- [ ] No regressions in textarea input
+- [ ] Tool confirmation Y/N/A still works
+- [ ] Types pass, lint clean
+- [ ] Handler ordering verified with a test
