@@ -3,10 +3,11 @@
  * Displays available themes with live preview as user navigates.
  */
 
+import type { KeyEvent } from '@opentui/core';
+import { useKeyboard } from '@opentui/solid';
 import { Index, createEffect, createSignal } from 'solid-js';
 import { Modal } from './modal';
 import { useTheme, getThemeList } from '../../design';
-import { FocusLayer, useScopedKeyboard } from '../keyboard';
 
 export type ThemePickerProps = {
   onSelect: (themeId: string) => void;
@@ -36,7 +37,8 @@ export function ThemePicker(props: ThemePickerProps) {
     props.onCancel();
   };
 
-  useScopedKeyboard(FocusLayer.MODAL, (key) => {
+  // No useOverlay() here — Modal wrapper already registers the overlay.
+  useKeyboard((key: KeyEvent) => {
     switch (key.name) {
       case 'up':
       case 'k':

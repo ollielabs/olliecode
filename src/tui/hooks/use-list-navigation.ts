@@ -7,17 +7,20 @@
  * - Scroll-into-view tracking
  */
 
-import type { ScrollBoxRenderable } from '@opentui/core';
+import type { KeyEvent, ScrollBoxRenderable } from '@opentui/core';
+import { useKeyboard } from '@opentui/solid';
 import { createEffect, untrack } from 'solid-js';
-import type { FocusLayerId } from '../keyboard';
-import { useFocusLayer, useScopedKeyboard } from '../keyboard';
 import { getScrollChildBounds, scrollIntoView } from '../utils';
+import { useOverlay } from './use-overlay';
 
 export type ListNavigationOptions = {
-  /** Focus layer for scoped keyboard events */
-  layer: FocusLayerId;
-  /** Whether to push/pop the focus layer on mount/cleanup */
-  registerLayer?: boolean;
+  /**
+   * Whether to register an overlay on mount/cleanup.
+   * When true (default), app-level keyboard handlers are suppressed
+   * while this list is visible.  Set to false when the list is already
+   * inside a component that calls `useOverlay()` (e.g. Modal).
+   */
+  registerOverlay?: boolean;
   /** Number of items in the list (reactive getter) */
   itemCount: () => number;
   /** Current selected index (reactive getter) */
@@ -45,12 +48,7 @@ export type ListNavigationOptions = {
    * Extra key handler called before the default navigation.
    * Return true to prevent default handling.
    */
-  extraKeyHandler?: (key: {
-    name?: string;
-    ctrl?: boolean;
-    shift?: boolean;
-    meta?: boolean;
-  }) => boolean;
+  extraKeyHandler?: (key: KeyEvent) => boolean;
 };
 
 /**
@@ -60,9 +58,9 @@ export type ListNavigationOptions = {
 export function useListNavigation(opts: ListNavigationOptions): void {
   const vimKeys = opts.vimKeys ?? true;
 
-  // Push/pop focus layer if requested
-  if (opts.registerLayer !== false) {
-    useFocusLayer(opts.layer);
+  // Register overlay if requested (blocks app-level keyboard handlers)
+  if (opts.registerOverlay !== false) {
+    useOverlay();
   }
 
   // Clamp index when list shrinks — only track itemCount, not selectedIndex
@@ -86,7 +84,7 @@ export function useListNavigation(opts: ListNavigationOptions): void {
   });
 
   // Keyboard navigation
-  useScopedKeyboard(opts.layer, (key) => {
+  useKeyboard((key: KeyEvent) => {
     // Let extra handler intercept first
     if (opts.extraKeyHandler?.(key)) return;
 

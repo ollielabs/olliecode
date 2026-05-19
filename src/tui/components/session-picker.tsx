@@ -8,7 +8,6 @@ import type { InputRenderable, ScrollBoxRenderable } from '@opentui/core';
 import { useTerminalDimensions } from '@opentui/solid';
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer } from '../keyboard';
 import { useListNavigation } from '../hooks/use-list-navigation';
 import { deleteSession, type Session, updateSession } from '../../session';
 import { Modal } from './modal';
@@ -196,8 +195,7 @@ export function SessionPicker(props: SessionPickerProps) {
   const currentGroups = groups;
 
   useListNavigation({
-    layer: FocusLayer.MODAL,
-    registerLayer: false, // Modal component handles the layer
+    registerOverlay: false, // Modal component handles the overlay
     itemCount: () => flatSessions().length,
     selectedIndex,
     setSelectedIndex,
