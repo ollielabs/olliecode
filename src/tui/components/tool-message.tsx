@@ -8,10 +8,12 @@
 
 import type { JSX } from 'solid-js';
 import { Show } from 'solid-js';
+import type { KeyEvent } from '@opentui/core';
+import { useKeyboard } from '@opentui/solid';
 import type { ConfirmationResponse } from '../../agent/safety/types';
 import { useTheme } from '../../design';
 import type { SemanticTokens } from '../../design/tokens';
-import { FocusLayer, useScopedKeyboard } from '../keyboard';
+import { isOverlayActive } from '../hooks/use-overlay';
 import type { ToolDisplayMessage, ToolMetadata, ToolState } from '../types';
 import { getToolDisplayName } from '../utils/mcp-display';
 import { DiffView } from './diff-view';
@@ -297,7 +299,8 @@ function ConfirmingView(props: {
 }) {
   let responded = false;
 
-  useScopedKeyboard(FocusLayer.APP, (key) => {
+  useKeyboard((key: KeyEvent) => {
+    if (isOverlayActive()) return;
     if (props.message.state.status !== 'confirming') return;
     if (!props.isActive || responded || !props.onResponse) return;
 

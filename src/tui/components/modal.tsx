@@ -1,14 +1,18 @@
 /**
  * Reusable modal component.
  * Overlays content with horizontally centered dialog.
+ *
+ * Calls `useOverlay()` internally — children must NOT call `useOverlay()`
+ * again.  For child components using `useListNavigation`, pass
+ * `registerOverlay: false` to avoid double-counting.
  */
 
 import type { JSX } from 'solid-js';
 import { createMemo, mergeProps } from 'solid-js';
-import { useTerminalDimensions } from '@opentui/solid';
-import { RGBA } from '@opentui/core';
+import { useKeyboard, useTerminalDimensions } from '@opentui/solid';
+import { RGBA, type KeyEvent } from '@opentui/core';
 import { useTheme } from '../../design';
-import { FocusLayer, useFocusLayer, useScopedKeyboard } from '../keyboard';
+import { useOverlay } from '../hooks/use-overlay';
 
 export type ModalProps = {
   title: string;
@@ -22,10 +26,10 @@ export function Modal(rawProps: ModalProps) {
   const { tokens } = useTheme();
   const dimensions = useTerminalDimensions();
 
-  // Push "modal" layer — all children sharing this layer receive keys
-  useFocusLayer(FocusLayer.MODAL);
+  // Register overlay — blocks app-level keyboard handlers while modal is open
+  useOverlay();
 
-  useScopedKeyboard(FocusLayer.MODAL, (key) => {
+  useKeyboard((key: KeyEvent) => {
     if (key.name === 'escape' || key.name === 'q') {
       props.onClose();
     }

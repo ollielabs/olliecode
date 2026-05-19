@@ -3,9 +3,9 @@
  * Manages command filtering, selection, and actions.
  */
 
+import { useKeyboard } from '@opentui/solid';
 import { createSignal, type Setter } from 'solid-js';
 import type { SlashCommand } from '../components/command-menu';
-import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import type { TextareaRef } from '../types';
 
 export type UseCommandMenuProps = {
@@ -151,30 +151,26 @@ export function useCommandMenu(
   ];
 
   // Detect / in textarea and show command menu.
-  // Global because this monitor must keep running while the command-menu
-  // overlay is open (to detect when the user removes the "/" trigger).
-  useScopedKeyboard(
-    FocusLayer.APP,
-    () => {
-      setTimeout(() => {
-        const ref = props.getTextareaRef();
-        if (!ref || ref.isDestroyed) return;
-        const currentText = ref.plainText ?? '';
-        if (!currentText.startsWith('/')) {
-          // No slash — close menu if open
-          if (!showCommandMenu()) return;
-          setShowCommandMenu(false);
-          setCommandFilter('');
-          setCommandSelectedIndex(0);
-          return;
-        }
+  // Runs on every keypress (no overlay check) so the menu reacts even
+  // while the command-menu overlay is open.
+  useKeyboard(() => {
+    setTimeout(() => {
+      const ref = props.getTextareaRef();
+      if (!ref || ref.isDestroyed) return;
+      const currentText = ref.plainText ?? '';
+      if (!currentText.startsWith('/')) {
+        // No slash — close menu if open
+        if (!showCommandMenu()) return;
+        setShowCommandMenu(false);
+        setCommandFilter('');
+        setCommandSelectedIndex(0);
+        return;
+      }
 
-        if (!showCommandMenu()) setShowCommandMenu(true);
-        setCommandFilter(currentText.slice(1));
-      }, 0);
-    },
-    { global: true },
-  );
+      if (!showCommandMenu()) setShowCommandMenu(true);
+      setCommandFilter(currentText.slice(1));
+    }, 0);
+  });
 
   const handleCommandSelect = (command: SlashCommand) => {
     setShowCommandMenu(false);

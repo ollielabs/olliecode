@@ -8,7 +8,6 @@ import { onBlur, onFocus, useRenderer } from '@opentui/solid';
 import { createMemo, createSignal, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider } from '../design';
-import { FocusLayer, KeyboardFocusProvider, useFocusLayer } from './keyboard';
 import { ChatScreen, ModalLayer, WelcomeScreen } from './components';
 import {
   useAgentContext,
@@ -39,15 +38,13 @@ If there's already an AGENTS.md, improve it.`;
 export function App(props: AppProps) {
   return (
     <ThemeProvider initialTheme={props.config.tui.theme}>
-      <KeyboardFocusProvider>
-        <AppContent
-          config={props.config}
-          configLayers={props.configLayers}
-          configWarnings={props.configWarnings}
-          projectPath={props.projectPath}
-          initialSessionId={props.initialSessionId}
-        />
-      </KeyboardFocusProvider>
+      <AppContent
+        config={props.config}
+        configLayers={props.configLayers}
+        configWarnings={props.configWarnings}
+        projectPath={props.projectPath}
+        initialSessionId={props.initialSessionId}
+      />
     </ThemeProvider>
   );
 }
@@ -57,9 +54,6 @@ function AppContent(props: AppProps) {
   const configLayers = props.configLayers ?? [];
   const configWarnings = props.configWarnings ?? [];
   const model = props.config.model;
-
-  // Register the "app" focus layer — active when no modal/overlay is open
-  useFocusLayer(FocusLayer.APP);
 
   // Power-saving: reduce frame rate when terminal loses focus
   const renderer = useRenderer();

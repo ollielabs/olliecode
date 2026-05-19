@@ -8,7 +8,6 @@ import type { ScrollBoxRenderable } from '@opentui/core';
 import type { JSX } from 'solid-js';
 import { createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer } from '../keyboard';
 import { useListNavigation } from '../hooks/use-list-navigation';
 import { type FuzzyMatch, fuzzySearch } from '../../lib/fuzzy';
 
@@ -56,7 +55,6 @@ export function FilePicker(rawProps: FilePickerProps) {
   );
 
   useListNavigation({
-    layer: FocusLayer.FILE_PICKER,
     vimKeys: false,
     itemCount: () => results().length,
     selectedIndex: () => props.selectedIndex,

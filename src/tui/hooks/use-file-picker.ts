@@ -3,9 +3,9 @@
  * Manages file filtering, selection, and path insertion.
  */
 
+import { useKeyboard } from '@opentui/solid';
 import { createSignal, onMount } from 'solid-js';
 import { getFilesAndDirectories } from '../../utils/file-list';
-import { FocusLayer, useScopedKeyboard } from '../keyboard';
 import type { TextareaRef } from '../types';
 
 export type UseFilePickerProps = {
@@ -43,45 +43,41 @@ export function useFilePicker(props: UseFilePickerProps): UseFilePickerReturn {
   });
 
   // Detect @ in textarea and show file picker.
-  // Global because this monitor must keep running while the file-picker
-  // overlay is open (to detect when the user removes the "@" trigger).
-  useScopedKeyboard(
-    FocusLayer.APP,
-    () => {
-      setTimeout(() => {
-        const ref = props.getTextareaRef();
-        if (!ref || ref.isDestroyed) return;
+  // Runs on every keypress (no overlay check) so the picker reacts even
+  // while the file-picker overlay is open.
+  useKeyboard(() => {
+    setTimeout(() => {
+      const ref = props.getTextareaRef();
+      if (!ref || ref.isDestroyed) return;
 
-        const currentText = ref.plainText ?? '';
+      const currentText = ref.plainText ?? '';
 
-        // Find the last @ that could be triggering the picker
-        // Look for @ that's either at start or preceded by whitespace
-        const lastAtIndex = findLastTriggerAt(currentText);
+      // Find the last @ that could be triggering the picker
+      // Look for @ that's either at start or preceded by whitespace
+      const lastAtIndex = findLastTriggerAt(currentText);
 
-        if (lastAtIndex === null) {
-          // No valid @ trigger — close picker if open
-          if (!showFilePicker()) return;
-          setShowFilePicker(false);
-          setFileFilter('');
-          setFileSelectedIndex(0);
-          setAtPosition(null);
-          return;
-        }
+      if (lastAtIndex === null) {
+        // No valid @ trigger — close picker if open
+        if (!showFilePicker()) return;
+        setShowFilePicker(false);
+        setFileFilter('');
+        setFileSelectedIndex(0);
+        setAtPosition(null);
+        return;
+      }
 
-        // Extract filter: text after @ until cursor/end, stopping at whitespace
-        const afterAt = currentText.slice(lastAtIndex + 1);
-        const filterEnd = afterAt.search(/\s/);
-        const filter = filterEnd === -1 ? afterAt : afterAt.slice(0, filterEnd);
+      // Extract filter: text after @ until cursor/end, stopping at whitespace
+      const afterAt = currentText.slice(lastAtIndex + 1);
+      const filterEnd = afterAt.search(/\s/);
+      const filter = filterEnd === -1 ? afterAt : afterAt.slice(0, filterEnd);
 
-        if (!showFilePicker()) {
-          setShowFilePicker(true);
-          setAtPosition(lastAtIndex);
-        }
-        setFileFilter(filter);
-      }, 0);
-    },
-    { global: true },
-  );
+      if (!showFilePicker()) {
+        setShowFilePicker(true);
+        setAtPosition(lastAtIndex);
+      }
+      setFileFilter(filter);
+    }, 0);
+  });
 
   const handleFileSelect = (path: string) => {
     const ref = props.getTextareaRef();

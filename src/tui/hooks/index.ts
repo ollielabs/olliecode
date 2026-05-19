@@ -31,6 +31,7 @@ export {
   type ListNavigationOptions,
   useListNavigation,
 } from './use-list-navigation';
+export { isOverlayActive, useOverlay } from './use-overlay';
 export {
   type UseMessageStoreReturn,
   useMessageStore,

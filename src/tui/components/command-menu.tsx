@@ -6,7 +6,6 @@
 import type { ScrollBoxRenderable } from '@opentui/core';
 import { createMemo, Index, mergeProps, Show } from 'solid-js';
 import { useTheme } from '../../design';
-import { FocusLayer } from '../keyboard';
 import { useListNavigation } from '../hooks/use-list-navigation';
 
 export type SlashCommand = {
@@ -45,7 +44,6 @@ export function CommandMenu(rawProps: CommandMenuProps) {
   );
 
   useListNavigation({
-    layer: FocusLayer.COMMAND_MENU,
     itemCount: () => filteredCommands().length,
     selectedIndex: () => props.selectedIndex,
     setSelectedIndex: (i) => props.onIndexChange(i),
