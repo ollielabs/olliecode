@@ -5,7 +5,7 @@
 
 import type { TextareaRenderable } from '@opentui/core';
 import { onBlur, onFocus, useRenderer } from '@opentui/solid';
-import { createMemo, createSignal, Show } from 'solid-js';
+import { createMemo, createSignal, onMount, Show } from 'solid-js';
 import { extractTuiConfig } from '../config/resolve';
 import { ThemeProvider } from '../design';
 import { ChatScreen, ModalLayer, WelcomeScreen } from './components';
@@ -42,6 +42,8 @@ export function App(props: AppProps) {
         config={props.config}
         configLayers={props.configLayers}
         configWarnings={props.configWarnings}
+        agentRegistry={props.agentRegistry}
+        agentWarnings={props.agentWarnings}
         projectPath={props.projectPath}
         initialSessionId={props.initialSessionId}
       />
@@ -53,6 +55,7 @@ function AppContent(props: AppProps) {
   // Static: set once at mount, never changes (config is resolved before render)
   const configLayers = props.configLayers ?? [];
   const configWarnings = props.configWarnings ?? [];
+  const agentWarnings = props.agentWarnings ?? [];
   const model = props.config.model;
 
   // Power-saving: reduce frame rate when terminal loses focus
@@ -112,6 +115,7 @@ function AppContent(props: AppProps) {
     updateRealTokenCounts: context.updateRealTokenCounts,
     setContextInfo: context.setContextInfo,
     mcpTools: mcp.mcpTools,
+    agentRegistry: props.agentRegistry,
   });
 
   // Status getter for InputBox
@@ -156,6 +160,16 @@ function AppContent(props: AppProps) {
     currentSession: session.currentSession,
     onClipboardNotify: (message: string) => setToast(message),
     tuiConfig: tuiConfig(),
+  });
+
+  // Surface agent loader warnings as toasts on startup
+  onMount(() => {
+    if (agentWarnings.length > 0) {
+      const message = agentWarnings
+        .map((w) => `${w.path}: ${w.message}`)
+        .join('\n');
+      setToast(`Agent warnings:\n${message}`);
+    }
   });
 
   // Derived: is input disabled on welcome screen

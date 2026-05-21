@@ -2,7 +2,11 @@ import { createCliRenderer } from '@opentui/core';
 import { render } from '@opentui/solid';
 import { Command } from 'commander';
 import { setDebugEnabled } from './agent/logger';
-import { buildCliOverrides, loadMergedConfig } from './config';
+import {
+  buildCliOverrides,
+  extractAgentRegistry,
+  loadMergedConfig,
+} from './config';
 import { initializeTreeSitterParsers } from './lib/tree-sitter';
 import {
   closeDatabase,
@@ -95,6 +99,15 @@ program
       }
     }
 
+    // Build agent registry (async — loads agent files from disk)
+    const { registry: agentRegistry, warnings: agentWarnings } =
+      await extractAgentRegistry(config, projectPath);
+
+    // Log agent warnings to stderr (mirroring config warnings)
+    for (const warning of agentWarnings) {
+      console.error(`[agent] ${warning.path}: ${warning.message}`);
+    }
+
     // Initialize tree-sitter client for syntax highlighting
     const treeSitterClient = await initializeTreeSitterParsers(!!tsworkerDebug);
 
@@ -109,6 +122,8 @@ program
           config={config}
           configLayers={configLayers}
           configWarnings={warnings}
+          agentRegistry={agentRegistry}
+          agentWarnings={agentWarnings}
           projectPath={projectPath}
           initialSessionId={initialSessionId}
         />

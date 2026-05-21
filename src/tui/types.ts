@@ -10,6 +10,8 @@ import type {
   ConfirmationRequest,
   ConfirmationResponse,
 } from '../agent/safety/types';
+import type { AgentRegistry } from '../agent/agents/registry';
+import type { LoadWarning } from '../agent/agents/loader';
 import type { ConfigLayer } from '../config/merge';
 import type { ResolvedConfig } from '../config/schema';
 import type { ContextStats } from '../lib/tokenizer';
@@ -115,6 +117,10 @@ export type AppProps = {
   configLayers?: ConfigLayer[];
   /** Config warnings from merge (for /config command) */
   configWarnings?: string[];
+  /** Agent registry for subagent delegation */
+  agentRegistry: AgentRegistry;
+  /** Warnings from agent loader (invalid frontmatter, schema errors, etc.) */
+  agentWarnings?: LoadWarning[];
   projectPath: string;
   initialSessionId?: string;
 };
@@ -134,7 +140,9 @@ export type StatusRef = Status;
 
 // Re-export commonly used types for convenience
 export type {
+  AgentRegistry,
   ConfigLayer,
+  LoadWarning,
   Session,
   Todo,
   ContextStats,

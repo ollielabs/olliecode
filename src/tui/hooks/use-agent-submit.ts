@@ -25,6 +25,7 @@ import {
   extractSafetyConfig,
   extractToolsConfig,
 } from '../../config/resolve';
+import type { AgentRegistry } from '../../agent/agents/registry';
 import type { McpToolInfo } from '../../agent/mcp/types';
 import type { ResolvedConfig } from '../../config/schema';
 import { checkMidLoopBuffering, processOMStep } from '../../memory/om';
@@ -74,6 +75,8 @@ export type UseAgentSubmitProps = {
   setContextInfo?: (info: string | null) => void;
   /** MCP tool metadata for permissions and mode filtering (signal accessor for reactivity) */
   mcpTools?: () => McpToolInfo[];
+  /** Agent registry for subagent delegation via task tool */
+  agentRegistry: AgentRegistry;
 };
 
 export type UseAgentSubmitReturn = {
@@ -243,6 +246,7 @@ export function useAgentSubmit(
       configInstructions: props.config.instructions,
       temperature: props.config.temperature,
       mcpTools: props.mcpTools?.(),
+      agentRegistry: props.agentRegistry,
       observationBlock: omObservationBlock,
       continuationHint: omContinuationHint,
       onIterationComplete: (msgs, tokenInfo) => {
