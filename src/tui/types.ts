@@ -31,7 +31,7 @@ export type Status = 'idle' | 'thinking';
 export type ToolState =
   | { status: 'pending' }
   | { status: 'confirming'; preview?: ConfirmationPreview }
-  | { status: 'executing' }
+  | { status: 'executing'; metadata?: ToolMetadata }
   | { status: 'completed'; output: string; metadata?: ToolMetadata }
   | { status: 'error'; error: string }
   | { status: 'denied'; reason?: string }
@@ -54,6 +54,21 @@ export type ToolMetadata = {
   matchCount?: number;
   /** Line count for read_file */
   lineCount?: number;
+  /** Live progress for task tool (subagent execution) */
+  subagentProgress?: SubagentProgress;
+};
+
+/**
+ * Live progress data for a running subagent (task tool).
+ * Stored in ToolMetadata on the executing state (Path A — infrequent updates).
+ */
+export type SubagentProgress = {
+  iteration: number;
+  maxIterations: number;
+  currentTool?: string;
+  currentActivity?: string;
+  agentName: string;
+  description: string;
 };
 
 /**

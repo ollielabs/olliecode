@@ -29,6 +29,7 @@ import { MentionPicker } from './mention-picker';
 import { InputBox } from './input-box';
 import { SidePanel } from './side-panel';
 import { ToastNotification } from './toast-notification';
+import { SubagentOverlay } from './subagent-overlay';
 import { ToolMessage } from './tool-message';
 import { UserMessage } from './user-message';
 
@@ -83,6 +84,11 @@ export interface ChatScreenProps {
   sidebarTodos: Accessor<Todo[]>;
   mcpStatus: Accessor<McpStatusMap>;
   mcpConnecting: Accessor<boolean>;
+
+  // Subagent overlay
+  activeOverlayToolId: Accessor<string | null>;
+  onOpenSubagentOverlay: (toolId: string) => void;
+  onCloseSubagentOverlay: () => void;
 
   // Toast
   toast: Accessor<string | null>;
@@ -155,6 +161,7 @@ export function ChatScreen(props: ChatScreenProps) {
                         props.onToolConfirmation(response);
                       }}
                       expanded={props.toolsExpanded()}
+                      onOpenOverlay={props.onOpenSubagentOverlay}
                     />
                   </Show>
                   <Show when={msg.type === 'compaction_summary' && msg}>
@@ -251,6 +258,16 @@ export function ChatScreen(props: ChatScreenProps) {
             message={msg()}
             duration={props.toastDuration}
             onDismiss={props.onToastDismiss}
+          />
+        )}
+      </Show>
+
+      <Show when={props.activeOverlayToolId()}>
+        {(toolId: () => string) => (
+          <SubagentOverlay
+            toolId={toolId()}
+            onClose={props.onCloseSubagentOverlay}
+            onSwitchTask={(newId) => props.onOpenSubagentOverlay(newId)}
           />
         )}
       </Show>

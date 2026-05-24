@@ -13,6 +13,7 @@ import { fromConfig, evaluate } from '../permission/index';
 import type { PermissionConfig } from '../permission/types';
 import { buildExplorePrompt } from '../prompts/explore';
 import { getDefaultContext, getSystemPromptForAgent } from '../prompts';
+import type { ConfirmationRequest } from '../safety/types';
 import type { ToolDefinition } from '../types';
 
 // ============================================================================
@@ -295,6 +296,9 @@ export const taskTool: ToolDefinition<typeof taskInput, typeof taskOutput> = {
 
     // --- Run subagent ---
     const filesExplored: string[] = [];
+    const toolCallIndex = context?.toolCallIndex;
+    let currentStreamingContent = '';
+    let currentIteration = 0;
 
     try {
       const result = await runSubagent({
@@ -306,8 +310,16 @@ export const taskTool: ToolDefinition<typeof taskInput, typeof taskOutput> = {
         agentRegistry: registry,
         delegationDepth: currentDepth + 1,
 
-        // Silent callbacks — don't stream to parent
-        onReasoningToken: () => {},
+        // Progress-reporting callbacks (→ TUI via context)
+        onReasoningToken: (token: string) => {
+          currentStreamingContent += token;
+          if (toolCallIndex !== undefined) {
+            context?.onSubagentProgress?.(toolCallIndex, {
+              type: 'reasoning',
+              content: currentStreamingContent,
+            });
+          }
+        },
         onToolCall: (call: {
           function: { name: string; arguments: unknown };
         }) => {
@@ -318,9 +330,44 @@ export const taskTool: ToolDefinition<typeof taskInput, typeof taskOutput> = {
               filesExplored.push(args.path);
             }
           }
+          if (toolCallIndex !== undefined) {
+            context?.onSubagentProgress?.(toolCallIndex, {
+              type: 'tool_call',
+              tool: call.function.name,
+              args: call.function.arguments as Record<string, unknown>,
+            });
+          }
         },
-        onToolResult: () => {},
-        onStepComplete: () => {},
+        onToolResult: (
+          result: { tool: string; output: string; error?: string },
+          _index: number,
+        ) => {
+          if (toolCallIndex !== undefined) {
+            context?.onSubagentProgress?.(toolCallIndex, {
+              type: 'tool_result',
+              tool: result.tool,
+              output: result.output,
+              error: result.error,
+            });
+          }
+        },
+        onStepComplete: () => {
+          currentIteration++;
+          currentStreamingContent = '';
+          if (toolCallIndex !== undefined) {
+            context?.onSubagentProgress?.(toolCallIndex, {
+              type: 'step_complete',
+              iteration: currentIteration,
+            });
+          }
+        },
+
+        // Forward confirmation to parent TUI
+        onConfirmationNeeded:
+          toolCallIndex !== undefined && context?.onSubagentConfirmation
+            ? async (request: ConfirmationRequest) =>
+                context!.onSubagentConfirmation!(toolCallIndex, request)
+            : undefined,
 
         signal: signal ?? new AbortController().signal,
 

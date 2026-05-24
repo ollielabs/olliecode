@@ -91,6 +91,11 @@ export type UseMessageStoreReturn = {
   addPendingToolMessage: (msg: ToolDisplayMessage) => void;
   /** Update a pending tool message's state by ID */
   updatePendingToolState: (toolId: string, newState: ToolState) => void;
+  /** Update metadata on a pending tool in executing state (Path A — infrequent) */
+  updatePendingToolMetadata: (
+    toolId: string,
+    metadata: Partial<import('../types').ToolMetadata>,
+  ) => void;
   /** Add a pending assistant message (e.g., final answer before settlement) */
   addPendingAssistantMessage: (content: string) => void;
   /** Read current pending display messages (for building ToolParts in callbacks) */
@@ -274,6 +279,35 @@ export function useMessageStore(): UseMessageStoreReturn {
     );
   };
 
+  const updatePendingToolMetadata = (
+    toolId: string,
+    metadata: Partial<import('../types').ToolMetadata>,
+  ): void => {
+    setPendingDisplayMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.type !== 'tool' || msg.id !== toolId) return msg;
+        const { status } = msg.state;
+        // Allow metadata on pending (promote to executing) and executing states
+        if (status === 'pending') {
+          return {
+            ...msg,
+            state: { status: 'executing' as const, metadata: { ...metadata } },
+          };
+        }
+        if (status === 'executing') {
+          return {
+            ...msg,
+            state: {
+              ...msg.state,
+              metadata: { ...msg.state.metadata, ...metadata },
+            },
+          };
+        }
+        return msg;
+      }),
+    );
+  };
+
   const addPendingAssistantMessage = (content: string): void => {
     setPendingDisplayMessages((prev) => [
       ...prev,
@@ -347,6 +381,7 @@ export function useMessageStore(): UseMessageStoreReturn {
     settleAgentError,
     addPendingToolMessage,
     updatePendingToolState,
+    updatePendingToolMetadata,
     addPendingAssistantMessage,
     getPendingDisplayMessages,
     clear,

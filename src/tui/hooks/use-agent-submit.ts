@@ -54,6 +54,13 @@ import type {
   ToolState,
 } from '../types';
 import type { UseMessageStoreReturn } from './use-message-store';
+import {
+  appendSubagentEvent,
+  clearCompletedStreams,
+  completeSubagentStream,
+  createSubagentStream,
+  getSubagentStream,
+} from './use-subagent-streams';
 
 export type UseAgentSubmitProps = {
   /** Resolved config (config.host is authoritative, includes OLLAMA_HOST) */
@@ -107,6 +114,22 @@ function generateToolId(): string {
   return `tool_${Date.now()}_${Math.random().toString(TOOL_ID_RADIX).slice(TOOL_ID_SLICE_START, TOOL_ID_SLICE_END)}`;
 }
 
+/** Format tool name + args into a short activity string for the collapsed line. */
+function formatToolActivity(
+  tool: string,
+  args: Record<string, unknown>,
+): string {
+  // Show the most relevant arg (path, pattern, command, etc.)
+  const path =
+    args.path ?? args.filePath ?? args.file_path ?? args.pattern ?? args.url;
+  if (typeof path === 'string') {
+    // Truncate long paths
+    const short = path.length > 40 ? `...${path.slice(-37)}` : path;
+    return `${tool} ${short}`;
+  }
+  return tool;
+}
+
 /** Notification durations (ms) */
 const NOTIFICATION_SHORT = 3000;
 const NOTIFICATION_LONG = 8000;
@@ -125,8 +148,27 @@ export function useAgentSubmit(
 
   // Plain variables replace useRef — no .current wrapper needed
   let abortController: AbortController | null = null;
-  let confirmationResolver: ((response: ConfirmationResponse) => void) | null =
-    null;
+
+  // Confirmation queue: resolvers keyed by confirmToolId, plus a FIFO queue
+  // for pending requests so parallel subagent confirmations don't clobber.
+  const confirmationResolvers = new Map<
+    string,
+    (response: ConfirmationResponse) => void
+  >();
+  type QueuedConfirmation = {
+    confirmToolId: string;
+    resolver: (response: ConfirmationResponse) => void;
+  };
+  const confirmationQueue: QueuedConfirmation[] = [];
+
+  /** Show the next queued confirmation (if any). */
+  const showNextConfirmation = () => {
+    const next = confirmationQueue.shift();
+    if (next) {
+      confirmationResolvers.set(next.confirmToolId, next.resolver);
+      setConfirmingToolId(next.confirmToolId);
+    }
+  };
 
   const abort = () => {
     abortController?.abort();
@@ -136,13 +178,21 @@ export function useAgentSubmit(
    * Handle confirmation response from the ToolMessage component.
    */
   const handleToolConfirmation = (response: ConfirmationResponse) => {
-    if (confirmationResolver) {
-      confirmationResolver(response);
-      confirmationResolver = null;
+    const activeId = confirmingToolId();
+    if (activeId) {
+      const resolver = confirmationResolvers.get(activeId);
+      if (resolver) {
+        resolver(response);
+        confirmationResolvers.delete(activeId);
+      }
     }
     // Defer clearing confirmingToolId so the textarea doesn't re-focus
     // in the same tick as the 'y'/'n' keypress that triggered confirmation.
-    queueMicrotask(() => setConfirmingToolId(null));
+    queueMicrotask(() => {
+      setConfirmingToolId(null);
+      // Process next queued confirmation after UI settles
+      queueMicrotask(showNextConfirmation);
+    });
   };
 
   /**
@@ -178,6 +228,11 @@ export function useAgentSubmit(
   const handleSubmit = async (prompt: string) => {
     setStatus('thinking');
     setStreamingContent('');
+
+    // Clear stale subagent streams from previous runs (free memory).
+    // Done at start of new run so completed streams remain viewable
+    // between runs (user can click completed task lines to re-inspect).
+    clearCompletedStreams();
 
     const session = await props.ensureSession();
 
@@ -310,6 +365,30 @@ export function useAgentSubmit(
           args: toolArgs,
           state: { status: 'pending' },
         });
+
+        // Create subagent stream for task tools (Path B — overlay data)
+        if (toolName === 'task') {
+          // Resolve maxIterations from args (matches task tool's resolveMaxIterations logic)
+          const rawMax = toolArgs.maxIterations;
+          const iterationPresets: Record<string, number> = {
+            quick: 5,
+            medium: 15,
+            thorough: 30,
+          };
+          const maxIter =
+            typeof rawMax === 'number'
+              ? rawMax
+              : typeof rawMax === 'string' && rawMax in iterationPresets
+                ? (iterationPresets[rawMax] ?? 15)
+                : 15;
+
+          createSubagentStream(
+            toolId,
+            String(toolArgs.agent ?? 'unknown'),
+            String(toolArgs.description ?? ''),
+            maxIter,
+          );
+        }
       },
       onToolResult: (result: ToolResult, index: number) => {
         // Use index for lookup (handles parallel calls to same tool)
@@ -354,6 +433,11 @@ export function useAgentSubmit(
 
         store.updatePendingToolState(toolId, finalState);
 
+        // Complete subagent stream when task tool finishes
+        if (result.tool === 'task') {
+          completeSubagentStream(toolId, result.error ? 'failed' : 'completed');
+        }
+
         // Refresh sidebar todos in real-time when todo_write completes
         if (result.tool === 'todo_write' && !result.error) {
           props.setSidebarTodos(getTodos(session.id));
@@ -390,12 +474,14 @@ export function useAgentSubmit(
             status: 'confirming',
             preview: request.preview,
           });
-          setConfirmingToolId(toolId);
         }
 
-        // Wait for user response via handleToolConfirmation
+        // Wait for user response via handleToolConfirmation (queue-safe)
+        // NOTE: setConfirmingToolId is set inside the Promise by the queue logic,
+        // NOT here — setting it here would cause the queue check to misfire.
+        const confirmId = toolId ?? generateToolId();
         return new Promise<ConfirmationResponse>((resolve) => {
-          confirmationResolver = (response) => {
+          const resolver = (response: ConfirmationResponse) => {
             // Update tool state based on response
             if (toolId) {
               if (response.action === 'deny') {
@@ -406,6 +492,98 @@ export function useAgentSubmit(
             }
             resolve(response);
           };
+
+          // If another confirmation is active, queue this one
+          if (confirmingToolId()) {
+            confirmationQueue.push({ confirmToolId: confirmId, resolver });
+          } else {
+            confirmationResolvers.set(confirmId, resolver);
+            setConfirmingToolId(confirmId);
+          }
+        });
+      },
+      onSubagentProgress: (toolCallIndex: number, event) => {
+        const toolId = toolIdsByIndex.get(toolCallIndex);
+        if (!toolId) return;
+
+        // Path B: always update overlay stream store
+        appendSubagentEvent(toolId, event);
+
+        // Path A: update collapsed line metadata on infrequent events only
+        if (event.type === 'step_complete' || event.type === 'tool_call') {
+          const stream = getSubagentStream(toolId);
+          if (stream) {
+            store.updatePendingToolMetadata(toolId, {
+              subagentProgress: {
+                iteration: stream.iteration,
+                maxIterations: stream.maxIterations,
+                currentTool:
+                  event.type === 'tool_call'
+                    ? event.tool
+                    : stream.events.filter((e) => e.type === 'tool_call').pop()
+                        ?.tool,
+                currentActivity:
+                  event.type === 'tool_call'
+                    ? formatToolActivity(
+                        event.tool,
+                        event.args as Record<string, unknown>,
+                      )
+                    : undefined,
+                agentName: stream.agentName,
+                description: stream.description,
+              },
+            });
+          }
+        }
+      },
+      onSubagentConfirmation: async (toolCallIndex: number, request) => {
+        const taskToolId = toolIdsByIndex.get(toolCallIndex);
+        if (!taskToolId) return { action: 'deny' as const };
+
+        // Mark subagent as awaiting confirmation in stream store
+        appendSubagentEvent(taskToolId, {
+          type: 'awaiting_confirmation',
+          tool: request.tool,
+        });
+
+        // Create confirmation tool message in main chat (reuses existing UI)
+        const confirmToolId = generateToolId();
+        store.addPendingToolMessage({
+          type: 'tool',
+          id: confirmToolId,
+          name: request.tool,
+          args: (request as Record<string, unknown>).args
+            ? ((request as Record<string, unknown>).args as Record<
+                string,
+                unknown
+              >)
+            : {},
+          state: { status: 'confirming', preview: request.preview },
+        });
+        // Wait for user response (queue-safe — won't clobber parallel confirmations)
+        return new Promise<ConfirmationResponse>((resolve) => {
+          const resolver = (response: ConfirmationResponse) => {
+            store.updatePendingToolState(
+              confirmToolId,
+              response.action === 'deny'
+                ? { status: 'denied' }
+                : { status: 'executing' },
+            );
+            appendSubagentEvent(taskToolId, {
+              type: 'confirmation_resolved',
+              tool: request.tool,
+              action: response.action,
+            });
+            resolve(response);
+          };
+
+          // If another confirmation is active, queue this one
+          if (confirmingToolId()) {
+            confirmationQueue.push({ confirmToolId, resolver });
+          } else {
+            confirmationResolvers.set(confirmToolId, resolver);
+            setConfirmingToolId(confirmToolId);
+          }
         });
       },
       onToolBlocked: (tool: string, reason: string) => {

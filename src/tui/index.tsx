@@ -19,6 +19,7 @@ import {
   useSession,
 } from './hooks';
 import { useMessageStore } from './hooks/use-message-store';
+import { getAllSubagentIds } from './hooks/use-subagent-streams';
 import type { AppProps, Status } from './types';
 
 /** Frame rate targets for terminal focus power-saving */
@@ -71,6 +72,9 @@ function AppContent(props: AppProps) {
   const [toast, setToast] = createSignal<string | null>(null);
   const [showConfigModal, setShowConfigModal] = createSignal(false);
   const [showMcpModal, setShowMcpModal] = createSignal(false);
+  const [activeOverlayToolId, setActiveOverlayToolId] = createSignal<
+    string | null
+  >(null);
 
   // MCP hook — connects servers, registers tools, provides reactive status
   const mcp = useMcp({
@@ -161,6 +165,16 @@ function AppContent(props: AppProps) {
     currentSession: session.currentSession,
     onClipboardNotify: (message: string) => setToast(message),
     tuiConfig: tuiConfig(),
+    onToggleSubagentOverlay: () => {
+      if (activeOverlayToolId()) {
+        setActiveOverlayToolId(null);
+      } else {
+        const allIds = getAllSubagentIds();
+        if (allIds.length > 0) {
+          setActiveOverlayToolId(allIds[0] ?? null);
+        }
+      }
+    },
   });
 
   // Surface agent loader warnings as toasts on startup
@@ -284,6 +298,9 @@ function AppContent(props: AppProps) {
           sidebarTodos={session.sidebarTodos}
           mcpStatus={mcp.mcpStatus}
           mcpConnecting={mcp.connecting}
+          activeOverlayToolId={activeOverlayToolId}
+          onOpenSubagentOverlay={(toolId) => setActiveOverlayToolId(toolId)}
+          onCloseSubagentOverlay={() => setActiveOverlayToolId(null)}
           toast={toast}
           toastDuration={tuiConfig().toastDuration}
           onToastDismiss={() => setToast(null)}
