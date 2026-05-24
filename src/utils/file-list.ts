@@ -132,6 +132,7 @@ export function parseMentions(message: string): ParsedMentions {
 export async function augmentMessageWithFiles(
   message: string,
   cwd: string = '.',
+  skipNames?: ReadonlySet<string>,
 ): Promise<AugmentedMessage> {
   const { filePaths } = parseMentions(message);
 
@@ -145,6 +146,11 @@ export async function augmentMessageWithFiles(
   for (const filePath of filePaths) {
     // Skip directories - they're just path hints for the agent
     if (filePath.endsWith('/')) {
+      continue;
+    }
+
+    // Skip names that match agents (resolved separately)
+    if (skipNames?.has(filePath)) {
       continue;
     }
 
@@ -174,6 +180,50 @@ ${fileContents.join('\n')}
 </attached-files>`;
 
   return { content: augmentedContent, attachedFiles };
+}
+
+/**
+ * Resolve @mentions that match registered agent names.
+ * Agents resolve first — if `@explore` matches an agent, it won't be
+ * treated as a file path. Returns unique agent names found.
+ *
+ * @param message - User message with @mentions
+ * @param agentNames - Set of known agent names from the registry
+ */
+export function resolveAgentMentions(
+  message: string,
+  agentNames: ReadonlySet<string>,
+): string[] {
+  const mentionRegex = /@([\w./-]+)/g;
+  const found = new Set<string>();
+
+  for (const match of message.matchAll(mentionRegex)) {
+    const name = match[1] ?? '';
+    if (agentNames.has(name)) {
+      found.add(name);
+    }
+  }
+
+  return [...found];
+}
+
+/**
+ * Build synthetic hint text for agent @mentions.
+ * Follows opencode's proven pattern: instructs the primary agent
+ * to delegate via the task tool for each mentioned agent.
+ *
+ * @param agents - Agent names the user explicitly mentioned
+ * @returns Hint text to append to the augmented message (empty if no agents)
+ */
+export function buildAgentHints(agents: string[]): string {
+  if (agents.length === 0) return '';
+
+  return agents
+    .map(
+      (name) =>
+        `Use the above message and context to generate a prompt and call the task tool with subagent: ${name}. Invoked by user; guaranteed to exist.`,
+    )
+    .join('\n');
 }
 
 /**

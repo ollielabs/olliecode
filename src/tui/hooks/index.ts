@@ -18,10 +18,11 @@ export {
   useCommandMenu,
 } from './use-command-menu';
 export {
-  type UseFilePickerProps,
-  type UseFilePickerReturn,
-  useFilePicker,
-} from './use-file-picker';
+  type AgentMentionItem,
+  type UseMentionPickerProps,
+  type UseMentionPickerReturn,
+  useMentionPicker,
+} from './use-mention-picker';
 export {
   type UseKeyboardShortcutsProps,
   type UseKeyboardShortcutsReturn,

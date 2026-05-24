@@ -23,10 +23,9 @@ export { ContextStatsModal } from './context-stats-modal';
 export { DiffView, type DiffViewProps } from './diff-view';
 export { ErrorMessage, type ErrorMessageProps } from './error-message';
 export {
-  FilePicker,
-  type FilePickerProps,
-  getFilteredFiles,
-} from './file-picker';
+  MentionPicker,
+  type MentionPickerProps,
+} from './mention-picker';
 // Input components
 export { InputBox, type InputBoxProps } from './input-box';
 export { KeyboardShortcutsModal } from './keyboard-shortcuts-modal';

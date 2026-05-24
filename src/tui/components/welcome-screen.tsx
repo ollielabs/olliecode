@@ -11,7 +11,7 @@ import type { AgentMode, Status } from '../types';
 import type { TextareaRef } from '../types';
 import { CommandMenu, type SlashCommand } from './command-menu';
 import { ContextInfoNotification } from './context-info-notification';
-import { FilePicker } from './file-picker';
+import { MentionPicker } from './mention-picker';
 import { InputBox } from './input-box';
 import { ToastNotification } from './toast-notification';
 
@@ -35,14 +35,17 @@ export interface WelcomeScreenProps {
   onCommandMenuCancel: () => void;
   onCommandIndexChange: (index: number) => void;
 
-  // File picker
-  showFilePicker: Accessor<boolean>;
-  files: Accessor<string[]>;
-  fileFilter: Accessor<string>;
-  fileSelectedIndex: Accessor<number>;
-  onFileSelect: (file: string) => void;
-  onFilePickerCancel: () => void;
-  onFileIndexChange: (index: number) => void;
+  // Mention picker (agents + files)
+  showMentionPicker: Accessor<boolean>;
+  mentionAgents: Accessor<
+    import('../hooks/use-mention-picker').AgentMentionItem[]
+  >;
+  mentionFiles: Accessor<string[]>;
+  mentionFilter: Accessor<string>;
+  mentionSelectedIndex: Accessor<number>;
+  onMentionSelect: (value: string) => void;
+  onMentionPickerCancel: () => void;
+  onMentionIndexChange: (index: number) => void;
 
   // Context info
   contextInfo: Accessor<string | null>;
@@ -100,14 +103,15 @@ export function WelcomeScreen(props: WelcomeScreenProps) {
           />
         </Show>
 
-        <Show when={props.showFilePicker()}>
-          <FilePicker
-            files={props.files()}
-            filter={props.fileFilter()}
-            selectedIndex={props.fileSelectedIndex()}
-            onSelect={props.onFileSelect}
-            onCancel={props.onFilePickerCancel}
-            onIndexChange={props.onFileIndexChange}
+        <Show when={props.showMentionPicker()}>
+          <MentionPicker
+            agents={props.mentionAgents()}
+            files={props.mentionFiles()}
+            filter={props.mentionFilter()}
+            selectedIndex={props.mentionSelectedIndex()}
+            onSelect={props.onMentionSelect}
+            onCancel={props.onMentionPickerCancel}
+            onIndexChange={props.onMentionIndexChange}
             bottom={5}
             width={80}
           />
@@ -123,7 +127,7 @@ export function WelcomeScreen(props: WelcomeScreenProps) {
           onSubmit={props.onSubmit}
           onRef={props.onRef}
           disabled={props.inputDisabled()}
-          suppressSubmit={props.showFilePicker()}
+          suppressSubmit={props.showMentionPicker()}
         />
       </box>
 

@@ -13,7 +13,7 @@ import {
   useAgentContext,
   useAgentSubmit,
   useCommandMenu,
-  useFilePicker,
+  useMentionPicker,
   useKeyboardShortcuts,
   useMcp,
   useSession,
@@ -146,9 +146,10 @@ function AppContent(props: AppProps) {
     },
   });
 
-  // File picker hook for @ mentions
-  const filePicker = useFilePicker({
+  // Mention picker hook for @ mentions (agents + files)
+  const mentionPicker = useMentionPicker({
     getTextareaRef,
+    agentRegistry: props.agentRegistry,
   });
 
   // Global keyboard shortcuts
@@ -232,13 +233,14 @@ function AppContent(props: AppProps) {
             onCommandSelect={commands.handleCommandSelect}
             onCommandMenuCancel={commands.handleCommandMenuCancel}
             onCommandIndexChange={commands.handleCommandIndexChange}
-            showFilePicker={filePicker.showFilePicker}
-            files={filePicker.files}
-            fileFilter={filePicker.fileFilter}
-            fileSelectedIndex={filePicker.fileSelectedIndex}
-            onFileSelect={filePicker.handleFileSelect}
-            onFilePickerCancel={filePicker.handleFilePickerCancel}
-            onFileIndexChange={filePicker.handleFileIndexChange}
+            showMentionPicker={mentionPicker.showMentionPicker}
+            mentionAgents={mentionPicker.agents}
+            mentionFiles={mentionPicker.files}
+            mentionFilter={mentionPicker.mentionFilter}
+            mentionSelectedIndex={mentionPicker.mentionSelectedIndex}
+            onMentionSelect={mentionPicker.handleMentionSelect}
+            onMentionPickerCancel={mentionPicker.handleMentionPickerCancel}
+            onMentionIndexChange={mentionPicker.handleMentionIndexChange}
             contextInfo={context.contextInfo}
             toast={toast}
             toastDuration={tuiConfig().toastDuration}
@@ -269,13 +271,14 @@ function AppContent(props: AppProps) {
           onCommandSelect={commands.handleCommandSelect}
           onCommandMenuCancel={commands.handleCommandMenuCancel}
           onCommandIndexChange={commands.handleCommandIndexChange}
-          showFilePicker={filePicker.showFilePicker}
-          files={filePicker.files}
-          fileFilter={filePicker.fileFilter}
-          fileSelectedIndex={filePicker.fileSelectedIndex}
-          onFileSelect={filePicker.handleFileSelect}
-          onFilePickerCancel={filePicker.handleFilePickerCancel}
-          onFileIndexChange={filePicker.handleFileIndexChange}
+          showMentionPicker={mentionPicker.showMentionPicker}
+          mentionAgents={mentionPicker.agents}
+          mentionFiles={mentionPicker.files}
+          mentionFilter={mentionPicker.mentionFilter}
+          mentionSelectedIndex={mentionPicker.mentionSelectedIndex}
+          onMentionSelect={mentionPicker.handleMentionSelect}
+          onMentionPickerCancel={mentionPicker.handleMentionPickerCancel}
+          onMentionIndexChange={mentionPicker.handleMentionIndexChange}
           contextInfo={context.contextInfo}
           sidebarStats={context.sidebarStats}
           sidebarTodos={session.sidebarTodos}

@@ -32,7 +32,11 @@ import { checkMidLoopBuffering, processOMStep } from '../../memory/om';
 import { getTodos } from '../../session/todo';
 import type { ToolPart } from '../../session/types';
 import { generateDiff } from '../../utils/diff';
-import { augmentMessageWithFiles } from '../../utils/file-list';
+import {
+  augmentMessageWithFiles,
+  buildAgentHints,
+  resolveAgentMentions,
+} from '../../utils/file-list';
 import {
   TOOL_ID_RADIX,
   TOOL_ID_SLICE_END,
@@ -177,13 +181,29 @@ export function useAgentSubmit(
 
     const session = await props.ensureSession();
 
-    // Augment message with @ mentioned file contents
+    // Build agent name set for mention resolution (before file augmentation
+    // so agent names can be skipped during file reads)
+    const agentNameSet = new Set(
+      props.agentRegistry.list({ mode: 'subagent' }).map((a) => a.name),
+    );
+
+    // Augment message with @ mentioned file contents (skip agent names)
     const { content: augmentedPrompt, attachedFiles } =
-      await augmentMessageWithFiles(prompt);
+      await augmentMessageWithFiles(prompt, '.', agentNameSet);
+
+    // Resolve @agent mentions and build synthetic hint text.
+    // Hints are appended to the model prompt but NOT persisted —
+    // they're transient instructions for the primary agent.
+    const mentionedAgents = resolveAgentMentions(prompt, agentNameSet);
+    const agentHints = buildAgentHints(mentionedAgents);
+    const promptForModel = agentHints
+      ? `${augmentedPrompt}\n\n${agentHints}`
+      : augmentedPrompt;
 
     // Persist augmented prompt (with file contents) so the model gets
     // full context on session reload. Display shows the raw prompt with
     // file badges (stripFileAugmentation runs in toDisplayMessages).
+    // Agent hints are NOT persisted — they're one-shot delegation instructions.
     store.appendUserMessage(
       session.id,
       prompt,
@@ -231,7 +251,7 @@ export function useAgentSubmit(
     const result = await runAgent({
       model,
       host,
-      userMessage: augmentedPrompt,
+      userMessage: promptForModel,
       history: omFilteredMessages,
       mode: props.mode(),
       sessionId: session.id,
