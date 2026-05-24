@@ -74,6 +74,18 @@ export type ToolContext = {
    * Capped at MAX_DELEGATION_DEPTH to prevent unbounded recursion.
    */
   delegationDepth?: number;
+  /** Index of the current tool call (set by tool-processor per invocation) */
+  toolCallIndex?: number;
+  /** Subagent progress callback (task tool → TUI) */
+  onSubagentProgress?: (
+    toolCallIndex: number,
+    event: SubagentProgressEvent,
+  ) => void;
+  /** Forward subagent confirmation to parent TUI */
+  onSubagentConfirmation?: (
+    toolCallIndex: number,
+    request: import('./safety/types').ConfirmationRequest,
+  ) => Promise<import('./safety/types').ConfirmationResponse>;
 };
 
 /**
@@ -223,6 +235,18 @@ export type AgentConfig = {
  *
  * autoCompaction enabled by default at 80% context usage threshold.
  */
+/**
+ * Events emitted by a running subagent for progress visibility.
+ * Consumed by both Path A (collapsed line metadata) and Path B (overlay stream store).
+ */
+export type SubagentProgressEvent =
+  | { type: 'reasoning'; content: string }
+  | { type: 'tool_call'; tool: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; tool: string; output: string; error?: string }
+  | { type: 'step_complete'; iteration: number }
+  | { type: 'awaiting_confirmation'; tool: string }
+  | { type: 'confirmation_resolved'; tool: string; action: string };
+
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxIterations: 50,
   loopDetection: true,

@@ -31,6 +31,8 @@ export type UseKeyboardShortcutsProps = {
   onClipboardNotify: (message: string) => void;
   /** TUI config for double-escape threshold */
   tuiConfig?: TuiConfig;
+  /** Toggle subagent overlay (Ctrl+T) */
+  onToggleSubagentOverlay?: () => void;
 };
 
 export type UseKeyboardShortcutsReturn = {
@@ -71,6 +73,12 @@ export function useKeyboardShortcuts(
           props.onClipboardNotify('Clipboard not supported by terminal');
         }
       }
+      return;
+    }
+
+    // Ctrl+T: Toggle subagent overlay
+    if (key.ctrl && key.name === 't') {
+      props.onToggleSubagentOverlay?.();
       return;
     }
 

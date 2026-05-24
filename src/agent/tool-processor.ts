@@ -345,7 +345,10 @@ async function processSingleToolCall(
     }
   }
 
-  // Step 4: Execute the tool
+  // Step 4: Execute the tool (shallow-clone context with per-call index)
+  const callContext = context
+    ? { ...context, toolCallIndex: index }
+    : undefined;
   return executeToolCall(
     toolName,
     toolArgs,
@@ -354,7 +357,7 @@ async function processSingleToolCall(
     callbacks,
     index,
     signal,
-    context,
+    callContext,
   );
 }
 

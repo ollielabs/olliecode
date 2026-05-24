@@ -7,7 +7,7 @@
  */
 
 import type { JSX } from 'solid-js';
-import { Show } from 'solid-js';
+import { createSignal, onCleanup, Show } from 'solid-js';
 import type { KeyEvent } from '@opentui/core';
 import { useKeyboard } from '@opentui/solid';
 import type { ConfirmationResponse } from '../../agent/safety/types';
@@ -26,6 +26,8 @@ export type ToolMessageProps = {
   isActiveConfirmation?: boolean;
   /** Whether to show expanded output for read-only tools (toggle with Ctrl+E) */
   expanded?: boolean;
+  /** Called when user clicks a task tool line to open the subagent overlay */
+  onOpenOverlay?: (toolId: string) => void;
 };
 
 /** Read-only tools that support expand/collapse */
@@ -616,6 +618,85 @@ function ExpandableTool(props: {
 }
 
 /**
+ * Animated pending/executing view for task tools (subagent delegation).
+ * Shows a braille spinner, iteration progress, and current tool activity.
+ * Clicking opens the subagent overlay.
+ */
+function TaskPendingTool(props: {
+  message: ToolDisplayMessage;
+  tokens: SemanticTokens;
+  onOpenOverlay?: (toolId: string) => void;
+}) {
+  // Braille spinner animation
+  const BRAILLE = [
+    '\u280B',
+    '\u2819',
+    '\u2839',
+    '\u2838',
+    '\u283C',
+    '\u2834',
+    '\u2826',
+    '\u2827',
+    '\u2807',
+    '\u280F',
+  ];
+  const [frame, setFrame] = createSignal(0);
+  const interval = setInterval(
+    () => setFrame((f) => (f + 1) % BRAILLE.length),
+    80,
+  );
+  onCleanup(() => clearInterval(interval));
+
+  // Read progress from executing state metadata (Path A)
+  const progress = () => {
+    const state = props.message.state;
+    if (state.status === 'executing' && state.metadata?.subagentProgress) {
+      return state.metadata.subagentProgress;
+    }
+    return undefined;
+  };
+
+  const header = () => formatToolHeader(props.message.name, props.message.args);
+  const spinner = () => BRAILLE[frame()] ?? '\u280B';
+
+  return (
+    <box
+      style={{
+        backgroundColor: props.tokens.bgSurface,
+        padding: 1,
+        border: ['left'],
+        borderStyle: 'heavy',
+        borderColor: props.tokens.warning,
+      }}
+      onMouseDown={() => props.onOpenOverlay?.(props.message.id)}
+    >
+      <box style={{ flexDirection: 'row' }}>
+        <text style={{ fg: props.tokens.warning }}>{spinner()} </text>
+        <text style={{ fg: props.tokens.primaryBase }}>task</text>
+        <text style={{ fg: props.tokens.textMuted }}> {header()}</text>
+        <Show when={progress()}>
+          {(p: () => NonNullable<ReturnType<typeof progress>>) => (
+            <text style={{ fg: props.tokens.primaryBase }}>
+              {` @${p().agentName} ${p().iteration}/${p().maxIterations}`}
+            </text>
+          )}
+        </Show>
+        <text style={{ fg: props.tokens.textMuted }}> [click or Ctrl+T]</text>
+      </box>
+      <Show when={progress()?.currentActivity}>
+        {(activity: () => string) => (
+          <box style={{ marginLeft: 3 }}>
+            <text style={{ fg: props.tokens.textMuted }}>
+              {`\u2514 ${activity()}`}
+            </text>
+          </box>
+        )}
+      </Show>
+    </box>
+  );
+}
+
+/**
  * Main ToolMessage component.
  */
 export function ToolMessage(props: ToolMessageProps) {
@@ -635,6 +716,15 @@ export function ToolMessage(props: ToolMessageProps) {
   switch (props.message.state.status) {
     case 'pending':
     case 'executing':
+      if (props.message.name === 'task') {
+        return (
+          <TaskPendingTool
+            message={props.message}
+            tokens={tokens}
+            onOpenOverlay={props.onOpenOverlay}
+          />
+        );
+      }
       return (
         <InlineTool
           icon={icon}
@@ -668,6 +758,41 @@ export function ToolMessage(props: ToolMessageProps) {
       }
       if (props.message.name === 'run_command') {
         return <CommandCompleted message={props.message} tokens={tokens} />;
+      }
+
+      // Completed task tools: clickable to re-open overlay
+      if (props.message.name === 'task') {
+        const taskOutput = formatCompletedOutput(
+          props.message.name,
+          props.message.state.output,
+          props.message.state.metadata,
+        );
+        return (
+          <box
+            onMouseDown={() => props.onOpenOverlay?.(props.message.id)}
+            style={{
+              backgroundColor: tokens.bgSurface,
+              padding: 1,
+              border: ['left'],
+              borderStyle: 'heavy',
+              borderColor: tokens.success,
+            }}
+          >
+            <box style={{ flexDirection: 'row' }}>
+              <text style={{ fg: tokens.success }}>{'\u2713'} </text>
+              <text style={{ fg: tokens.primaryBase }}>task</text>
+              <text style={{ fg: tokens.textMuted }}> {header}</text>
+              <Show when={taskOutput}>
+                <text style={{ fg: tokens.textMuted }}>
+                  {` (${taskOutput})`}
+                </text>
+              </Show>
+              <text style={{ fg: tokens.textMuted }}>
+                {' [click or Ctrl+T]'}
+              </text>
+            </box>
+          </box>
+        );
       }
 
       // MCP tools and read-only native tools: use expand/collapse

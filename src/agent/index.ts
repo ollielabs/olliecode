@@ -117,6 +117,18 @@ export type RunAgentArgs = {
    */
   continuationHint?: string;
 
+  /** Subagent progress callback — forwarded to ToolContext for task tool visibility */
+  onSubagentProgress?: (
+    toolCallIndex: number,
+    event: import('./types').SubagentProgressEvent,
+  ) => void;
+
+  /** Subagent confirmation callback — forwarded to ToolContext for task tool confirmation */
+  onSubagentConfirmation?: (
+    toolCallIndex: number,
+    request: ConfirmationRequest,
+  ) => Promise<ConfirmationResponse>;
+
   /**
    * Called after each tool iteration with the current message array
    * (system prompt stripped) and token counts from the latest model
@@ -567,6 +579,8 @@ export async function runAgent(
             callerPermission: permissionConfig,
             runSubagent: runAgent,
             delegationDepth: args.delegationDepth ?? 0,
+            onSubagentProgress: args.onSubagentProgress,
+            onSubagentConfirmation: args.onSubagentConfirmation,
           },
         },
       );
