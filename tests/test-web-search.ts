@@ -93,12 +93,15 @@ describe('web_search permissions', () => {
   });
 
   it('explore agent has web_search: allow', () => {
-    expect(BUILTIN_EXPLORE_AGENT.permission.web_search).toBe('allow');
+    expect(BUILTIN_EXPLORE_AGENT.permission!.web_search).toBe('allow');
   });
 
   it('explore agent allows web_search tool', () => {
     expect(
-      isToolAllowedByPermission('web_search', BUILTIN_EXPLORE_AGENT.permission),
+      isToolAllowedByPermission(
+        'web_search',
+        BUILTIN_EXPLORE_AGENT.permission!,
+      ),
     ).toBe(true);
   });
 
