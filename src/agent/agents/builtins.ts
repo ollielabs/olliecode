@@ -47,6 +47,7 @@ const EXPLORE_PERMISSIONS: PermissionConfig = {
   list: 'allow',
   bash: 'allow',
   web_fetch: 'allow',
+  web_search: 'allow',
   todo: 'allow',
 };
 
