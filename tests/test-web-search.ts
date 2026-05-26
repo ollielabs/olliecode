@@ -5,7 +5,6 @@ import {
   PERMISSION_KEY_TO_TOOLS,
   TOOL_TO_PERMISSION_KEY,
 } from '../src/agent/agents/schema';
-import { fromConfig, evaluate } from '../src/agent/permission/index';
 import {
   getToolDefinition,
   isToolAllowedByPermission,
@@ -21,62 +20,62 @@ describe('web_search tool definition', () => {
 
   it('has correct name', () => {
     const tool = getToolDefinition('web_search');
-    expect(tool!.name).toBe('web_search');
+    expect(tool?.name).toBe('web_search');
   });
 
   it('has risk level "low"', () => {
     const tool = getToolDefinition('web_search');
-    expect(tool!.risk).toBe('low');
+    expect(tool?.risk).toBe('low');
   });
 
   it('has a description mentioning discovery', () => {
     const tool = getToolDefinition('web_search');
-    expect(tool!.description).toContain('discovery');
+    expect(tool?.description).toContain('discovery');
   });
 
   it('has a description mentioning the current year', () => {
     const tool = getToolDefinition('web_search');
     const currentYear = new Date().getFullYear().toString();
-    expect(tool!.description).toContain(currentYear);
+    expect(tool?.description).toContain(currentYear);
   });
 
   it('has required query parameter', () => {
     const tool = getToolDefinition('web_search');
-    const result = tool!.parameters.safeParse({});
-    expect(result.success).toBe(false);
+    const result = tool?.parameters.safeParse({});
+    expect(result?.success).toBe(false);
   });
 
   it('accepts valid parameters', () => {
     const tool = getToolDefinition('web_search');
-    const result = tool!.parameters.safeParse({ query: 'test query' });
-    expect(result.success).toBe(true);
+    const result = tool?.parameters.safeParse({ query: 'test query' });
+    expect(result?.success).toBe(true);
   });
 
   it('accepts optional max_results', () => {
     const tool = getToolDefinition('web_search');
-    const result = tool!.parameters.safeParse({
+    const result = tool?.parameters.safeParse({
       query: 'test query',
       max_results: 3,
     });
-    expect(result.success).toBe(true);
+    expect(result?.success).toBe(true);
   });
 
   it('rejects max_results above 10', () => {
     const tool = getToolDefinition('web_search');
-    const result = tool!.parameters.safeParse({
+    const result = tool?.parameters.safeParse({
       query: 'test query',
       max_results: 11,
     });
-    expect(result.success).toBe(false);
+    expect(result?.success).toBe(false);
   });
 
   it('rejects max_results below 1', () => {
     const tool = getToolDefinition('web_search');
-    const result = tool!.parameters.safeParse({
+    const result = tool?.parameters.safeParse({
       query: 'test query',
       max_results: 0,
     });
-    expect(result.success).toBe(false);
+    expect(result?.success).toBe(false);
   });
 });
 
@@ -93,16 +92,15 @@ describe('web_search permissions', () => {
   });
 
   it('explore agent has web_search: allow', () => {
-    expect(BUILTIN_EXPLORE_AGENT.permission!.web_search).toBe('allow');
+    expect(BUILTIN_EXPLORE_AGENT.permission?.web_search).toBe('allow');
   });
 
   it('explore agent allows web_search tool', () => {
-    expect(
-      isToolAllowedByPermission(
-        'web_search',
-        BUILTIN_EXPLORE_AGENT.permission!,
-      ),
-    ).toBe(true);
+    const permission = BUILTIN_EXPLORE_AGENT.permission;
+    expect(permission).toBeDefined();
+    expect(isToolAllowedByPermission('web_search', permission ?? {})).toBe(
+      true,
+    );
   });
 
   it('build agent allows web_search via wildcard', () => {
@@ -136,7 +134,7 @@ describe('web_search permissions', () => {
 describe('web_search execute', () => {
   it('returns error for empty query', async () => {
     const tool = getToolDefinition('web_search');
-    const result = await tool!.execute({ query: '   ', max_results: 5 });
+    const result = await tool?.execute({ query: '   ', max_results: 5 });
     expect(result).toContain('Error');
     expect(result).toContain('empty');
   });
@@ -147,7 +145,7 @@ describe('web_search execute', () => {
 
     try {
       const tool = getToolDefinition('web_search');
-      const result = await tool!.execute({
+      const result = await tool?.execute({
         query: 'test query',
         max_results: 5,
       });
