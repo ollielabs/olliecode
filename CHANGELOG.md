@@ -1,5 +1,19 @@
 # olliecode
 
+## 0.6.0
+
+### Minor Changes
+
+- [#87](https://github.com/ollielabs/olliecode/pull/87) [`05ddd62`](https://github.com/ollielabs/olliecode/commit/05ddd6267ae0e845b6d0f138ab8e14bf5d92fcc6) Thanks [@platypusrex](https://github.com/platypusrex)! - Replaced `isModalOpen` prop threading with a keyboard focus stack system. Modals and overlays now automatically claim keyboard focus via `useFocusLayer()`, preventing key leak bugs between layers. Added `useScopedKeyboard()` as a drop-in replacement for `useKeyboard` that respects focus priority.
+
+- [#102](https://github.com/ollielabs/olliecode/pull/102) [`64c40ec`](https://github.com/ollielabs/olliecode/commit/64c40ec423e635e098da4c8533e994ba22542462) Thanks [@platypusrex](https://github.com/platypusrex)! - Added MCP (Model Context Protocol) support for external tool integration. Connect local (stdio) and remote (Streamable HTTP + SSE) MCP servers via the `mcp` config field. Includes automatic tool discovery with pagination, real JSON Schema validation via `fromJSONSchema()`, three-tier safety permissions (global autoApprove, per-server autoApprove, tool annotations), auto-reconnect with exponential backoff, server stderr capture, AbortSignal forwarding, and TUI integration with status bar display, `/mcp` command modal, and toast notifications. MCP tools are registered directly into the tools array and available in both Plan (read-only tools) and Build (all tools) modes.
+
+- [#88](https://github.com/ollielabs/olliecode/pull/88) [`7f4a98a`](https://github.com/ollielabs/olliecode/commit/7f4a98a412ab83ee95204c90d069231289a88906) Thanks [@platypusrex](https://github.com/platypusrex)! - Added `web_fetch` tool for fetching and converting web content. Supports markdown (default), text, and HTML output formats. Uses TurndownService for HTML-to-Markdown conversion and Bun's HTMLRewriter for plain text extraction. Includes content negotiation, Cloudflare bypass, configurable timeout and response size limits. Available in both Plan and Build modes.
+
+### Patch Changes
+
+- [#85](https://github.com/ollielabs/olliecode/pull/85) [`807542a`](https://github.com/ollielabs/olliecode/commit/807542ad9c3b425d587df5bf041a321dac726ad9) Thanks [@platypusrex](https://github.com/platypusrex)! - Add optional `memory.host` config to use a separate Ollama host for Observer/Reflector calls. Enables using a local model for memory while the main model runs on Ollama Cloud.
+
 ## 0.5.1
 
 ### Patch Changes
