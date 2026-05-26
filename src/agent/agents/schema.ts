@@ -85,6 +85,7 @@ export const PERMISSION_KEY_TO_TOOLS: Record<string, readonly string[]> = {
   task: ['task'],
   todo: ['todo_write', 'todo_read'],
   web_fetch: ['web_fetch'],
+  web_search: ['web_search'],
   // 'mcp' and '*' are handled specially — not in this map
 };
 

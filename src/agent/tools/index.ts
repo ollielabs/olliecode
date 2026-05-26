@@ -15,6 +15,7 @@ import { runCommandTool } from './run-command';
 import { taskTool, buildTaskToolDescription } from './task';
 import { todoReadTool, todoWriteTool } from './todo';
 import { webFetchTool } from './web-fetch';
+import { webSearchTool } from './web-search';
 import { writeFileTool } from './write-file';
 
 // All registered tools — mutable to allow MCP tool registration/unregistration
@@ -31,6 +32,7 @@ const tools: ToolDefinition<any, any>[] = [
   todoReadTool,
   taskTool,
   webFetchTool,
+  webSearchTool,
 ];
 
 /**
@@ -55,6 +57,7 @@ export const TOOL_NAMES = {
   TODO_READ: 'todo_read',
   TASK: 'task',
   WEB_FETCH: 'web_fetch',
+  WEB_SEARCH: 'web_search',
 } as const;
 
 // Convert ToolDefinition to Ollama Tool format

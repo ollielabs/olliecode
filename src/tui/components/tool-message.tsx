@@ -31,7 +31,14 @@ export type ToolMessageProps = {
 };
 
 /** Read-only tools that support expand/collapse */
-const EXPANDABLE_TOOLS = ['read_file', 'glob', 'grep', 'list_dir'];
+const EXPANDABLE_TOOLS = [
+  'read_file',
+  'glob',
+  'grep',
+  'list_dir',
+  'web_search',
+  'web_fetch',
+];
 
 /**
  * Format the tool header based on tool type and arguments.
@@ -67,6 +74,10 @@ function formatToolHeader(name: string, args: Record<string, unknown>): string {
       return String(args.path ?? '.');
     case 'task':
       return String(args.description ?? '');
+    case 'web_search':
+      return String(args.query ?? '');
+    case 'web_fetch':
+      return String(args.url ?? '');
     case 'todo_write': {
       const raw = args.todos;
       const todos = Array.isArray(raw)
@@ -196,6 +207,16 @@ function formatCompletedOutput(
       } catch {
         return output;
       }
+    }
+    case 'web_search': {
+      const lines = output.split('\n');
+      const resultCount = (output.match(/^## Result \d+:/gm) ?? []).length;
+      if (resultCount > 0) return `${resultCount} results`;
+      return `${lines.length} lines`;
+    }
+    case 'web_fetch': {
+      const lines = output.split('\n');
+      return `${lines.length} lines`;
     }
     case 'write_file':
     case 'edit_file':
